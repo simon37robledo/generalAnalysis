@@ -154,212 +154,146 @@ fprintf('  SB stripe: %4d / %4d responsive (%.1f%%)\n', ...
     height(sbStripe), height(sbAll), 100*height(sbStripe)/max(1,height(sbAll)));
 
 % =========================================================================
-% 4.  STRIPENESS SWARM (MB vs SB, paired diff)
+% 4.  STRIPENESS SWARM — MB stripe vs SB stripe (two independent groups)
+%     Uses stripeBestScore of neurons that PASSED the stripe test only.
+%     With allResponsive=true the two pools are independent, so we use a
+%     two-sample hierBoot rather than a paired difference.
 % =========================================================================
-% Union of stripe-classified neurons across stim types.  For each unique
-% (experiment, phyID) in the union, look up the stripeBestScore in BOTH
-% stim types' rows — a neuron classified MB-stripe still has an SB row
-% (just with isStripe=false and a low score), so the paired comparison is
-% well defined.
-keysMB  = [double(string(mbStripe.experimentNum)), mbStripe.phyID];
-keysSB  = [double(string(sbStripe.experimentNum)), sbStripe.phyID];
-allKeys = unique([keysMB; keysSB], 'rows');
-nUnion  = size(allKeys, 1);
 
-mbScores   = nan(nUnion, 1);
-sbScores   = nan(nUnion, 1);
-animalsU   = strings(nUnion, 1);
-insertions = nan(nUnion, 1);
+% Add value column pointing at stripeBestScore
+mbStripe.value     = mbStripe.stripeBestScore;
+mbStripe.insertion = mbStripe.experimentNum;
+sbStripe.value     = sbStripe.stripeBestScore;
+sbStripe.insertion = sbStripe.experimentNum;
 
-mbExpVec = str2double(string(mbAll.experimentNum));
-sbExpVec = str2double(string(sbAll.experimentNum));
+% Rename stimulus labels to short forms
+mbStripe.stimulus(mbStripe.stimulus == "linearlyMovingBall") = "MB";
+sbStripe.stimulus(sbStripe.stimulus == "rectGrid")           = "SB";
 
-for ri = 1:nUnion
-    ex_ri = allKeys(ri, 1);
-    ph_ri = allKeys(ri, 2);
+% Long-format table — two independent groups, no NaN rows
+tblStripe = [mbStripe(:, {'value','stimulus','insertion','animal'}); ...
+             sbStripe(:, {'value','stimulus','insertion','animal'})];
+tblStripe.NeurID = (1:height(tblStripe))';
 
-    rMB = mbAll(mbExpVec == ex_ri & mbAll.phyID == ph_ri, :);
-    rSB = sbAll(sbExpVec == ex_ri & sbAll.phyID == ph_ri, :);
 
-    if ~isempty(rMB)
-        mbScores(ri)   = rMB.stripeBestScore(1);
-        animalsU(ri)   = string(rMB.animal(1));
-        insertions(ri) = ex_ri;
-    end
-    if ~isempty(rSB)
-        sbScores(ri) = rSB.stripeBestScore(1);
-        if animalsU(ri) == ""
-            animalsU(ri)   = string(rSB.animal(1));
-            insertions(ri) = ex_ri;
-        end
-    end
-end
-
-% Long-format table for plotSwarmBootstrapWithComparisons
-% (one row per (neuron, stim) combination)
-nLong = sum(~isnan(mbScores)) + sum(~isnan(sbScores));
-valueL   = nan(nLong, 1);
-stimL    = strings(nLong, 1);
-insL     = nan(nLong, 1);
-animL    = strings(nLong, 1);
-neurIDL  = nan(nLong, 1);
-k = 1;
-for ri = 1:nUnion
-    if ~isnan(mbScores(ri))
-        valueL(k)  = mbScores(ri);
-        stimL(k)   = "MB";
-        insL(k)    = insertions(ri);
-        animL(k)   = animalsU(ri);
-        neurIDL(k) = ri;
-        k = k + 1;
-    end
-    if ~isnan(sbScores(ri))
-        valueL(k)  = sbScores(ri);
-        stimL(k)   = "SB";
-        insL(k)    = insertions(ri);
-        animL(k)   = animalsU(ri);
-        neurIDL(k) = ri;
-        k = k + 1;
-    end
-end
-
-tblStripe = table(valueL, categorical(stimL), categorical(insL), ...
-    categorical(animL), neurIDL, ...
-    'VariableNames', {'value','stimulus','insertion','animal','NeurID'});
-
-% Paired hierBoot on the per-neuron differences (only neurons with both)
-bothMask = ~isnan(mbScores) & ~isnan(sbScores);
-diffs    = mbScores(bothMask) - sbScores(bothMask);
-insDiff  = insertions(bothMask);
-[~, ~, animIdxDiff] = unique(animalsU(bothMask));
-
-if numel(diffs) >= 3
-    bootDiff = hierBoot(diffs, params.nBoot, insDiff, animIdxDiff);
-    % two-tailed p
-    pStripe  = 2 * min(mean(bootDiff <= 0), mean(bootDiff >= 0));
+% Two-sample hierBoot p-value
+if height(mbStripe) >= 3 && height(sbStripe) >= 3
+    bMB = hierBootMatchFreq(mbStripe.value, params.nBoot, ...
+                   double(mbStripe.insertion), double(mbStripe.animal));
+    bSB = hierBootMatchFreq(sbStripe.value, params.nBoot, ...
+                   double(sbStripe.insertion), double(sbStripe.animal));
+    pStripe = 2 * min(mean(bMB >= bSB), mean(bMB < bSB));   % two-tailed
 else
     pStripe = NaN;
 end
 
-fprintf('\n  Stripeness MB vs SB: paired n=%d, two-tailed p = %.4f\n', ...
-    sum(bothMask), pStripe);
+fprintf('\n  Stripeness MB (n=%d) vs SB (n=%d): two-sample two-tailed p = %.4f\n', ...
+    height(mbStripe), height(sbStripe), pStripe);
 
 results.stripeData = tblStripe;
 results.pStripe    = pStripe;
-results.unionKeys  = allKeys;
-results.mbScores   = mbScores;
-results.sbScores   = sbScores;
 
 if params.plot
-    pairs = {'MB','SB'};
-    figSwarm = plotSwarmBootstrapWithComparisons(tblStripe, pairs, pStripe, {'value'}, ...
-        yLegend         = 'Stripeness (S = max/min var)', ...
-        diff            = false, ...
-        Alpha           = params.Alpha, ...
-        plotMeanSem     = true, ...
-        drawLines       = false, ...
-        showBothAndDiff = true);
-
-    ax = gca;
-    ax.YAxis.FontSize = 8;  ax.YAxis.FontName = 'helvetica';
-    ax.XAxis.FontSize = 8;  ax.XAxis.FontName = 'helvetica';
-    set(figSwarm, 'Units', 'centimeters', 'Position', [10 10 7 5]);
-
-    swarmPdf = fullfile(saveDir, sprintf('StripeNeurons_swarm_%s.pdf', params.indexType));
-    exportgraphics(figSwarm, swarmPdf, 'ContentType', 'vector');
-    fprintf('  Saved: %s\n', swarmPdf);
-    results.figSwarm = figSwarm;
-end
-
-% =========================================================================
-% 5.  DEPTH PLOT (4 groups, custom swarm + bootstrap mean ± 95% CI)
-% =========================================================================
-groupOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
-groupRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
-groupCols  = [0.85 0.20 0.20;   % MB stripe  — dark red
-              0.20 0.40 0.85;   % SB stripe  — dark blue
-              0.95 0.65 0.60;   % MB resp    — light red
-              0.60 0.75 0.95];  % SB resp    — light blue
-
-depthData = table([], categorical([]), categorical([]), categorical([]), [], ...
-    'VariableNames', {'depth','group','insertion','animal','NeurID'});
-for gi = 1:numel(groupOrder)
-    rows = groupRows{gi};
-    if isempty(rows), continue; end
-    keep = ~isnan(rows.depth_um);
-    if ~any(keep), continue; end
-    addTbl = table(rows.depth_um(keep), ...
-        categorical(repmat(groupOrder(gi), sum(keep), 1)), ...
-        rows.experimentNum(keep), ...
-        rows.animal(keep), ...
-        rows.phyID(keep), ...
-        'VariableNames', {'depth','group','insertion','animal','NeurID'});
-    depthData = [depthData; addTbl]; %#ok<AGROW>
-end
-
-fprintf('\nDepth groups (rows with depth):\n');
-for gi = 1:numel(groupOrder)
-    fprintf('  %-10s n=%d\n', groupOrder{gi}, sum(depthData.group == groupOrder{gi}));
-end
-
-results.depthData = depthData;
-
-% Pairwise hierBoot (two-tailed) for the three comparisons of interest
-results.pDepth.MBstripe_vs_MBresp   = compareGroupsHB(depthData, 'MB stripe', 'MB resp',   params.nBoot);
-results.pDepth.SBstripe_vs_SBresp   = compareGroupsHB(depthData, 'SB stripe', 'SB resp',   params.nBoot);
-results.pDepth.MBstripe_vs_SBstripe = compareGroupsHB(depthData, 'MB stripe', 'SB stripe', params.nBoot);
-
-fprintf('\nDepth comparisons (two-tailed hierBoot p):\n');
-fprintf('  MB stripe  vs  MB resp   : p = %.4f\n', results.pDepth.MBstripe_vs_MBresp);
-fprintf('  SB stripe  vs  SB resp   : p = %.4f\n', results.pDepth.SBstripe_vs_SBresp);
-fprintf('  MB stripe  vs  SB stripe : p = %.4f\n', results.pDepth.MBstripe_vs_SBstripe);
-
-if params.plot
-    figDepth = figure('Units','centimeters','Position',[5 5 11 8]);
+    figDepth = figure('Units','centimeters','Position',[5 5 14 8]);
     hold on;
-    rng(7, 'twister');   % reproducible jitter
-
     nG = numel(groupOrder);
+
+    % Global animal → color mapping (consistent across all four groups)
+    allAnimalNames = categories(removecats(depthData.animal));
+    nAnimals       = numel(allAnimalNames);
+    animalCmap     = lines(max(nAnimals, 1));
+
     for gi = 1:nG
         rows = depthData(depthData.group == groupOrder{gi}, :);
         if isempty(rows), continue; end
 
-        % Jittered scatter
-        x = gi + 0.25 * (rand(height(rows),1) - 0.5);
-        scatter(x, rows.depth, 14, groupCols(gi,:), 'filled', ...
-            'MarkerFaceAlpha', 0.55, 'MarkerEdgeColor', 'none');
+        [~, animalIdx] = ismember(string(rows.animal), allAnimalNames);
+        dotColors = animalCmap(animalIdx, :);   % [nDots × 3]
 
-        % Bootstrap mean and 95% CI
+        swarmchart(gi * ones(height(rows), 1), rows.depth, ...
+            16, dotColors, 'filled', ...
+            'XJitter',         'density', ...
+            'XJitterWidth',    0.35, ...
+            'MarkerFaceAlpha', 0.65, ...
+            'MarkerEdgeColor', 'none');
+
         try
-            insNum  = double(rows.insertion);
-            animNum = double(rows.animal);
-            bM = hierBoot(rows.depth, params.nBoot, insNum, animNum);
+            bM = hierBoot(rows.depth, params.nBoot, ...
+                          double(rows.insertion), double(rows.animal));
             m  = mean(bM);
             ci = prctile(bM, [2.5 97.5]);
-            errorbar(gi, m, m - ci(1), ci(2) - m, 'k', ...
-                'LineWidth', 1.2, 'CapSize', 7);
-            plot(gi, m, 'ko', 'MarkerFaceColor', 'w', ...
-                'MarkerSize', 6, 'LineWidth', 1.2);
+            errorbar(gi, m, m-ci(1), ci(2)-m, 'k', ...
+                'LineWidth', 1.5, 'CapSize', 8);
+            plot(gi, m, 'ko', 'MarkerFaceColor','w', ...
+                'MarkerSize', 7, 'LineWidth', 1.5);
         catch ME
             warning('hierBoot failed for %s: %s', groupOrder{gi}, ME.message);
         end
     end
 
+    % ---- Significance brackets ----------------------------------------
+    % YDir='reverse': small depth values are at the TOP of the plot.
+    % Brackets are placed above the shallowest neuron → y < yMin.
+    % Ticks point downward (toward data) → y increases from bracket toward data.
+    allDepths   = depthData.depth(~isnan(depthData.depth));
+    yMin        = min(allDepths);
+    yMax        = max(allDepths);
+    yRange      = yMax - yMin;
+    bracketStep = yRange * 0.06;    % vertical gap between bracket levels
+    tickH       = yRange * 0.015;  % tick length
+
+    % Each row: [g1, g2, pVal, bracketLevel]
+    % Level 1 is closest to the data, level 3 is furthest above
+    comps = {
+        1, 2, results.pDepth.MBstripe_vs_SBstripe, 1;  % MB stripe vs SB stripe
+        1, 3, results.pDepth.MBstripe_vs_MBresp,   2;  % MB stripe vs MB resp
+        2, 4, results.pDepth.SBstripe_vs_SBresp,   3;  % SB stripe vs SB resp
+    };
+
+    for ci = 1:size(comps, 1)
+        g1   = comps{ci,1};
+        g2   = comps{ci,2};
+        pVal = comps{ci,3};
+        lv   = comps{ci,4};
+
+        yB = yMin - lv * bracketStep;   % bracket line (above data in reversed axis)
+
+        plot([g1 g2], [yB yB], 'k-', 'LineWidth', 1);              % horizontal bar
+        plot([g1 g1], [yB, yB+tickH], 'k-', 'LineWidth', 1);       % left tick  ↓ toward data
+        plot([g2 g2], [yB, yB+tickH], 'k-', 'LineWidth', 1);       % right tick ↓ toward data
+        text((g1+g2)/2, yB-tickH, sigStars(pVal), ...              % label above bar
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment',   'bottom', ...
+            'FontSize', 9, 'FontWeight', 'bold');
+    end
+
+    % Expand ylim to reveal brackets above the shallowest data point
+    ylim([yMin - (size(comps,1)+1)*bracketStep,  yMax + bracketStep]);
+
+    % Animal legend
+    lgdH = gobjects(nAnimals, 1);
+    for ai = 1:nAnimals
+        lgdH(ai) = plot(nan, nan, 'o', ...
+            'Color', animalCmap(ai,:), 'MarkerFaceColor', animalCmap(ai,:), ...
+            'MarkerSize', 6, 'DisplayName', allAnimalNames{ai});
+    end
+    legend(lgdH, 'Location','best', 'FontSize',7, 'Box','off');
+
     set(gca, ...
-        'XTick',       1:nG, ...
-        'XTickLabel',  groupOrder, ...
-        'YDir',        'reverse', ...     % deeper = lower on the page
-        'XLim',        [0.5, nG+0.5], ...
-        'FontSize',    8, ...
-        'FontName',    'helvetica');
+        'XTick',      1:nG, ...
+        'XTickLabel', groupOrder, ...
+        'YDir',       'reverse', ...
+        'XLim',       [0.5, nG+0.5], ...
+        'FontSize',   8, ...
+        'FontName',   'helvetica');
     ylabel('Cortical depth (\mum)', 'FontSize', 9);
     xtickangle(20);
     title('Depth: stripe vs responsive non-stripe', 'FontSize', 9);
-    box on;
-    hold off;
+    box on;  hold off;
 
-    depthPdf = fullfile(saveDir, sprintf('StripeNeurons_depth_%s.pdf', params.indexType));
-    exportgraphics(figDepth, depthPdf, 'ContentType', 'vector');
+    depthPdf = fullfile(saveDir, ...
+        sprintf('StripeNeurons_depth_%s.pdf', params.indexType));
+    exportgraphics(figDepth, depthPdf, 'ContentType','vector');
     fprintf('  Saved: %s\n', depthPdf);
     results.figDepth = figDepth;
 end
@@ -376,7 +310,7 @@ end
 
 
 % =========================================================================
-%  LOCAL FUNCTION
+%  LOCAL FUNCTIONS
 % =========================================================================
 function pVal = compareGroupsHB(depthData, grpA, grpB, nBoot)
 % Two-sample hierarchical bootstrap p-value (two-tailed) for the
@@ -391,12 +325,21 @@ if height(rowsA) < 3 || height(rowsB) < 3
 end
 
 try
-    bA = hierBoot(rowsA.depth, nBoot, double(rowsA.insertion), double(rowsA.animal));
-    bB = hierBoot(rowsB.depth, nBoot, double(rowsB.insertion), double(rowsB.animal));
+    bA = hierBootMatchFreq(rowsA.depth, nBoot, double(rowsA.insertion), double(rowsA.animal));
+    bB = hierBootMatchFreq(rowsB.depth, nBoot, double(rowsB.insertion), double(rowsB.animal));
     pOne = mean(bA >= bB);
     pVal = 2 * min(pOne, 1 - pOne);    % two-tailed
 catch
     pVal = NaN;
 end
 
+end
+
+function s = sigStars(p)
+% Convert a p-value to a significance star string for bracket annotation.
+if     isnan(p) || p >= 0.05,  s = 'ns';
+elseif p < 0.001,               s = '***';
+elseif p < 0.01,                s = '**';
+else,                           s = '*';
+end
 end
