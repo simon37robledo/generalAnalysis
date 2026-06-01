@@ -215,6 +215,11 @@ if params.plot
     swarmPdf = fullfile(saveDir, sprintf('StripeNeurons_swarm_%s.pdf', params.indexType));
     exportgraphics(figSwarm, swarmPdf, 'ContentType', 'vector');
     fprintf('  Saved: %s\n', swarmPdf);
+
+    if params.PaperFig
+        vs.printFig(figSwarm, sprintf('Zscore-Swarm-%s', figTag), ...
+            PaperFig = params.PaperFig);
+    end
     results.figSwarm = figSwarm;
 end
 
