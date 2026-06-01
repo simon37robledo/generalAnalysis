@@ -892,6 +892,8 @@ classdef (Abstract) VStimAnalysis < handle
 
                 end
             end
+
+           
             results.diodeUpCross = diodeUpCross;
             results.diodeDownCross = diodeDownCross;
 

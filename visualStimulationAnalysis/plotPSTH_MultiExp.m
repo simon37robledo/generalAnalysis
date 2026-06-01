@@ -42,7 +42,7 @@ arguments
     params.stimTypes  (1,:) string  = ["RG", "MB"]                         % stimulus types (abbreviations: MB, MBR, RG, SDGm, SDGs, NV, NI, FFF)
     params.splitBy    string        = ""                                   % category variable for within-stim split; "" = no split
     params.splitLevels double       = []                                   % specific levels to compare (e.g. [5 10 20]); empty = all available
-    params.binWidth   double        = 10                                   % PSTH time-bin width in ms
+    params.binWidth   double        = 50                                   % PSTH time-bin width in ms
     params.smooth     double        = 0                                    % Gaussian smoothing window in ms (0 = no smoothing)
     params.statType   string        = "maxPermuteTest"                     % which statistical test for p-values
     params.speed      string        = "max"                                % which speed condition for MB/MBR
@@ -59,7 +59,7 @@ arguments
     params.zScore     logical       = false                                % z-score each neuron's PSTH to its own baseline
     params.PaperFig   logical       = false                                % export publication-quality figure via printFig
     params.byDepth    logical       = false                                % split neurons into 3 depth bins
-    params.unionResponsive logical = false                                 % if true, include neurons responsive to ANY stimType (OR union across stim types)
+    params.unionResponsive logical = true                                 % if true, include neurons responsive to ANY stimType (OR union across stim types)
 end
 
 % -------------------------------------------------------------------------

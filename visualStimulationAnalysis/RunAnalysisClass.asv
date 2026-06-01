@@ -32,7 +32,17 @@ data = readtable(excelFile);
 
 %% Calculate spatial tuning
 results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
-    , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
+    , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
+%
+results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
+    indexType   = "L_amplitude_diff", ...
+    onOff       = 1, ...
+    sizeIdx     = 1, ...
+    lumIdx      = 1, ...
+    useRF       = true, ...
+    prefDir     = true, ...
+    unionResponsive = true,...
+    allResponsive=false);   % match what you used in SpatialTuningIndex
 %% FIGURE 2 MOVING VS STATIC COMPARISON
 %%%%%%%%
 %%%%%%%%
@@ -43,7 +53,7 @@ results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitud
 %%%%%%%%
 
 %% %% Compare SDGm vs SDGs
-[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
+[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
     overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
 
 %% %% Compare SDGm vs SDGs, across directions
@@ -51,10 +61,15 @@ results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitud
     overwriteResponse=false,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
 
 %% Plot PSTH of MG and SG
-plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
 
 %% Raster for MG and SG
 plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=500,stimTypes=["SDG"],unionUnits=true,preBase=500)
+
+%% SDGm spatial frequency
+[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm'},CompareCategory={"tempFrequency"},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 1000);
+
 
 %% %% Compare NI vs NV, 
 [tempTableMW] = AllExpAnalysis([40:43 49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'NV','NI'},PaperFig=true,...
@@ -76,8 +91,8 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
 %%%%%%%%
  
 %% Compares MB across different sizes
-[tempTableMW] = AllExpAnalysis([19:20], overwrite=false,ComparePairs={'MB'},CompareCategory="sizes",PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500);
+[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB'},CompareCategory="sizes",PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500,CategoryMaximized = "Luminosities");
 
 
 %% Compares MB and SDGm across different categories, z-scores are computed with a moving window and responsive units are selected on the per category p value.
@@ -103,7 +118,7 @@ plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTo
 plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, stimTypes={"RG","SDGs","FFF"}); %stimTypes=["linearlyMovingBall"]
 
 %% Plot changes in size for MB
-plotPSTH_MultiExp([19:20], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, postStim= 2000, stimTypes={"MB"},splitBy="sizes",useCategoryPvals = true); %stimTypes=["linearlyMovingBall"]
+plotPSTH_MultiExp([20,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, postStim= 2000, stimTypes={"MB"},splitBy="sizes",useCategoryPvals = true); %stimTypes=["linearlyMovingBall"]
 
 %% SDGm spatial frequency
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGs'},CompareCategory="spatFrequency",PaperFig=true,...
