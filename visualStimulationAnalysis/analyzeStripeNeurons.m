@@ -51,6 +51,7 @@ arguments
     params.nBoot            double  = 10000
     params.Alpha            double  = 0.4
     params.plot             logical = true
+    params.plotLegend       logical = false
 end
 
 % =========================================================================
@@ -193,6 +194,71 @@ fprintf('\n  Stripeness MB (n=%d) vs SB (n=%d): two-sample two-tailed p = %.4f\n
 results.stripeData = tblStripe;
 results.pStripe    = pStripe;
 
+% --- Section 4 plot: stripeness swarm ---
+if params.plot
+    yMaxVis = max(tblStripe.value, [], 'omitnan') * 1.15;  % ensure all dots visible
+    pairs   = {'MB','SB'};
+    figSwarm = plotSwarmBootstrapWithComparisons(tblStripe, pairs, pStripe, {'value'}, ...
+        yLegend         = 'Stripeness (S = max/min var)', ...
+        yMaxVis         = yMaxVis, ...
+        diff            = false, ...
+        showBothAndDiff = false, ...
+        Alpha           = params.Alpha, ...
+        plotMeanSem     = true, ...
+        drawLines       = false);
+
+    ax = gca;
+    ax.YAxis.FontSize = 8;  ax.YAxis.FontName = 'helvetica';
+    ax.XAxis.FontSize = 8;  ax.XAxis.FontName = 'helvetica';
+    set(figSwarm, 'Units', 'centimeters', 'Position', [10 10 5 5]);
+
+    swarmPdf = fullfile(saveDir, sprintf('StripeNeurons_swarm_%s.pdf', params.indexType));
+    exportgraphics(figSwarm, swarmPdf, 'ContentType', 'vector');
+    fprintf('  Saved: %s\n', swarmPdf);
+    results.figSwarm = figSwarm;
+end
+
+% =========================================================================
+% 5.  DEPTH PLOT (4 groups: stripe vs responsive non-stripe for MB and SB)
+% =========================================================================
+groupOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
+groupRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
+
+% Build long-format depth table — one row per neuron per group
+depthData = table([], categorical([]), categorical([]), categorical([]), [], ...
+    'VariableNames', {'depth','group','insertion','animal','NeurID'});
+for gi = 1:numel(groupOrder)
+    rows = groupRows{gi};
+    if isempty(rows), continue; end
+    keep = ~isnan(rows.depth_um);
+    if ~any(keep), continue; end
+    addTbl = table(rows.depth_um(keep), ...
+        categorical(repmat(groupOrder(gi), sum(keep), 1)), ...
+        rows.experimentNum(keep), ...
+        rows.animal(keep), ...
+        rows.phyID(keep), ...
+        'VariableNames', {'depth','group','insertion','animal','NeurID'});
+    depthData = [depthData; addTbl]; %#ok<AGROW>
+end
+
+fprintf('\nDepth groups (rows with depth):\n');
+for gi = 1:numel(groupOrder)
+    fprintf('  %-10s n=%d\n', groupOrder{gi}, sum(depthData.group == groupOrder{gi}));
+end
+
+results.depthData = depthData;
+
+% Pairwise hierBoot (two-tailed) — three comparisons of interest
+results.pDepth.MBstripe_vs_MBresp   = compareGroupsHB(depthData, 'MB stripe', 'MB resp',   params.nBoot);
+results.pDepth.SBstripe_vs_SBresp   = compareGroupsHB(depthData, 'SB stripe', 'SB resp',   params.nBoot);
+results.pDepth.MBstripe_vs_SBstripe = compareGroupsHB(depthData, 'MB stripe', 'SB stripe', params.nBoot);
+
+fprintf('\nDepth comparisons (two-tailed hierBoot p):\n');
+fprintf('  MB stripe  vs  MB resp   : p = %.4f\n', results.pDepth.MBstripe_vs_MBresp);
+fprintf('  SB stripe  vs  SB resp   : p = %.4f\n', results.pDepth.SBstripe_vs_SBresp);
+fprintf('  MB stripe  vs  SB stripe : p = %.4f\n', results.pDepth.MBstripe_vs_SBstripe);
+
+% --- Section 5 plot: depth swarm with significance brackets ---
 if params.plot
     figDepth = figure('Units','centimeters','Position',[5 5 14 8]);
     hold on;
@@ -208,7 +274,7 @@ if params.plot
         if isempty(rows), continue; end
 
         [~, animalIdx] = ismember(string(rows.animal), allAnimalNames);
-        dotColors = animalCmap(animalIdx, :);   % [nDots × 3]
+        dotColors = animalCmap(animalIdx, :);
 
         swarmchart(gi * ones(height(rows), 1), rows.depth, ...
             16, dotColors, 'filled', ...
@@ -218,7 +284,7 @@ if params.plot
             'MarkerEdgeColor', 'none');
 
         try
-            bM = hierBoot(rows.depth, params.nBoot, ...
+            bM = hierBootMatchFreq(rows.depth, params.nBoot, ...
                           double(rows.insertion), double(rows.animal));
             m  = mean(bM);
             ci = prctile(bM, [2.5 97.5]);
@@ -231,44 +297,51 @@ if params.plot
         end
     end
 
-    % ---- Significance brackets ----------------------------------------
-    % YDir='reverse': small depth values are at the TOP of the plot.
-    % Brackets are placed above the shallowest neuron → y < yMin.
-    % Ticks point downward (toward data) → y increases from bracket toward data.
+    % Significance brackets (reversed Y-axis: smaller depth = top of plot)
     allDepths   = depthData.depth(~isnan(depthData.depth));
     yMin        = min(allDepths);
     yMax        = max(allDepths);
     yRange      = yMax - yMin;
-    bracketStep = yRange * 0.06;    % vertical gap between bracket levels
-    tickH       = yRange * 0.015;  % tick length
+    bracketStep = yRange * 0.06;
+    tickH       = yRange * 0.015;
 
-    % Each row: [g1, g2, pVal, bracketLevel]
-    % Level 1 is closest to the data, level 3 is furthest above
     comps = {
-        1, 2, results.pDepth.MBstripe_vs_SBstripe, 1;  % MB stripe vs SB stripe
-        1, 3, results.pDepth.MBstripe_vs_MBresp,   2;  % MB stripe vs MB resp
-        2, 4, results.pDepth.SBstripe_vs_SBresp,   3;  % SB stripe vs SB resp
-    };
-
+        1, 2, results.pDepth.MBstripe_vs_SBstripe, 1;
+        1, 3, results.pDepth.MBstripe_vs_MBresp,   2;
+        2, 4, results.pDepth.SBstripe_vs_SBresp,   3;
+        };
+   
+    % Significance brackets — only drawn when p < 0.05
     for ci = 1:size(comps, 1)
-        g1   = comps{ci,1};
-        g2   = comps{ci,2};
-        pVal = comps{ci,3};
-        lv   = comps{ci,4};
+        g1 = comps{ci,1};  g2 = comps{ci,2};
+        pV = comps{ci,3};  lv = comps{ci,4};
 
-        yB = yMin - lv * bracketStep;   % bracket line (above data in reversed axis)
+        if isnan(pV) || pV >= 0.05
+            continue;   % skip non-significant comparisons — no clutter
+        end
 
-        plot([g1 g2], [yB yB], 'k-', 'LineWidth', 1);              % horizontal bar
-        plot([g1 g1], [yB, yB+tickH], 'k-', 'LineWidth', 1);       % left tick  ↓ toward data
-        plot([g2 g2], [yB, yB+tickH], 'k-', 'LineWidth', 1);       % right tick ↓ toward data
-        text((g1+g2)/2, yB-tickH, sigStars(pVal), ...              % label above bar
+        yB = yMin - lv * bracketStep;
+        plot([g1 g2], [yB yB],        'k-', 'LineWidth', 1);
+        plot([g1 g1], [yB, yB+tickH], 'k-', 'LineWidth', 1);
+        plot([g2 g2], [yB, yB+tickH], 'k-', 'LineWidth', 1);
+        text((g1+g2)/2, yB+tickH*2.5, sigStars(pV), ...
             'HorizontalAlignment', 'center', ...
             'VerticalAlignment',   'bottom', ...
-            'FontSize', 9, 'FontWeight', 'bold');
+            'FontSize', 11, 'FontWeight', 'bold');
     end
 
-    % Expand ylim to reveal brackets above the shallowest data point
-    ylim([yMin - (size(comps,1)+1)*bracketStep,  yMax + bracketStep]);
+    % Reserve vertical space only for the highest significant bracket level,
+    % plus one extra step of padding so the label isn't clipped at the edge.
+    maxSigLevel = 0;
+    for ci = 1:size(comps, 1)
+        if ~isnan(comps{ci,3}) && comps{ci,3} < 0.05
+            maxSigLevel = max(maxSigLevel, comps{ci,4});
+        end
+    end
+    % Extra 2 bracket-steps above the highest significant bracket so the
+    % bracket line itself and any tick are never at the very edge.
+    ylim([yMin - (maxSigLevel + 2) * bracketStep,  yMax + bracketStep]);
+
 
     % Animal legend
     lgdH = gobjects(nAnimals, 1);
@@ -277,22 +350,20 @@ if params.plot
             'Color', animalCmap(ai,:), 'MarkerFaceColor', animalCmap(ai,:), ...
             'MarkerSize', 6, 'DisplayName', allAnimalNames{ai});
     end
-    legend(lgdH, 'Location','best', 'FontSize',7, 'Box','off');
+    
+    if params.plotLegend
+        legend(lgdH, 'Location','best', 'FontSize',7, 'Box','off');
+    end
 
-    set(gca, ...
-        'XTick',      1:nG, ...
-        'XTickLabel', groupOrder, ...
-        'YDir',       'reverse', ...
-        'XLim',       [0.5, nG+0.5], ...
-        'FontSize',   8, ...
-        'FontName',   'helvetica');
+    set(gca, 'XTick',1:nG, 'XTickLabel',groupOrder, ...
+        'YDir','reverse', 'XLim',[0.5 nG+0.5], ...
+        'FontSize',8, 'FontName','helvetica');
     ylabel('Cortical depth (\mum)', 'FontSize', 9);
     xtickangle(20);
     title('Depth: stripe vs responsive non-stripe', 'FontSize', 9);
     box on;  hold off;
 
-    depthPdf = fullfile(saveDir, ...
-        sprintf('StripeNeurons_depth_%s.pdf', params.indexType));
+    depthPdf = fullfile(saveDir, sprintf('StripeNeurons_depth_%s.pdf', params.indexType));
     exportgraphics(figDepth, depthPdf, 'ContentType','vector');
     fprintf('  Saved: %s\n', depthPdf);
     results.figDepth = figDepth;
@@ -320,7 +391,7 @@ rowsA = depthData(depthData.group == grpA, :);
 rowsB = depthData(depthData.group == grpB, :);
 
 if height(rowsA) < 3 || height(rowsB) < 3
-    pVal = NaN;
+    pVal = NaN;ci
     return
 end
 
