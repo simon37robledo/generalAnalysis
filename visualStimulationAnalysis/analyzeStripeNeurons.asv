@@ -139,89 +139,6 @@ fprintf('  Depth assigned to %d/%d rows (%d missing).\n', ...
     nDepthOK, height(tbl), height(tbl)-nDepthOK);
 
 % =========================================================================
-% 2b. Responsiveness z-score (pooled over all directions/conditions)
-%     Recomputed per experiment×stimulus, then joined by phyID. Must run
-%     before section 3 so the four group tables inherit the zResp column.
-% =========================================================================
-zp.nBoot          = params.nBoot;
-zp.rngSeed        = 42;
-zp.baseRespWindow = 1000;   % ms response window from onset (RG path)
-zp.baselineBuffer = 200;    % ms gap before onset for baseline
-zp.movingWindow   = 200;    % ms sliding window for MB peak
-
-tbl.zResp = nan(height(tbl), 1);
-zCache    = containers.Map('KeyType','char','ValueType','any');   % key 'exp_stim'
-
-for ri = 1:height(tbl)
-    ex_ri   = str2double(string(tbl.experimentNum(ri)));
-    stim_ri = string(tbl.stimulus(ri));
-    key     = sprintf('%d_%s', ex_ri, stim_ri);
-
-    if ~zCache.isKey(key)
-        try
-            NP_ri = loadNPclassFromTable(ex_ri);
-            switch stim_ri
-                case "linearlyMovingBall", obj_ri = linearlyMovingBallAnalysis(NP_ri);
-                case "rectGrid",           obj_ri = rectGridAnalysis(NP_ri);
-                otherwise,                 obj_ri = [];
-            end
-            if isempty(obj_ri)
-                zCache(key) = struct('z', [], 'phy', []);
-            else
-                [z_ri, phy_ri] = computeResponsivenessZ(obj_ri, zp);
-                zCache(key) = struct('z', z_ri, 'phy', phy_ri);
-            end
-        catch ME
-            warning('z-score failed for exp %d %s: %s', ex_ri, stim_ri, ME.message);
-            zCache(key) = struct('z', [], 'phy', []);
-        end
-    end
-
-    zc = zCache(key);
-    if ~isempty(zc.phy)
-        idx = find(zc.phy == tbl.phyID(ri), 1);
-        if ~isempty(idx), tbl.zResp(ri) = zc.z(idx); end
-    end
-end
-fprintf('  z-score assigned to %d/%d rows.\n', sum(~isnan(tbl.zResp)), height(tbl));
-
-% =========================================================================
-% 2c. Direction/orientation tuning (OSI, DSI) for MB neurons.
-%     From DirectionTuning, joined by phyID. rectGrid has no direction
-%     category, so SB rows stay NaN (OSI/DSI undefined there).
-% =========================================================================
-tbl.OSI = nan(height(tbl), 1);
-tbl.DSI = nan(height(tbl), 1);
-
-dtCache = containers.Map('KeyType','double','ValueType','any');   % key: experiment
-for ri = 1:height(tbl)
-    if tbl.stimulus(ri) ~= "linearlyMovingBall", continue; end    % MB only
-    ex_ri = str2double(string(tbl.experimentNum(ri)));
-
-    if ~dtCache.isKey(ex_ri)
-        try
-            NP_ri  = loadNPclassFromTable(ex_ri);
-            obj_ri = linearlyMovingBallAnalysis(NP_ri);
-            dt = DirectionTuning(obj_ri, 'save', true, 'overwrite', false);
-            dtCache(ex_ri) = struct('OSI', dt.OSI, 'DSI', dt.DSI, 'phyID', dt.phyID);
-        catch ME
-            warning('DirectionTuning failed for exp %d: %s', ex_ri, ME.message);
-            dtCache(ex_ri) = struct('OSI', [], 'DSI', [], 'phyID', []);
-        end
-    end
-
-    dc = dtCache(ex_ri);
-    if ~isempty(dc.phyID)
-        idx = find(dc.phyID == tbl.phyID(ri), 1);
-        if ~isempty(idx)
-            tbl.OSI(ri) = dc.OSI(idx);
-            tbl.DSI(ri) = dc.DSI(idx);
-        end
-    end
-end
-fprintf('  OSI/DSI assigned to %d MB rows.\n', sum(~isnan(tbl.OSI)));
-
-% =========================================================================
 % 3.  Split rows into the four groups of interest
 % =========================================================================
 mbAll    = tbl(tbl.stimulus == "linearlyMovingBall", :);
@@ -296,11 +213,14 @@ if params.plot
     ax.XAxis.FontSize = 8;  ax.XAxis.FontName = 'helvetica';
     set(figSwarm, 'Units', 'centimeters', 'Position', [10 10 5 5]);
 
-   if params.PaperFig
-        vs_first.printFig(figSwarm, sprintf('StripeNeurons-swarm-%s', params.indexType), ...
+    swarmPdf = fullfile(saveDir, sprintf('StripeNeurons_swarm_%s.pdf', params.indexType));
+    exportgraphics(figSwarm, swarmPdf, 'ContentType', 'vector');
+    fprintf('  Saved: %s\n', swarmPdf);
+
+    if params.PaperFig
+        vs.printFig(figSwarm, sprintf('Zscore-Swarm-%s', figTag), ...
             PaperFig = params.PaperFig);
     end
-
     results.figSwarm = figSwarm;
 end
 
@@ -335,9 +255,9 @@ end
 results.depthData = depthData;
 
 % Pairwise hierBoot (two-tailed) — three comparisons of interest
-results.pDepth.MBstripe_vs_MBresp   = compareGroupsHB(depthData, 'depth', 'MB stripe', 'MB resp',   params.nBoot);
-results.pDepth.SBstripe_vs_SBresp   = compareGroupsHB(depthData, 'depth', 'SB stripe', 'SB resp',   params.nBoot);
-results.pDepth.MBstripe_vs_SBstripe = compareGroupsHB(depthData, 'depth', 'MB stripe', 'SB stripe', params.nBoot);
+results.pDepth.MBstripe_vs_MBresp   = compareGroupsHB(depthData, 'MB stripe', 'MB resp',   params.nBoot);
+results.pDepth.SBstripe_vs_SBresp   = compareGroupsHB(depthData, 'SB stripe', 'SB resp',   params.nBoot);
+results.pDepth.MBstripe_vs_SBstripe = compareGroupsHB(depthData, 'MB stripe', 'SB stripe', params.nBoot);
 
 fprintf('\nDepth comparisons (two-tailed hierBoot p):\n');
 fprintf('  MB stripe  vs  MB resp   : p = %.4f\n', results.pDepth.MBstripe_vs_MBresp);
@@ -444,18 +364,14 @@ if params.plot
     set(gca, 'XTick',1:nG, 'XTickLabel',groupOrder, ...
         'YDir','reverse', 'XLim',[0.5 nG+0.5], ...
         'FontSize',8, 'FontName','helvetica');
-    ylabel('Depth (\mum)', 'FontSize', 9);
+    ylabel('Cortical depth (\mum)', 'FontSize', 9);
     xtickangle(20);
     title('Depth: stripe vs responsive non-stripe', 'FontSize', 9);
     box on;  hold off;
 
-
-    if params.PaperFig
-        vs_first.printFig(figDepth, sprintf('StripeNeurons_depth_%s', params.indexType), ...
-            PaperFig = params.PaperFig);
-    end
-
-    
+    depthPdf = fullfile(saveDir, sprintf('StripeNeurons_depth_%s.pdf', params.indexType));
+    exportgraphics(figDepth, depthPdf, 'ContentType','vector');
+    fprintf('  Saved: %s\n', depthPdf);
     results.figDepth = figDepth;
 end
 
@@ -522,219 +438,14 @@ if ~isempty(mbStripe) && ismember('stripeBestDir', mbStripe.Properties.VariableN
                 'FontSize', 9);
             box off;
 
-
-            if params.PaperFig
-                vs_first.printFig(figDir, sprintf('StripeNeurons_dirDist_%s', params.indexType), ...
-                    PaperFig = params.PaperFig);
-            end
- 
+            dirPdf = fullfile(saveDir, ...
+                sprintf('StripeNeurons_dirDist_%s.pdf', params.indexType));
+            exportgraphics(figDir, dirPdf, 'ContentType', 'vector');
+            fprintf('  Saved: %s\n', dirPdf);
             results.figDir = figDir;
         end
     end
 end
-
-
-% =========================================================================
-% 8.  RESPONSIVENESS Z-SCORE: stripe vs responsive non-stripe
-% =========================================================================
-groupOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
-groupRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
-
-zData = table([], categorical([]), categorical([]), categorical([]), [], ...
-    'VariableNames', {'z','group','insertion','animal','NeurID'});
-for gi = 1:numel(groupOrder)
-    rows = groupRows{gi};
-    if isempty(rows) || ~ismember('zResp', rows.Properties.VariableNames), continue; end
-    keep = ~isnan(rows.zResp);
-    if ~any(keep), continue; end
-    zData = [zData; table(rows.zResp(keep), ...
-        categorical(repmat(groupOrder(gi), sum(keep), 1)), ...
-        rows.experimentNum(keep), rows.animal(keep), rows.phyID(keep), ...
-        'VariableNames', {'z','group','insertion','animal','NeurID'})]; %#ok<AGROW>
-end
-results.zData = zData;
-
-results.pZ.MBstripe_vs_MBresp   = compareGroupsHB(zData, 'z', 'MB stripe', 'MB resp',   params.nBoot);
-results.pZ.SBstripe_vs_SBresp   = compareGroupsHB(zData, 'z', 'SB stripe', 'SB resp',   params.nBoot);
-results.pZ.MBstripe_vs_SBstripe = compareGroupsHB(zData, 'z', 'MB stripe', 'SB stripe', params.nBoot);
-
-fprintf('\nResponsiveness z (two-tailed hierBoot p):\n');
-fprintf('  MB stripe vs MB resp   : p = %.4f\n', results.pZ.MBstripe_vs_MBresp);
-fprintf('  SB stripe vs SB resp   : p = %.4f\n', results.pZ.SBstripe_vs_SBresp);
-fprintf('  MB stripe vs SB stripe : p = %.4f\n', results.pZ.MBstripe_vs_SBstripe);
-
-if params.plot && ~isempty(zData)
-    figZ = figure('Units','centimeters','Position',[5 5 14 8]);
-    hold on;
-    nG = numel(groupOrder);
-    allAnimalNames = categories(removecats(zData.animal));
-    nAnimals       = numel(allAnimalNames);
-    animalCmap     = lines(max(nAnimals,1));
-
-    for gi = 1:nG
-        rows = zData(zData.group == groupOrder{gi}, :);
-        if isempty(rows), continue; end
-        [~, aIdx] = ismember(string(rows.animal), allAnimalNames);
-        swarmchart(gi*ones(height(rows),1), rows.z, 16, animalCmap(aIdx,:), 'filled', ...
-            'XJitter','density', 'XJitterWidth',0.35, ...
-            'MarkerFaceAlpha',0.65, 'MarkerEdgeColor','none');
-        try
-            bM = hierBootMatchFreq(rows.z, params.nBoot, double(rows.insertion), double(rows.animal));
-            m = mean(bM);  ci = prctile(bM,[2.5 97.5]);
-            errorbar(gi, m, m-ci(1), ci(2)-m, 'k', 'LineWidth',1.5, 'CapSize',8);
-            plot(gi, m, 'ko', 'MarkerFaceColor','w', 'MarkerSize',7, 'LineWidth',1.5);
-        catch ME
-            warning('hierBoot failed for %s: %s', groupOrder{gi}, ME.message);
-        end
-    end
-
-    % Significance brackets — normal Y-axis: brackets ABOVE the data
-    yMax = max(zData.z);  yMin = min(zData.z);  zR = yMax - yMin;
-    bStep = zR*0.10;  tickH = zR*0.025;
-    comps = {
-        1, 2, results.pZ.MBstripe_vs_SBstripe, 1;
-        1, 3, results.pZ.MBstripe_vs_MBresp,   2;
-        2, 4, results.pZ.SBstripe_vs_SBresp,   3;
-    };
-    maxSig = 0;
-    for ci = 1:size(comps,1)
-        g1=comps{ci,1}; g2=comps{ci,2}; pV=comps{ci,3}; lv=comps{ci,4};
-        if isnan(pV) || pV >= 0.05, continue; end
-        yB = yMax + lv*bStep;                       % above data
-        plot([g1 g2],[yB yB],        'k-','LineWidth',1);
-        plot([g1 g1],[yB, yB-tickH], 'k-','LineWidth',1);   % ticks point DOWN to data
-        plot([g2 g2],[yB, yB-tickH], 'k-','LineWidth',1);
-        text((g1+g2)/2, yB, sigStars(pV), ...
-            'HorizontalAlignment','center','VerticalAlignment','bottom', ...
-            'FontSize',11,'FontWeight','bold');
-        maxSig = max(maxSig, lv);
-    end
-    ylim([yMin - bStep, yMax + (maxSig+1.5)*bStep]);
-
-    if params.plotLegend
-        lgdH = gobjects(nAnimals,1);
-        for ai = 1:nAnimals
-            lgdH(ai) = plot(nan,nan,'o','Color',animalCmap(ai,:), ...
-                'MarkerFaceColor',animalCmap(ai,:),'MarkerSize',6, ...
-                'DisplayName',allAnimalNames{ai});
-        end
-        legend(lgdH,'Location','best','FontSize',7,'Box','off');
-    end
-
-    set(gca,'XTick',1:nG,'XTickLabel',groupOrder, ...
-        'XLim',[0.5 nG+0.5],'FontSize',8,'FontName','helvetica');
-    ylabel('Responsiveness (z-score)','FontSize',9);
-    xtickangle(20);
-    title('Responsiveness: stripe vs non-stripe','FontSize',9);
-    box on; hold off;
-
-    if params.PaperFig
-        vs_first.printFig(figZ, sprintf('StripeNeurons-zscore-%s', params.indexType), ...
-            PaperFig = params.PaperFig);
-    end
-    results.figZ = figZ;
-end
-
-% =========================================================================
-% 9.  TUNING INDEX: MB stripe vs MB responsive non-stripe (OSI and DSI)
-%     MB-only — rectGrid has no direction tuning.
-%     Columns: [OSI stripe | OSI resp | DSI stripe | DSI resp]
-% =========================================================================
-tuneOrder  = {'OSI stripe', 'OSI resp', 'DSI stripe', 'DSI resp'};
-tuneSrc    = {mbStripe,     mbNonStr,   mbStripe,     mbNonStr};
-tuneMetric = {'OSI',        'OSI',      'DSI',        'DSI'};
-
-tuneData = table([], categorical([]), categorical([]), categorical([]), [], ...
-    'VariableNames', {'val','group','insertion','animal','NeurID'});
-for gi = 1:numel(tuneOrder)
-    rows = tuneSrc{gi};
-    mcol = tuneMetric{gi};
-    if isempty(rows) || ~ismember(mcol, rows.Properties.VariableNames), continue; end
-    vals = rows.(mcol);
-    keep = ~isnan(vals);
-    if ~any(keep), continue; end
-    tuneData = [tuneData; table(vals(keep), ...
-        categorical(repmat(tuneOrder(gi), sum(keep), 1)), ...
-        rows.experimentNum(keep), rows.animal(keep), rows.phyID(keep), ...
-        'VariableNames', {'val','group','insertion','animal','NeurID'})]; %#ok<AGROW>
-end
-results.tuneData = tuneData;
-
-results.pTune.OSI = compareGroupsHB(tuneData, 'val', 'OSI stripe', 'OSI resp', params.nBoot);
-results.pTune.DSI = compareGroupsHB(tuneData, 'val', 'DSI stripe', 'DSI resp', params.nBoot);
-
-fprintf('\nTuning index (two-tailed hierBoot p):\n');
-fprintf('  OSI stripe vs resp : p = %.4f\n', results.pTune.OSI);
-fprintf('  DSI stripe vs resp : p = %.4f\n', results.pTune.DSI);
-
-if params.plot && ~isempty(tuneData)
-    figTune = figure('Units','centimeters','Position',[5 5 12 8]);
-    hold on;
-    nG = numel(tuneOrder);
-    allAnimalNames = categories(removecats(tuneData.animal));
-    nAnimals       = numel(allAnimalNames);
-    animalCmap     = lines(max(nAnimals,1));
-
-    for gi = 1:nG
-        rows = tuneData(tuneData.group == tuneOrder{gi}, :);
-        if isempty(rows), continue; end
-        [~, aIdx] = ismember(string(rows.animal), allAnimalNames);
-        swarmchart(gi*ones(height(rows),1), rows.val, 16, animalCmap(aIdx,:), 'filled', ...
-            'XJitter','density', 'XJitterWidth',0.35, ...
-            'MarkerFaceAlpha',0.65, 'MarkerEdgeColor','none');
-        try
-            bM = hierBootMatchFreq(rows.val, params.nBoot, double(rows.insertion), double(rows.animal));
-            m = mean(bM);  ci = prctile(bM,[2.5 97.5]);
-            errorbar(gi, m, m-ci(1), ci(2)-m, 'k', 'LineWidth',1.5, 'CapSize',8);
-            plot(gi, m, 'ko', 'MarkerFaceColor','w', 'MarkerSize',7, 'LineWidth',1.5);
-        catch ME
-            warning('hierBoot failed for %s: %s', tuneOrder{gi}, ME.message);
-        end
-    end
-
-    % Brackets: 1 vs 2 (OSI), 3 vs 4 (DSI) — disjoint spans, both at level 1
-    yMax = max(tuneData.val);  yMin = min([0; tuneData.val]);  vR = yMax - yMin;
-    bStep = vR*0.10;  tickH = vR*0.025;
-    comps = { 1,2,results.pTune.OSI,1;  3,4,results.pTune.DSI,1 };
-    maxSig = 0;
-    for ci = 1:size(comps,1)
-        g1=comps{ci,1}; g2=comps{ci,2}; pV=comps{ci,3}; lv=comps{ci,4};
-        if isnan(pV) || pV >= 0.05, continue; end
-        yB = yMax + lv*bStep;
-        plot([g1 g2],[yB yB],        'k-','LineWidth',1);
-        plot([g1 g1],[yB, yB-tickH], 'k-','LineWidth',1);
-        plot([g2 g2],[yB, yB-tickH], 'k-','LineWidth',1);
-        text((g1+g2)/2, yB, sigStars(pV), ...
-            'HorizontalAlignment','center','VerticalAlignment','bottom', ...
-            'FontSize',11,'FontWeight','bold');
-        maxSig = max(maxSig, lv);
-    end
-    ylim([yMin, yMax + (maxSig+1.5)*bStep]);
-
-    if params.plotLegend
-        lgdH = gobjects(nAnimals,1);
-        for ai = 1:nAnimals
-            lgdH(ai) = plot(nan,nan,'o','Color',animalCmap(ai,:), ...
-                'MarkerFaceColor',animalCmap(ai,:),'MarkerSize',6, ...
-                'DisplayName',allAnimalNames{ai});
-        end
-        legend(lgdH,'Location','best','FontSize',7,'Box','off');
-    end
-
-    set(gca,'XTick',1:nG,'XTickLabel',tuneOrder, ...
-        'XLim',[0.5 nG+0.5],'FontSize',8,'FontName','helvetica');
-    ylabel('Selectivity index','FontSize',9);
-    xtickangle(20);
-    title('Direction/orientation tuning: MB stripe vs non-stripe','FontSize',9);
-    box on; hold off;
-
-    if params.PaperFig
-        vs_first.printFig(figTune, sprintf('StripeNeurons-tuning-%s', params.indexType), ...
-            PaperFig = params.PaperFig);
-    end
-    results.figTune = figTune;
-end
-
 
 % =========================================================================
 % 6.  Save the joined table to disk for downstream use
@@ -750,22 +461,27 @@ end
 % =========================================================================
 %  LOCAL FUNCTIONS
 % =========================================================================
-function pVal = compareGroupsHB(dataTbl, valCol, grpA, grpB, nBoot)
-% Two-sample hierarchical-bootstrap p-value (two-tailed) on a named column.
-rowsA = dataTbl(dataTbl.group == grpA, :);
-rowsB = dataTbl(dataTbl.group == grpB, :);
+function pVal = compareGroupsHB(depthData, grpA, grpB, nBoot)
+% Two-sample hierarchical bootstrap p-value (two-tailed) for the
+% difference in means between two groups in depthData.
+
+rowsA = depthData(depthData.group == grpA, :);
+rowsB = depthData(depthData.group == grpB, :);
+
 if height(rowsA) < 3 || height(rowsB) < 3
     pVal = NaN;
     return
 end
+
 try
-    bA = hierBootMatchFreq(rowsA.(valCol), nBoot, double(rowsA.insertion), double(rowsA.animal));
-    bB = hierBootMatchFreq(rowsB.(valCol), nBoot, double(rowsB.insertion), double(rowsB.animal));
+    bA = hierBootMatchFreq(rowsA.depth, nBoot, double(rowsA.insertion), double(rowsA.animal));
+    bB = hierBootMatchFreq(rowsB.depth, nBoot, double(rowsB.insertion), double(rowsB.animal));
     pOne = mean(bA >= bB);
-    pVal = 2 * min(pOne, 1 - pOne);
+    pVal = 2 * min(pOne, 1 - pOne);    % two-tailed
 catch
     pVal = NaN;
 end
+
 end
 
 function s = sigStars(p)
@@ -775,67 +491,4 @@ elseif p < 0.001,               s = '***';
 elseif p < 0.01,                s = '**';
 else,                           s = '*';
 end
-end
-
-function [zScore, phyIDg] = computeResponsivenessZ(vsObj, zp)
-% Pooled responsiveness z-score per good unit (all trials, all directions).
-% Adapted from the sign-flip permutation z in StatisticsPerNeuronPerCategory:
-%   z = (mean(response-baseline) - nullMean) / sd(baseline)
-% computed identically for every neuron so stripe/non-stripe are comparable.
-
-    p      = vsObj.dataObj.convertPhySorting2tIc(vsObj.spikeSortingFolder);
-    label  = string(p.label');
-    goodU  = p.ic(:, label == 'good');
-    phyIDg = p.phy_ID(label == 'good');
-
-    rw = vsObj.ResponseWindow;
-
-    % Baseline window: ends baselineBuffer ms before onset, <= baseRespWindow long
-    preStim   = vsObj.VST.interTrialDelay*1000 - zp.baselineBuffer;
-    baseDur   = min(preStim, zp.baseRespWindow);
-    baseStart = baseDur + zp.baselineBuffer;
-    if baseDur <= 0
-        error('Non-positive baseline duration (interTrialDelay too short).');
-    end
-
-    isMB = isequal(vsObj.stimName, 'linearlyMovingBall');
-
-    if isMB
-        nSpeeds  = numel(unique(vsObj.VST.speed));
-        respList = cell(nSpeeds,1);
-        baseList = cell(nSpeeds,1);
-        for s = 1:nSpeeds
-            fName = sprintf('Speed%d', s);
-            tt = rw.(fName).C(:,1)';
-            sd = rw.(fName).stimDur;
-            Mr = BuildBurstMatrix(goodU, round(p.t), round(tt), round(sd));
-            mrMov       = movmean(Mr, zp.movingWindow, 3, 'Endpoints','discard');
-            respList{s} = max(mrMov, [], 3);                       % peak window per trial
-            Mb = BuildBurstMatrix(goodU, round(p.t), round(tt - baseStart), baseDur);
-            baseList{s} = mean(Mb, 3);
-        end
-        responsesFull = vertcat(respList{:});
-        baselinesFull = vertcat(baseList{:});
-    else
-        tt = rw.C(:,1)';
-        Mr = BuildBurstMatrix(goodU, round(p.t), round(tt), zp.baseRespWindow);
-        responsesFull = mean(Mr, 3);
-        Mb = BuildBurstMatrix(goodU, round(p.t), round(tt - baseStart), baseDur);
-        baselinesFull = mean(Mb, 3);
-    end
-
-    DiffFull = responsesFull - baselinesFull;     % [nTrials x nNeurons]
-    sdBase   = std(baselinesFull, 0, 1);          % [1 x nNeurons]
-    nTrials  = size(DiffFull, 1);
-
-    ObsStat = mean(DiffFull, 1);                  % [1 x nNeurons]
-
-    rng(zp.rngSeed, 'twister');                   % reproducible sign-flip null
-    signs    = 2*randi(2, nTrials, zp.nBoot) - 3; % {-1,+1}
-    nullDist = (signs' * DiffFull) / nTrials;     % [nBoot x nNeurons]
-    nullMean = mean(nullDist, 1);
-
-    zScore = (ObsStat - nullMean) ./ sdBase;
-    zScore(sdBase == 0) = 0;
-    zScore = zScore(:);                            % column, aligned with phyIDg
 end

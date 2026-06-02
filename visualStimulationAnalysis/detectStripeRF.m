@@ -39,7 +39,7 @@ arguments
     options.rngSeed            (1,1) double  = 42
     options.diagonalOnly       (1,1) logical = true
     options.diagonalDirection  (1,1) string  = "BLtoTR"
-    options.minStripeAngle     (1,1) double  = 10      % degrees — lower bound
+    options.minStripeAngle     (1,1) double  = 20      % degrees — lower bound
     options.maxStripeAngle     (1,1) double  = 60     % degrees — upper bound
     options.requirePositive    (1,1) logical = true
 end

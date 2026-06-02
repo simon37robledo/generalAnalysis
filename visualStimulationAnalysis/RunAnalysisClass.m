@@ -31,7 +31,7 @@ data = readtable(excelFile);
     overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true);
 
 %% Calculate spatial tuning
-results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
+results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
     , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
 %%
 results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
@@ -42,7 +42,7 @@ results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
     useRF       = true, ...
     prefDir     = true, ...
     unionResponsive = true,...
-    allResponsive=false);   % match what you used in SpatialTuningIndex
+    allResponsive=false, PaperFig=true);   % match what you used in SpatialTuningIndex
 %% FIGURE 2 MOVING VS STATIC COMPARISON
 %%%%%%%%
 %%%%%%%%
@@ -92,7 +92,7 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
  
 %% Compares MB across different sizes
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB'},CompareCategory="sizes",PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500,CategoryMaximized = "Luminosities");
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500,CategoryMaximized = "offsets");
 
 
 %% Compares MB and SDGm across different categories, z-scores are computed with a moving window and responsive units are selected on the per category p value.
@@ -109,6 +109,8 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
 %% %% PSTH for all moving experiments
 plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, stimTypes={"MB","MBR","SDGm"}); %stimTypes=["linearlyMovingBall"]
 
+
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
 
 %% %% Compares SB, SG and FFF, across all categories
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','SDGs','FFF'},PaperFig=true,...

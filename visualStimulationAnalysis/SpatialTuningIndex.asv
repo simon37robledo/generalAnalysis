@@ -68,7 +68,7 @@ arguments
                                                % showing a subsample of neurons
                                                % that pass and fail, with their
                                                % RFs and Radon variance profiles.
-    params.testStripeN     double = 10     % Number of neurons to include in
+    params.testStripeN     double = 20     % Number of neurons to include in
                                            % the test visualisation (half pass,
                                            % half fail, if available).
     params.stripeMinAngle  double = 20     % Lower bound of accepted stripe angle (deg), BL→TR
@@ -695,12 +695,10 @@ if ~goto_plot
                                 % Each direction gets its own RNG seed offset so that
                                 % the surrogate sequences are independent but reproducible.
                                 res = detectStripeRF(rfSub, ...
-                                    'angleStep',      params.stripeAngleStep, ...
-                                    'nSurrogates',    params.stripeNSurr, ...
-                                    'alpha',          params.stripeAlpha, ...
-                                    'minStripeAngle', params.stripeMinAngle, ...
-                                    'maxStripeAngle', params.stripeMaxAngle, ...
-                                    'rngSeed',        42 + (u-1)*nDirRF + d);
+                                    'angleStep',   params.stripeAngleStep, ...
+                                    'nSurrogates', params.stripeNSurr, ...
+                                    'alpha',       params.stripeAlpha, ...
+                                    'rngSeed',     42 + (u-1)*nDirRF + d);  % unique, reproducible seed
 
                                 % Store per-direction results
                                 dirScores(d)  = res.stripeScore;
@@ -763,12 +761,10 @@ if ~goto_plot
 
                             % Run the stripe detector on the 9×9 image
                             res = detectStripeRF(rfSub, ...
-                                'angleStep',      params.stripeAngleStep, ...
-                                'nSurrogates',    params.stripeNSurr, ...
-                                'alpha',          params.stripeAlpha, ...
-                                'minStripeAngle', params.stripeMinAngle, ...
-                                'maxStripeAngle', params.stripeMaxAngle, ...
-                                'rngSeed',        42 + u);
+                                'angleStep',   params.stripeAngleStep, ...
+                                'nSurrogates', params.stripeNSurr, ...
+                                'alpha',       params.stripeAlpha, ...
+                                'rngSeed',     42 + u);  % reproducible seed per neuron
 
                             % Store results (RG has no direction dimension)
                             stripeIsAny(u)      = res.isStripe;
@@ -928,7 +924,281 @@ if ~goto_plot
 
         end % stim loop
     end % exp loop
-  
+
+    % =========================================================================
+    %  STRIPE DETECTION TEST VISUALISATION  (larger fonts)
+    %
+    %  Drop-in replacement for the block in SpatialTuningIndex.m that starts:
+    %     if params.detectStripe && params.testStripeDetection
+    %  ...and ends:
+    %     end  % testStripeDetection
+    %
+    %  Changes from the previous version: every label, axis tick, and title is
+    %  larger; row height bumped from 3.5 cm to 5 cm so the bigger text fits.
+    % =========================================================================
+
+    if params.detectStripe && params.testStripeDetection
+
+        fprintf('\n=== Stripe Detection Test Visualisation ===\n');
+
+        % ---- Filter table to the requested condition --------------------
+        idxCondTest       = tbl.onOff   == params.onOff   & ...
+            tbl.sizeIdx == params.sizeIdx & ...
+            tbl.lumIdx  == params.lumIdx;
+        tblTest           = tbl(idxCondTest, :);
+        tblTest.value     = tblTest.(params.indexType);
+
+        % ---- Split into stripe and non-stripe ---------------------------
+        stripeRows    = tblTest(tblTest.isStripe == true,  :);
+        nonStripeRows = tblTest(tblTest.isStripe == false, :);
+
+        fprintf('  Total stripe: %d,  non-stripe: %d\n', ...
+            height(stripeRows), height(nonStripeRows));
+
+        % ---- Subsample: half pass, half fail ----------------------------
+        nHalf   = floor(params.testStripeN / 2);
+        nPass   = min(nHalf, height(stripeRows));
+        nFail   = min(nHalf, height(nonStripeRows));
+        nSample = nPass + nFail;
+
+        rng(99, 'twister');
+        if nPass > 0
+            passIdx     = randperm(height(stripeRows), nPass);
+            samplePass  = stripeRows(passIdx, :);
+        else
+            samplePass  = stripeRows([], :);
+        end
+        if nFail > 0
+            failIdx     = randperm(height(nonStripeRows), nFail);
+            sampleFail  = nonStripeRows(failIdx, :);
+        else
+            sampleFail  = nonStripeRows([], :);
+        end
+
+        tblSample = [samplePass; sampleFail];
+
+        if nSample == 0
+            fprintf('  No neurons to visualise — skipping test plot.\n');
+        else
+
+            fprintf('  Visualising %d pass + %d fail = %d neurons.\n', ...
+                nPass, nFail, nSample);
+
+            % ---- Figure layout ------------------------------------------
+            % 4 tiles per row = 2 neurons (RF + profile each).  Row height
+            % bumped to 5 cm so the bigger fonts have room to breathe.
+            nTestCols   = 4;
+            nTestRows   = ceil(nSample / 2);
+            figTest     = figure('Visible', 'on', ...
+                'Units', 'centimeters', ...
+                'Position', [2 2 28 nTestRows * 5]);
+
+            tlTest = tiledlayout(nTestRows, nTestCols, ...
+                'TileSpacing', 'compact', ...
+                'Padding',     'compact');
+
+            % Main figure title — large and bold
+            title(tlTest, 'Stripe Detection Test', ...
+                'FontSize', 14, 'FontName', 'Helvetica', 'FontWeight', 'bold');
+
+            % Experiment cache for loading RF data (reuse if available)
+            if ~exist('cachedExp', 'var') || ~isa(cachedExp, 'containers.Map')
+                cachedExp = containers.Map('KeyType', 'double', 'ValueType', 'any');
+            end
+
+            for ti = 1:nSample
+
+                % --- Metadata for this neuron ---
+                phyID_t    = tblSample.phyID(ti);
+                ex_t       = str2double(string(tblSample.experimentNum(ti)));
+                stimType_t = char(string(tblSample.stimulus(ti)));
+                isStr_t    = tblSample.isStripe(ti);
+                score_t    = tblSample.stripeBestScore(ti);
+                pval_t     = tblSample.stripeBestPval(ti);
+                angle_t    = tblSample.stripeBestAngle(ti);
+
+                % --- Load experiment data (with caching) -----------------
+                if ~cachedExp.isKey(ex_t)
+                    NP_t      = loadNPclassFromTable(ex_t);
+                    obj_lmb   = linearlyMovingBallAnalysis(NP_t);
+                    p_s_t     = NP_t.convertPhySorting2tIc(obj_lmb.spikeSortingFolder);
+                    phy_IDg_t = p_s_t.phy_ID(string(p_s_t.label') == 'good');
+
+                    S_rf_lmb_t = obj_lmb.CalculateReceptiveFields;
+                    try
+                        obj_rg_t  = rectGridAnalysis(NP_t);
+                        S_rf_rg_t = obj_rg_t.CalculateReceptiveFields;
+                    catch
+                        S_rf_rg_t = [];
+                    end
+
+                    rfSpeed_t  = S_rf_lmb_t.params.speed;
+                    rfField_t  = sprintf('Speed%d', rfSpeed_t);
+                    NR_t       = obj_lmb.ResponseWindow;
+                    NV_t       = NR_t.(rfField_t).NeuronVals;
+                    dL_t       = NV_t(:,:,6);
+                    sR_t       = NV_t(:,:,1);
+                    uD_t       = unique(dL_t(1,:));
+                    nGU_t      = size(NV_t, 1);
+                    mRPD_t     = zeros(nGU_t, numel(uD_t));
+                    for dd = 1:numel(uD_t)
+                        mRPD_t(:,dd) = max(sR_t(:, dL_t(1,:)==uD_t(dd)), [], 2);
+                    end
+                    [~, pDI_t] = max(mRPD_t, [], 2);
+
+                    cachedExp(ex_t) = struct( ...
+                        'S_rf_lmb',      S_rf_lmb_t, ...
+                        'S_rf_rg',       {S_rf_rg_t}, ...
+                        'phy_IDg',       phy_IDg_t, ...
+                        'prefDirIdxAll', pDI_t);
+                end
+                cached_t = cachedExp(ex_t);
+
+                [~, nIdx_t] = ismember(phyID_t, cached_t.phy_IDg);
+                if nIdx_t == 0, continue; end
+
+                % --- Extract the RF slice for visualisation --------------
+                switch stimType_t
+                    case 'linearlyMovingBall'
+                        bestDir_t = tblSample.stripeBestDir(ti);
+                        if isnan(bestDir_t)
+                            bestDir_t = cached_t.prefDirIdxAll(nIdx_t);
+                        end
+                        rfSlice_t = squeeze( ...
+                            cached_t.S_rf_lmb.RFuSTDirSizeLum( ...
+                            bestDir_t, params.sizeIdx, params.lumIdx, :, :, nIdx_t));
+                        rfShuff_t = cached_t.S_rf_lmb.RFuShuffST(:, :, nIdx_t);
+                        rfSub_t   = rfSlice_t - rfShuff_t;
+
+                    case 'rectGrid'
+                        if ~isempty(cached_t.S_rf_rg)
+                            rfFull_t  = squeeze(cached_t.S_rf_rg.RFu( ...
+                                params.onOff, params.lumIdx, params.sizeIdx, :, :, nIdx_t));
+                            rfSFull_t = squeeze(cached_t.S_rf_rg.RFuShuffMean( ...
+                                params.onOff, params.lumIdx, params.sizeIdx, :, :, nIdx_t));
+                            rfSub_t   = rfFull_t - rfSFull_t;
+                        else
+                            rfSub_t = zeros(9);
+                        end
+
+                    otherwise
+                        rfSub_t = zeros(9);
+                end
+
+                % --- Run stripe detection to get the Radon profile -------
+                resTest = detectStripeRF(rfSub_t, ...
+                    'angleStep',   params.stripeAngleStep, ...
+                    'nSurrogates', 200, ...
+                    'alpha',       params.stripeAlpha, ...
+                    'rngSeed',     42 + ti);
+
+                % =========================================================
+                % LEFT TILE: RF image
+                % =========================================================
+                nexttile;
+                imagesc(rfSub_t);
+                axis equal tight off;
+                maxAbs_t = max(abs(rfSub_t(:)));
+                if maxAbs_t > 0, clim([-maxAbs_t maxAbs_t]); end
+
+                % Title: colour-coded by classification — BIG FONT
+                if isStr_t
+                    titleColor = [0.8 0 0];
+                    passLabel  = 'STRIPE';
+                else
+                    titleColor = [0 0.5 0];
+                    passLabel  = 'clean';
+                end
+                title(sprintf('phy%d  %s   S=%.1f  p=%.3f', ...
+                    phyID_t, passLabel, score_t, pval_t), ...
+                    'FontSize', 11, ...                  % bumped from 10
+                    'FontName', 'Helvetica', ...
+                    'FontWeight', 'bold', ...            % new — emphasise classification
+                    'Color', titleColor);
+
+                % Overlay stripe angle line if detected
+                if isStr_t && ~isnan(angle_t)
+                    hold on;
+                    cx = size(rfSub_t, 2) / 2;
+                    cy = size(rfSub_t, 1) / 2;
+                    lineLen = max(size(rfSub_t)) * 0.4;
+                    dx = lineLen * cosd(angle_t);
+                    dy = -lineLen * sind(angle_t);
+                    plot([cx-dx, cx+dx], [cy-dy, cy+dy], ...
+                        'r-', 'LineWidth', 2);            % thicker line
+                    hold off;
+                end
+
+                % Colourbar with readable tick labels
+                cb = colorbar;
+                cb.FontSize      = 8;                    % readable
+                cb.TickDirection = 'out';
+                cb.Ticks         = linspace(cb.Limits(1), cb.Limits(2), 3);
+
+                % =========================================================
+                % RIGHT TILE: Radon variance profile
+                % =========================================================
+                nexttile;
+                bar(resTest.angles, resTest.varProfile, 1, ...
+                    'FaceColor', [0.4 0.6 0.8], ...
+                    'EdgeColor', 'none');
+                hold on;
+
+                % Reference line at the mean projection variance
+                meanVarAll = mean(resTest.varProfile);
+                yline(meanVarAll, '--', ...
+                    'Color',     [0.5 0.5 0.5], ...
+                    'LineWidth', 1, ...                  % bumped from 0.5
+                    'Label',     'mean', ...
+                    'FontSize',  9, ...                  % new — readable label
+                    'LabelHorizontalAlignment', 'left');
+
+                % Shade the diagonal-acceptance windows (45° ± 30°, 135° ± 30°)
+                % so it's visually obvious why some peaks pass and others fail.
+                yl = ylim;
+
+                % Shade the accepted projection-angle window for BL→TR
+                % stripes with 3° margin from horizontal and vertical.
+                % % stripeAngle = projAngle + 90 (mod 180), so
+                % %   stripeAngle ∈ (3°, 87°)  ⇔  projAngle ∈ (93°, 177°).
+                % patch([93 177 177 93], [yl(1) yl(1) yl(2) yl(2)], ...
+                %     [0.9 0.95 0.7], 'EdgeColor', 'none', 'FaceAlpha', 0.3);
+                patch([100 150 150 100], [yl(1) yl(1) yl(2) yl(2)], ...
+                    [0.9 0.95 0.7], 'EdgeColor', 'none', 'FaceAlpha', 0.3);
+
+                % Re-draw bars on top of the patches
+                bar(resTest.angles, resTest.varProfile, 1, ...
+                    'FaceColor', [0.4 0.6 0.8], 'EdgeColor', 'none');
+
+                % Axis labels — BIG FONT
+                xlabel('Radon projection angle (°)', 'FontSize', 10);
+                ylabel('projection variance',         'FontSize', 10);
+
+                % Title: stim type, best direction, stripe orientation
+                title(sprintf('%s  dir=%s  ang=%.0f°', ...
+                    stimType_t(1:min(2,end)), ...
+                    num2str(tblSample.stripeBestDir(ti)), ...
+                    angle_t), ...
+                    'FontSize', 11, ...                  % bumped from 5
+                    'FontName', 'Helvetica');
+
+                % Axis tick labels — BIG FONT
+                set(gca, 'FontSize', 9);                  % bumped from 4
+
+                xlim([0 180]);
+                hold off;
+
+            end  % test neuron loop
+
+            % Save test figure
+            testPdfPath = fullfile(saveDir, sprintf('StripeTest_%s.pdf', params.indexType));
+            exportgraphics(figTest, testPdfPath, 'ContentType', 'vector');
+            fprintf('  Stripe test figure saved to:\n    %s\n', testPdfPath);
+
+        end  % nSample > 0
+
+    end  % testStripeDetection
+
     % Remove unused categorical levels introduced by partial data
     tbl.stimulus      = removecats(tbl.stimulus);
     tbl.animal        = removecats(tbl.animal);
@@ -942,280 +1212,6 @@ if ~goto_plot
     fprintf('\nSaved to:\n  %s\n', [saveDir nameOfFile]);
 
 end % compute block
-
-% =========================================================================
-%  STRIPE DETECTION TEST VISUALISATION  (larger fonts)
-%
-%  Drop-in replacement for the block in SpatialTuningIndex.m that starts:
-%     if params.detectStripe && params.testStripeDetection
-%  ...and ends:
-%     end  % testStripeDetection
-%
-%  Changes from the previous version: every label, axis tick, and title is
-%  larger; row height bumped from 3.5 cm to 5 cm so the bigger text fits.
-% =========================================================================
-
-
-if params.detectStripe && params.testStripeDetection
-
-    fprintf('\n=== Stripe Detection Test Visualisation ===\n');
-
-    % ---- Filter table to the requested condition --------------------
-    idxCondTest       = tbl.onOff   == params.onOff   & ...
-        tbl.sizeIdx == params.sizeIdx & ...
-        tbl.lumIdx  == params.lumIdx;
-    tblTest           = tbl(idxCondTest, :);
-    tblTest.value     = tblTest.(params.indexType);
-
-    % ---- Split into stripe and non-stripe ---------------------------
-    stripeRows    = tblTest(tblTest.isStripe == true,  :);
-    nonStripeRows = tblTest(tblTest.isStripe == false, :);
-
-    fprintf('  Total stripe: %d,  non-stripe: %d\n', ...
-        height(stripeRows), height(nonStripeRows));
-
-    % ---- Subsample: half pass, half fail ----------------------------
-    nHalf   = floor(params.testStripeN / 2);
-    nPass   = min(nHalf, height(stripeRows));
-    nFail   = min(nHalf, height(nonStripeRows));
-    nSample = nPass + nFail;
-
-    rng(99, 'twister');
-    if nPass > 0
-        passIdx     = randperm(height(stripeRows), nPass);
-        samplePass  = stripeRows(passIdx, :);
-    else
-        samplePass  = stripeRows([], :);
-    end
-    if nFail > 0
-        failIdx     = randperm(height(nonStripeRows), nFail);
-        sampleFail  = nonStripeRows(failIdx, :);
-    else
-        sampleFail  = nonStripeRows([], :);
-    end
-
-    tblSample = [samplePass; sampleFail];
-
-    if nSample == 0
-        fprintf('  No neurons to visualise — skipping test plot.\n');
-    else
-
-        fprintf('  Visualising %d pass + %d fail = %d neurons.\n', ...
-            nPass, nFail, nSample);
-
-        % ---- Figure layout ------------------------------------------
-        % 4 tiles per row = 2 neurons (RF + profile each).  Row height
-        % bumped to 5 cm so the bigger fonts have room to breathe.
-        nTestCols   = 4;
-        nTestRows   = ceil(nSample / 2);
-        figTest     = figure('Visible', 'on', ...
-            'Units', 'centimeters', ...
-            'Position', [2 2 28 nTestRows * 5]);
-
-        tlTest = tiledlayout(nTestRows, nTestCols, ...
-            'TileSpacing', 'compact', ...
-            'Padding',     'compact');
-
-        % Main figure title — large and bold
-        title(tlTest, 'Stripe Detection Test', ...
-            'FontSize', 14, 'FontName', 'Helvetica', 'FontWeight', 'bold');
-
-        % Experiment cache for loading RF data (reuse if available)
-        if ~exist('cachedExp', 'var') || ~isa(cachedExp, 'containers.Map')
-            cachedExp = containers.Map('KeyType', 'double', 'ValueType', 'any');
-        end
-
-        for ti = 1:nSample
-
-            % --- Metadata for this neuron ---
-            phyID_t    = tblSample.phyID(ti);
-            ex_t       = str2double(string(tblSample.experimentNum(ti)));
-            stimType_t = char(string(tblSample.stimulus(ti)));
-            isStr_t    = tblSample.isStripe(ti);
-            score_t    = tblSample.stripeBestScore(ti);
-            pval_t     = tblSample.stripeBestPval(ti);
-            angle_t    = tblSample.stripeBestAngle(ti);
-
-            % --- Load experiment data (with caching) -----------------
-            if ~cachedExp.isKey(ex_t)
-                NP_t      = loadNPclassFromTable(ex_t);
-                obj_lmb   = linearlyMovingBallAnalysis(NP_t);
-                p_s_t     = NP_t.convertPhySorting2tIc(obj_lmb.spikeSortingFolder);
-                phy_IDg_t = p_s_t.phy_ID(string(p_s_t.label') == 'good');
-
-                S_rf_lmb_t = obj_lmb.CalculateReceptiveFields;
-                try
-                    obj_rg_t  = rectGridAnalysis(NP_t);
-                    S_rf_rg_t = obj_rg_t.CalculateReceptiveFields;
-                catch
-                    S_rf_rg_t = [];
-                end
-
-                rfSpeed_t  = S_rf_lmb_t.params.speed;
-                rfField_t  = sprintf('Speed%d', rfSpeed_t);
-                NR_t       = obj_lmb.ResponseWindow;
-                NV_t       = NR_t.(rfField_t).NeuronVals;
-                dL_t       = NV_t(:,:,6);
-                sR_t       = NV_t(:,:,1);
-                uD_t       = unique(dL_t(1,:));
-                nGU_t      = size(NV_t, 1);
-                mRPD_t     = zeros(nGU_t, numel(uD_t));
-                for dd = 1:numel(uD_t)
-                    mRPD_t(:,dd) = max(sR_t(:, dL_t(1,:)==uD_t(dd)), [], 2);
-                end
-                [~, pDI_t] = max(mRPD_t, [], 2);
-
-                cachedExp(ex_t) = struct( ...
-                    'S_rf_lmb',      S_rf_lmb_t, ...
-                    'S_rf_rg',       {S_rf_rg_t}, ...
-                    'phy_IDg',       phy_IDg_t, ...
-                    'prefDirIdxAll', pDI_t);
-            end
-            cached_t = cachedExp(ex_t);
-
-            [~, nIdx_t] = ismember(phyID_t, cached_t.phy_IDg);
-            if nIdx_t == 0, continue; end
-
-            % --- Extract the RF slice for visualisation --------------
-            switch stimType_t
-                case 'linearlyMovingBall'
-                    bestDir_t = tblSample.stripeBestDir(ti);
-                    if isnan(bestDir_t)
-                        bestDir_t = cached_t.prefDirIdxAll(nIdx_t);
-                    end
-                    rfSlice_t = squeeze( ...
-                        cached_t.S_rf_lmb.RFuSTDirSizeLum( ...
-                        bestDir_t, params.sizeIdx, params.lumIdx, :, :, nIdx_t));
-                    rfShuff_t = cached_t.S_rf_lmb.RFuShuffST(:, :, nIdx_t);
-                    rfSub_t   = rfSlice_t - rfShuff_t;
-
-                case 'rectGrid'
-                    if ~isempty(cached_t.S_rf_rg)
-                        rfFull_t  = squeeze(cached_t.S_rf_rg.RFu( ...
-                            params.onOff, params.lumIdx, params.sizeIdx, :, :, nIdx_t));
-                        rfSFull_t = squeeze(cached_t.S_rf_rg.RFuShuffMean( ...
-                            params.onOff, params.lumIdx, params.sizeIdx, :, :, nIdx_t));
-                        rfSub_t   = rfFull_t - rfSFull_t;
-                    else
-                        rfSub_t = zeros(9);
-                    end
-
-                otherwise
-                    rfSub_t = zeros(9);
-            end
-
-            % --- Run stripe detection to get the Radon profile -------
-            resTest = detectStripeRF(rfSub_t, ...
-                'angleStep',   params.stripeAngleStep, ...
-                'nSurrogates', 200, ...
-                'alpha',       params.stripeAlpha, ...
-                'rngSeed',     42 + ti);
-
-            % =========================================================
-            % LEFT TILE: RF image
-            % =========================================================
-            nexttile;
-            imagesc(rfSub_t);
-            axis equal tight off;
-            maxAbs_t = max(abs(rfSub_t(:)));
-            if maxAbs_t > 0, clim([-maxAbs_t maxAbs_t]); end
-
-            % Title: colour-coded by classification — BIG FONT
-            if isStr_t
-                titleColor = [0.8 0 0];
-                passLabel  = 'STRIPE';
-            else
-                titleColor = [0 0.5 0];
-                passLabel  = 'clean';
-            end
-            title(sprintf('phy%d  %s   S=%.1f  p=%.3f', ...
-                phyID_t, passLabel, score_t, pval_t), ...
-                'FontSize', 11, ...                  % bumped from 10
-                'FontName', 'Helvetica', ...
-                'FontWeight', 'bold', ...            % new — emphasise classification
-                'Color', titleColor);
-
-            % Overlay stripe angle line if detected
-            if isStr_t && ~isnan(angle_t)
-                hold on;
-                cx = size(rfSub_t, 2) / 2;
-                cy = size(rfSub_t, 1) / 2;
-                lineLen = max(size(rfSub_t)) * 0.4;
-                dx = lineLen * cosd(angle_t);
-                dy = -lineLen * sind(angle_t);
-                plot([cx-dx, cx+dx], [cy-dy, cy+dy], ...
-                    'r-', 'LineWidth', 2);            % thicker line
-                hold off;
-            end
-
-            % Colourbar with readable tick labels
-            cb = colorbar;
-            cb.FontSize      = 8;                    % readable
-            cb.TickDirection = 'out';
-            cb.Ticks         = linspace(cb.Limits(1), cb.Limits(2), 3);
-
-            % =========================================================
-            % RIGHT TILE: Radon variance profile
-            % =========================================================
-            nexttile;
-            bar(resTest.angles, resTest.varProfile, 1, ...
-                'FaceColor', [0.4 0.6 0.8], ...
-                'EdgeColor', 'none');
-            hold on;
-
-            % Reference line at the mean projection variance
-            meanVarAll = mean(resTest.varProfile);
-            yline(meanVarAll, '--', ...
-                'Color',     [0.5 0.5 0.5], ...
-                'LineWidth', 1, ...                  % bumped from 0.5
-                'Label',     'mean', ...
-                'FontSize',  9, ...                  % new — readable label
-                'LabelHorizontalAlignment', 'left');
-
-            % Shade the diagonal-acceptance windows (45° ± 30°, 135° ± 30°)
-            % so it's visually obvious why some peaks pass and others fail.
-            yl = ylim;
-
-            % Shade the accepted projection-angle window for BL→TR
-            % stripes with 3° margin from horizontal and vertical.
-
-            projLo = mod(params.stripeMinAngle - 90, 180);   % 20° -> 110°
-            projHi = mod(params.stripeMaxAngle - 90, 180);   % 60° -> 150°
-            patch([projLo projHi projHi projLo], [yl(1) yl(1) yl(2) yl(2)], ...
-                [0.9 0.95 0.7], 'EdgeColor', 'none', 'FaceAlpha', 0.3);
-
-            % Re-draw bars on top of the patches
-            bar(resTest.angles, resTest.varProfile, 1, ...
-                'FaceColor', [0.4 0.6 0.8], 'EdgeColor', 'none');
-
-            % Axis labels — BIG FONT
-            xlabel('Radon projection angle (°)', 'FontSize', 10);
-            ylabel('projection variance',         'FontSize', 10);
-
-            % Title: stim type, best direction, stripe orientation
-            title(sprintf('%s  dir=%s  ang=%.0f°', ...
-                stimType_t(1:min(2,end)), ...
-                num2str(tblSample.stripeBestDir(ti)), ...
-                angle_t), ...
-                'FontSize', 11, ...                  % bumped from 5
-                'FontName', 'Helvetica');
-
-            % Axis tick labels — BIG FONT
-            set(gca, 'FontSize', 9);                  % bumped from 4
-
-            xlim([0 180]);
-            hold off;
-
-        end  % test neuron loop
-
-        % Save test figure
-        testPdfPath = fullfile(saveDir, sprintf('StripeTest_%s.pdf', params.indexType));
-        exportgraphics(figTest, testPdfPath, 'ContentType', 'vector');
-        fprintf('  Stripe test figure saved to:\n    %s\n', testPdfPath);
-
-    end  % nSample > 0
-
-
 
 results.tbl = tbl;
 
