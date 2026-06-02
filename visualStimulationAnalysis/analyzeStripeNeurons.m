@@ -53,6 +53,7 @@ arguments
     params.plot             logical = true
     params.plotLegend       logical = false
     params.PaperFig         logical = false
+    params.zStim            string  = "linearlyMovingBall"  % "linearlyMovingBall" | "rectGrid" | "both"
 end
 
 % =========================================================================
@@ -537,8 +538,21 @@ end
 % =========================================================================
 % 8.  RESPONSIVENESS Z-SCORE: stripe vs responsive non-stripe
 % =========================================================================
-groupOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
-groupRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
+% Choose which stimulus/stimuli to show, since RG has few stripe neurons
+switch params.zStim
+    case "linearlyMovingBall"
+        groupOrder = {'MB stripe', 'MB resp'};
+        groupRows  = {mbStripe,    mbNonStr};
+        zComps     = { 1, 2, [], 1 };          % MB stripe vs MB resp
+    case "rectGrid"
+        groupOrder = {'SB stripe', 'SB resp'};
+        groupRows  = {sbStripe,    sbNonStr};
+        zComps     = { 1, 2, [], 1 };          % SB stripe vs SB resp
+    case "both"
+        groupOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
+        groupRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
+        zComps     = { 1, 3, [], 1;  2, 4, [], 2 };   % MB & SB stripe-vs-resp
+end
 
 zData = table([], categorical([]), categorical([]), categorical([]), [], ...
     'VariableNames', {'z','group','insertion','animal','NeurID'});
@@ -554,14 +568,15 @@ for gi = 1:numel(groupOrder)
 end
 results.zData = zData;
 
-results.pZ.MBstripe_vs_MBresp   = compareGroupsHB(zData, 'z', 'MB stripe', 'MB resp',   params.nBoot);
-results.pZ.SBstripe_vs_SBresp   = compareGroupsHB(zData, 'z', 'SB stripe', 'SB resp',   params.nBoot);
-results.pZ.MBstripe_vs_SBstripe = compareGroupsHB(zData, 'z', 'MB stripe', 'SB stripe', params.nBoot);
-
-fprintf('\nResponsiveness z (two-tailed hierBoot p):\n');
-fprintf('  MB stripe vs MB resp   : p = %.4f\n', results.pZ.MBstripe_vs_MBresp);
-fprintf('  SB stripe vs SB resp   : p = %.4f\n', results.pZ.SBstripe_vs_SBresp);
-fprintf('  MB stripe vs SB stripe : p = %.4f\n', results.pZ.MBstripe_vs_SBstripe);
+results.pZ = struct();
+for ci = 1:size(zComps,1)
+    gA = groupOrder{zComps{ci,1}};
+    gB = groupOrder{zComps{ci,2}};
+    pV = compareGroupsHB(zData, 'z', gA, gB, params.nBoot);
+    zComps{ci,3} = pV;
+    results.pZ.(matlab.lang.makeValidName([gA '_vs_' gB])) = pV;
+    fprintf('  z: %s vs %s : p = %.4f\n', gA, gB, pV);
+end
 
 if params.plot && ~isempty(zData)
     figZ = figure('Units','centimeters','Position',[5 5 14 8]);
@@ -591,14 +606,14 @@ if params.plot && ~isempty(zData)
     % Significance brackets — normal Y-axis: brackets ABOVE the data
     yMax = max(zData.z);  yMin = min(zData.z);  zR = yMax - yMin;
     bStep = zR*0.10;  tickH = zR*0.025;
-    comps = {
-        1, 2, results.pZ.MBstripe_vs_SBstripe, 1;
-        1, 3, results.pZ.MBstripe_vs_MBresp,   2;
-        2, 4, results.pZ.SBstripe_vs_SBresp,   3;
-    };
+    % comps = {
+    %     1, 2, results.pZ.MBstripe_vs_SBstripe, 1;
+    %     1, 3, results.pZ.MBstripe_vs_MBresp,   2;
+    %     2, 4, results.pZ.SBstripe_vs_SBresp,   3;
+    % };
     maxSig = 0;
-    for ci = 1:size(comps,1)
-        g1=comps{ci,1}; g2=comps{ci,2}; pV=comps{ci,3}; lv=comps{ci,4};
+    for ci = 1:size(zComps,1)
+        g1=zComps{ci,1}; g2=zComps{ci,2}; pV=zComps{ci,3}; lv=zComps{ci,4};
         if isnan(pV) || pV >= 0.05, continue; end
         yB = yMax + lv*bStep;                       % above data
         plot([g1 g2],[yB yB],        'k-','LineWidth',1);
@@ -751,9 +766,10 @@ end
 %  LOCAL FUNCTIONS
 % =========================================================================
 function pVal = compareGroupsHB(dataTbl, valCol, grpA, grpB, nBoot)
-% Two-sample hierarchical-bootstrap p-value (two-tailed) on a named column.
 rowsA = dataTbl(dataTbl.group == grpA, :);
 rowsB = dataTbl(dataTbl.group == grpB, :);
+rowsA = rowsA(~isnan(rowsA.(valCol)), :);     % drop NaN
+rowsB = rowsB(~isnan(rowsB.(valCol)), :);
 if height(rowsA) < 3 || height(rowsB) < 3
     pVal = NaN;
     return

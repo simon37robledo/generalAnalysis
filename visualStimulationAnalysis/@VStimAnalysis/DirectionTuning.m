@@ -225,7 +225,7 @@ stimInter = rw.stimInter;                                  % inter-stimulus inte
 % Mr dimensions: [nTrials × nNeurons × nBins]
 bin = params.bin;                                          % ms per bin (local alias for readability)
 Mr  = BuildBurstMatrix(goodU, round(p.t / bin), ...
-    round(C(:,1) / bin), ...                               % trial onset times in bins
+    round(C(:,1)' / bin), ...                               % trial onset times in bins
     round(stimDur / bin));                                 % window = stimulus duration in bins
 
 % Pre-allocate tuning curve arrays
