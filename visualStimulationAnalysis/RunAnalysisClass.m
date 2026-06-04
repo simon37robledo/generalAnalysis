@@ -107,10 +107,18 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
     overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = false, SpatialGridMode = false);
 
 %% %% PSTH for all moving experiments
-plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, stimTypes={"MB","MBR","SDGm"}); %stimTypes=["linearlyMovingBall"]
+plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, binWidth=50, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
+
+%%
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth =50, postStim= 1000, stimTypes={"MB","MBR"},unionResponsive=true,requireAllStims = true); 
 
 
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
+%%
+
+plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","SDGm"],unionUnits=true )
+
+%%
+plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","MBR"],unionUnits=true )
 
 %% %% Compares SB, SG and FFF, across all categories
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','SDGs','FFF'},PaperFig=true,...

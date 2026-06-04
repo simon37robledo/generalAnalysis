@@ -54,6 +54,7 @@ arguments
     params.plotLegend       logical = false
     params.PaperFig         logical = false
     params.zStim            string  = "linearlyMovingBall"  % "linearlyMovingBall" | "rectGrid" | "both"
+    params.idxStim          string  = "linearlyMovingBall"  % "linearlyMovingBall" | "rectGrid" | "both"
 end
 
 % =========================================================================
@@ -750,6 +751,122 @@ if params.plot && ~isempty(tuneData)
     results.figTune = figTune;
 end
 
+% =========================================================================
+% 10.  SPATIAL TUNING INDEX: stripe vs responsive non-stripe
+%      Uses params.indexType at each neuron's preferred direction (same for
+%      both groups — symmetric). NOT stripeBestDir, to keep the comparison
+%      apples-to-apples (non-stripe neurons have no stripe direction).
+% =========================================================================
+switch params.idxStim
+    case "linearlyMovingBall"
+        idxOrder = {'MB stripe', 'MB resp'};
+        idxRows  = {mbStripe,    mbNonStr};
+        idxComps = { 1, 2, [], 1 };
+    case "rectGrid"
+        idxOrder = {'SB stripe', 'SB resp'};
+        idxRows  = {sbStripe,    sbNonStr};
+        idxComps = { 1, 2, [], 1 };
+    case "both"
+        idxOrder = {'MB stripe', 'SB stripe', 'MB resp', 'SB resp'};
+        idxRows  = {mbStripe,    sbStripe,    mbNonStr,  sbNonStr};
+        idxComps = { 1, 3, [], 1;  2, 4, [], 2 };
+end
+
+idxData = table([], categorical([]), categorical([]), categorical([]), [], ...
+    'VariableNames', {'val','group','insertion','animal','NeurID'});
+for gi = 1:numel(idxOrder)
+    rows = idxRows{gi};
+    if isempty(rows), continue; end
+    vals = rows.(params.indexType);          % the tuning index, already at prefDir
+    keep = ~isnan(vals);
+    if ~any(keep), continue; end
+    idxData = [idxData; table(vals(keep), ...
+        categorical(repmat(idxOrder(gi), sum(keep), 1)), ...
+        rows.experimentNum(keep), rows.animal(keep), rows.phyID(keep), ...
+        'VariableNames', {'val','group','insertion','animal','NeurID'})]; %#ok<AGROW>
+end
+results.idxData = idxData;
+
+results.pIdx = struct();
+for ci = 1:size(idxComps,1)
+    gA = idxOrder{idxComps{ci,1}};
+    gB = idxOrder{idxComps{ci,2}};
+    pV = compareGroupsHB(idxData, 'val', gA, gB, params.nBoot);
+    idxComps{ci,3} = pV;
+    results.pIdx.(matlab.lang.makeValidName([gA '_vs_' gB])) = pV;
+    fprintf('  idx: %s vs %s : p = %.4f\n', gA, gB, pV);
+end
+
+if params.plot && ~isempty(idxData) && any(~isnan(idxData.val))
+    figIdx = figure('Units','centimeters','Position',[5 5 12 8]);
+    hold on;
+    nG = numel(idxOrder);
+    allAnimalNames = categories(removecats(idxData.animal));
+    nAnimals       = numel(allAnimalNames);
+    animalCmap     = lines(max(nAnimals,1));
+
+    for gi = 1:nG
+        rows = idxData(idxData.group == idxOrder{gi}, :);
+        if isempty(rows), continue; end
+        [~, aIdx] = ismember(string(rows.animal), allAnimalNames);
+        swarmchart(gi*ones(height(rows),1), rows.val, 16, animalCmap(aIdx,:), 'filled', ...
+            'XJitter','density', 'XJitterWidth',0.35, ...
+            'MarkerFaceAlpha',0.65, 'MarkerEdgeColor','none');
+        vv = rows.val(~isnan(rows.val));
+        if numel(vv) < 3, continue; end
+        try
+            bM = hierBootMatchFreq(vv, params.nBoot, ...
+                double(rows.insertion(~isnan(rows.val))), ...
+                double(rows.animal(~isnan(rows.val))));
+            m = mean(bM);  ci2 = prctile(bM,[2.5 97.5]);
+            errorbar(gi, m, m-ci2(1), ci2(2)-m, 'k', 'LineWidth',1.5, 'CapSize',8);
+            plot(gi, m, 'ko', 'MarkerFaceColor','w', 'MarkerSize',7, 'LineWidth',1.5);
+        catch ME
+            warning('hierBoot failed for %s: %s', idxOrder{gi}, ME.message);
+        end
+    end
+
+    allVals = idxData.val(~isnan(idxData.val));
+    yMax = max(allVals);  yMin = min([0; allVals]);  vR = yMax - yMin;
+    bStep = vR*0.10;  tickH = vR*0.025;  maxSig = 0;
+    for ci = 1:size(idxComps,1)
+        g1 = idxComps{ci,1};  g2 = idxComps{ci,2};
+        pV = idxComps{ci,3};  lv = idxComps{ci,4};
+        if isnan(pV) || pV >= 0.05, continue; end
+        yB = yMax + lv*bStep;
+        plot([g1 g2],[yB yB],        'k-','LineWidth',1);
+        plot([g1 g1],[yB, yB-tickH], 'k-','LineWidth',1);
+        plot([g2 g2],[yB, yB-tickH], 'k-','LineWidth',1);
+        text((g1+g2)/2, yB, sigStars(pV), ...
+            'HorizontalAlignment','center','VerticalAlignment','bottom', ...
+            'FontSize',11,'FontWeight','bold');
+        maxSig = max(maxSig, lv);
+    end
+    ylim([yMin, yMax + (maxSig+1.5)*bStep]);
+
+    if params.plotLegend
+        lgdH = gobjects(nAnimals,1);
+        for ai = 1:nAnimals
+            lgdH(ai) = plot(nan,nan,'o','Color',animalCmap(ai,:), ...
+                'MarkerFaceColor',animalCmap(ai,:),'MarkerSize',6, ...
+                'DisplayName',allAnimalNames{ai});
+        end
+        legend(lgdH,'Location','best','FontSize',7,'Box','off');
+    end
+
+    set(gca,'XTick',1:nG,'XTickLabel',idxOrder, ...
+        'XLim',[0.5 nG+0.5],'FontSize',8,'FontName','helvetica');
+    ylabel(params.indexType, 'FontSize',9, 'Interpreter','none');
+    xtickangle(20);
+    title('Spatial tuning index: stripe vs non-stripe','FontSize',9);
+    box on; hold off;
+
+    if params.PaperFig
+        vs_first.printFig(figIdx, sprintf('StripeNeurons-tuningIndex-%s', params.indexType), ...
+            PaperFig = params.PaperFig);
+    end
+    results.figIdx = figIdx;
+end
 
 % =========================================================================
 % 6.  Save the joined table to disk for downstream use
