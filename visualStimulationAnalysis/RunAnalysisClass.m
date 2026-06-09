@@ -27,12 +27,15 @@ data = readtable(excelFile);
 %%%%%%%%
 
 %% Compare MB vs RG, use gridmode true, selects maximum spatial category across directions
-[tempTableMW] = AllExpAnalysis([40:42,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true);
+[tempTableMW] = AllExpAnalysis([40:42,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true,RespDurationWin=300);
 
 %% Calculate spatial tuning
-results= SpatialTuningIndex([49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
-    , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
+results = SpatialTuningIndex([40:42,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
+    , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
+%%
+results = SpatialTuningIndex([40:42,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
+    , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
 %%
 results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
     indexType   = "L_amplitude_diff", ...
@@ -43,6 +46,14 @@ results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
     prefDir     = true, ...
     unionResponsive = true,...
     allResponsive=false, PaperFig=true);   % match what you used in SpatialTuningIndex
+
+%%
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
+
+%%
+plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, use, postStim=500,stimTypes=["MB","RG"],unionUnits=true )
+
+
 %% FIGURE 2 MOVING VS STATIC COMPARISON
 %%%%%%%%
 %%%%%%%%
@@ -99,36 +110,40 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','SDGm'},CompareCategory={"directions","angles"},CompareLevels={[0,1.57,3.14, 4.71],[0,90,180,270]},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true, BaseRespWindow = 1000,useGeneralFilter=true,SpatialGridMode = false,maxCategory = false);
 %% Compares MB and MG, across all categories
-[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','SDGm'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = false, SpatialGridMode = false);
+[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','SDGm'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = true);
 
 %% %% Compares MB and MG, across all categories
-[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','MBR'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = false, SpatialGridMode = false);
+[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','MBR'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = false);
 
-%% %% PSTH for all moving experiments
+%% %% PSTH for MB v sMG
 plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, binWidth=50, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
 
-%%
+%% %% PSTH for MB vs MBR
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth =50, postStim= 1000, stimTypes={"MB","MBR"},unionResponsive=true,requireAllStims = true); 
 
 
-%%
+%% Raster for MB vs MG
 
-plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","SDGm"],unionUnits=true )
+plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","SDGm"],unionUnits=true )
 
-%%
-plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","MBR"],unionUnits=true )
+%% Raster for MB vs MBR
+plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","MBR"],unionUnits=true )
 
-%% %% Compares SB, SG and FFF, across all categories
-[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','SDGs','FFF'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 300, maxCategory = false, SpatialGridMode = false);
+%% %% Compares SB, SG  across all categories
+[tempTableMW] = AllExpAnalysis([40:43, 49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','SDGs'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 300, maxCategory = true, SpatialGridMode = false);
+
+%% %% Compares SB, FFF, across all categories
+[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','FFF'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 300, maxCategory = true, SpatialGridMode = false);
 
 %% PSTH for all static experiments
-plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, stimTypes={"RG","SDGs","FFF"}); %stimTypes=["linearlyMovingBall"]
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=50, smooth=250, postStim= 500, stimTypes={"RG","SDGs"}); %stimTypes=["linearlyMovingBall"]
 
 %% Plot changes in size for MB
-plotPSTH_MultiExp([20,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=50, postStim= 2000, stimTypes={"MB"},splitBy="sizes",useCategoryPvals = true); %stimTypes=["linearlyMovingBall"]
+plotPSTH_MultiExp([40:43,20,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth=50, postStim= 500, stimTypes={"RG","FFF"}); %stimTypes=["linearlyMovingBall"]
 
 %% SDGm spatial frequency
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGs'},CompareCategory="spatFrequency",PaperFig=true,...
@@ -191,7 +206,7 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, sortBy="preferred
 
 %%
 %% Rect Grid
-for ex = [70] %84:91
+for ex = [40:42] %84:91
     NP = loadNPclassFromTable(ex); %73 81
     vsRe = rectGridAnalysis(NP);
     % vsRe.getSessionTime("overwrite",true);
@@ -203,9 +218,9 @@ for ex = [70] %84:91
      %vsRe.ResponseWindow('overwrite',true)
     % results = vsRe.ShufflingAnalysis('overwrite',true);
     %vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons = true, selectedLum=[],oneTrial = true,PaperFig = true) %43
-    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = 145, selectedLum=255,oneTrial = true,PaperFig = true) %43
+    % vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = 145, selectedLum=255,oneTrial = true,PaperFig = true) %43
     vsRe.CalculateReceptiveFields('overwrite',true,AllResponsiveNeurons=false)
-    [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=13,allStimParamsCombined=false,PaperFig=true,overwrite=true);
+    % [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=13,allStimParamsCombined=false,PaperFig=true,overwrite=true);
     %result = vsRe.BootstrapPerNeuron('overwrite',true);
     %result = vsRe.StatisticsPerNeuron('overwrite',true);
 
@@ -213,28 +228,28 @@ end
 % vsRe.CalculateReceptiveFields
 %vsRe.PlotReceptiveFields("exNeurons",18)
 
-%% Moving ball
+% Moving ball
 
-for ex =[70]%97  74:84  (Neurons, 96_74, )
+for ex =[40:42]%97  74:84  (Neurons, 96_74, )
     NP = loadNPclassFromTable(ex); %73 81
     vs = linearlyMovingBallAnalysis(NP);
-    vs.getSessionTime("overwrite",true);
-    vs.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
-    % % %vs.plotDiodeTriggers
-    vs.getSyncedDiodeTriggers("overwrite",true);
-    % % % %vs.plotSpatialTuningSpikes;
-    r = vs.ResponseWindow('overwrite',true);
+    % vs.getSessionTime("overwrite",true);
+    % vs.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
+    % % % %vs.plotDiodeTriggers
+    % vs.getSyncedDiodeTriggers("overwrite",true);
+    % % % % %vs.plotSpatialTuningSpikes;
+    % r = vs.ResponseWindow('overwrite',true);
     % % % results = vs.ShufflingAnalysis('overwrite',true);
     % % % % vs.plotRaster('AllSomaticNeurons',true,'overwrite',true,'MergeNtrials',3)
     % vs.plotRaster('AllResponsiveNeurons',true,'overwrite',true,'MergeNtrials',1,'bin',50,'GaussianLength',30,'MaxVal_1', false, oneLuminosity = "white", OneDirection="left", ...
     %     sortingOrder=["size","direction","luminosity","offset","speed"])
     %vs.plotRaster('AllSomaticNeurons',true,'overwrite',true,'MergeNtrials',3,PaperFig=true)
-    vs.plotRaster('exNeuronsPhyID',145,'overwrite',true,'MergeNtrials',3,'PaperFig',false,'OneDirection','down',OneLuminosity= 'white')
+    % vs.plotRaster('exNeuronsPhyID',145,'overwrite',true,'MergeNtrials',3,'PaperFig',false,'OneDirection','down',OneLuminosity= 'white')
     % % % % %vs.plotCorrSpikePattern
     % vs.plotRaster('exNeurons',82,'overwrite',true,'OneDirection','up','OneLuminosity','white','MergeNtrials',1,'PaperFig',false)
     % %vs.plotRaster('AllSomaticNeurons',true,'overwrite',true,'MergeNtrials',3,MaxVal_1=false,PaperFig=false)
-   % vs.CalculateReceptiveFields('overwrite',true,testConvolution=false,AllResponsiveNeurons=false);   
-    colorbarLims=vs.PlotReceptiveFields('exNeurons',13,'overwrite',true,'OneDirection','down','OneLuminosity','white','PaperFig',true);
+    vs.CalculateReceptiveFields('overwrite',true,testConvolution=false,AllResponsiveNeurons=false);   
+    % colorbarLims=vs.PlotReceptiveFields('exNeurons',13,'overwrite',true,'OneDirection','down','OneLuminosity','white','PaperFig',true);
     % %result = vs.BootstrapPerNeuron('overwrite',true);%('overwrite',true);
     % % pvals0_6Filter =result.Speed2.pvalsResponse';
     % % compare = [pvals,pvalsNoFilt,pvals0_6Filter];

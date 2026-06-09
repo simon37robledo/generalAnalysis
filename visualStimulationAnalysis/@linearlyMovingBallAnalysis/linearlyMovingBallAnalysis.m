@@ -14,7 +14,7 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
             arguments (Input) %ResponseWindow.mat
                 dataObj
                 params.Session double = 1
-                params.MultipleOffsets logical = false
+                params.MultipleOffsets logical = true
                 params.Multiplesizes logical = false
             end
             if nargin==0

@@ -61,7 +61,7 @@ arguments
     params.postStim        double        = 0                             % post-stimulus window in ms
     params.preBase         double        = 200                           % pre-stimulus baseline in ms
     params.overwrite       logical       = false                         % if true, recompute even if cache exists
-    params.TakeTopPercentTrials double   = 1                             % fraction (0,1] of trials to keep; [] or 0 = keep all
+    params.TakeTopPercentTrials double   = 0                             % fraction (0,1] of trials to keep; [] or 0 = keep all
     params.zScore          logical       = true                          % z-score each neuron using its baseline
     params.sortBy          string        = "none"                        % "peak" | "depth" | "spatialTuning" | "preferredCategory" | "none"
     params.PaperFig        logical       = false                         % if true, export figure via printFig

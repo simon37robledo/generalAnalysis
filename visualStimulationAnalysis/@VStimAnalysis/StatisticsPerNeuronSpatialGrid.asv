@@ -265,8 +265,9 @@ for s = 1:nSpeeds
 
     % -------------------------------------------------------------------------
     % Overall observed stat and p-value
-    % obsStat: max across cells AND directions per neuron
-    % pVal: proportion of the joint (cells × directions) max null >= observed
+    % obsStat: max across directions per neuron
+    % pVal: proportion of pooled null >= observed
+    % -------------------------------------------------------------------------
     [obsStat, prefDirection] = max(obsStatPerDir, [], 1);   % [1 × nNeurons]
     pVal                     = mean(nullMax >= obsStat, 1);  % [1 × nNeurons]
 
@@ -281,7 +282,7 @@ for s = 1:nSpeeds
     % z = (observed - expected null max) / pooled baseline SD
     % Subtracting mean(nullStatsAll) removes winner's curse inflation
     % -------------------------------------------------------------------------
-    nullMean        = mean(nullMax, 1);               % [1 × nNeurons]
+    nullMean        = mean(nullStatsAll, 1);          % [1 × nNeurons]
     z               = (obsStat - nullMean) ./ sdBase;  % [1 × nNeurons]
     z_mean          = obsStat;    
     z(sdBase == 0)  = 0;   % silent baseline — set to 0

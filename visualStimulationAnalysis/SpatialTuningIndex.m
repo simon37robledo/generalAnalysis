@@ -1215,6 +1215,8 @@ if params.detectStripe && params.testStripeDetection
 
     end  % nSample > 0
 
+end %closes: if params.detectStripe && params.testStripeDetection
+
 
 
 results.tbl = tbl;
@@ -2159,4 +2161,3 @@ if params.plotRFs
 
 end  % plotRFs block
 
-end
