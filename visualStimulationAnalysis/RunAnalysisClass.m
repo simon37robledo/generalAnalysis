@@ -51,7 +51,7 @@ results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
 
 %%
-plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, use, postStim=500,stimTypes=["MB","RG"],unionUnits=true )
+plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = true,splitCategory=["Directions","Position"])
 
 
 %% FIGURE 2 MOVING VS STATIC COMPARISON
@@ -64,7 +64,7 @@ plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercen
 %%%%%%%%
 
 %% %% Compare SDGm vs SDGs
-[tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
+[tempTableMW] = AllExpAnalysis([40:42,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
     overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
 
 %% %% Compare SDGm vs SDGs, across directions
