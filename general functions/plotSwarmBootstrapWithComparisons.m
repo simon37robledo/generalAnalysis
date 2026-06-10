@@ -441,6 +441,13 @@ if ~isempty(pValues) && numel(pValues) >= 1
             'HorizontalAlignment', 'center', ...
             'FontSize',            7, ...
             'Clipping',            'off');
+    elseif ~isnan(pVal)
+        txt = num2str(pVal, '%.3f');
+        text(ax, 1, yText, txt, ...
+            'HorizontalAlignment', 'center', ...
+            'FontSize',            7, ...
+            'Clipping',            'off');
+
     end
 end
 
@@ -691,6 +698,8 @@ for k = 1:size(pairs, 1)
     if     pValues(k) < 0.001, txt = '***';
     elseif pValues(k) < 0.01,  txt = '**';
     elseif pValues(k) < 0.05,  txt = '*';
+    elseif ~isnan(pVal)
+        txt = num2str(pVal, '%.3f');
     end
     text(ax, mean([x1 x2]), y + textPad, txt, ...
         'HorizontalAlignment', 'center', 'FontSize', 7, 'Clipping', 'off');

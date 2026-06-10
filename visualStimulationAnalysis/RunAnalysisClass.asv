@@ -27,17 +27,17 @@ data = readtable(excelFile);
 %%%%%%%%
 
 %% Compare MB vs RG, use gridmode true, selects maximum spatial category across directions
-[tempTableMW] = AllExpAnalysis([40:42,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true,RespDurationWin=300);
 
 %% Calculate spatial tuning
-results = SpatialTuningIndex([40:42,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
+results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
     , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
 %%
-results = SpatialTuningIndex([40:42,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
+results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
     , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
 %%
-results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
+results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
     indexType   = "L_amplitude_diff", ...
     onOff       = 1, ...
     sizeIdx     = 1, ...
@@ -48,7 +48,7 @@ results = analyzeStripeNeurons([49:54,64:66, 68:85 87:97], ...
     allResponsive=false, PaperFig=true);   % match what you used in SpatialTuningIndex
 
 %%
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
 
 %%
 plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = true,splitCategory=["Directions","Position"])
@@ -64,18 +64,18 @@ plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercen
 %%%%%%%%
 
 %% %% Compare SDGm vs SDGs
-[tempTableMW] = AllExpAnalysis([40:42,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
-    overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
+[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
+    overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=true,BaseRespWindow=1000);
 
 %% %% Compare SDGm vs SDGs, across directions
 [tempTableMW] = AllExpAnalysis([40:43 49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},CompareCategory={"angles","angles"},CompareLevels={[0,90,180,270],[0,90,180,270]},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
 
 %% Plot PSTH of MG and SG
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=100, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
 
 %% Raster for MG and SG
-plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=500,stimTypes=["SDG"],unionUnits=true,preBase=500)
+plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=500,stimTypes=["SDG"],unionUnits=true,preBase=500)
 
 %% SDGm spatial frequency
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm'},CompareCategory={"tempFrequency"},PaperFig=true,...
@@ -118,7 +118,7 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
     overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = false);
 
 %% %% PSTH for MB v sMG
-plotPSTH_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250, binWidth=50, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
+plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=100, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
 
 %% %% PSTH for MB vs MBR
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth =50, postStim= 1000, stimTypes={"MB","MBR"},unionResponsive=true,requireAllStims = true); 

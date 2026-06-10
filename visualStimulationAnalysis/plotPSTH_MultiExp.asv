@@ -705,24 +705,6 @@ if forloop
             for ni = 1:numel(eNeurons)
                 u = eNeurons(ni);                                          % unit index into goodU
 
-                % ---- Per-neuron baseline for z-scoring ------------------
-                % Across-trial baseline statistics, pooled over ALL trials
-                % (the pre-stimulus period is stimulus-independent, so this is
-                % more stable than a per-category estimate and identical across
-                % the split levels). Matches sdBase in StatisticsPerNeuron and
-                % does NOT shrink with trial count, unlike the SD across PSTH bins.
-                if params.zScore
-                    MRbase = BuildBurstMatrix( ...
-                        goodU(:, u), ...                                   % spike times for this unit
-                        round(p_sort.t), ...                               % all sample times (rounded to ms)
-                        round(directimesSorted - lockedPreBase), ...       % ALL trial starts (onset - baseline)
-                        round(windowTotal));                               % window length in ms
-                    MRbase = reshape(MRbase, numel(directimesSorted), []); % [nTrials × time]; reshape avoids singleton collapse
-                    perTrialBase = mean(MRbase(:, 1:lockedPreBase), 2) * 1000; % [nTrials × 1] baseline rate (spk/s)
-                    baseMeanNeuron(ni) = mean(perTrialBase);               % across-trial baseline mean
-                    baseStdNeuron(ni)  = std(perTrialBase);                % across-trial baseline SD
-                end
-
                 % ---- Assign neuron to depth bin -------------------------
                 if params.byDepth
                     depthRow  = depthTable.Experiment == ex & depthTable.Unit == u; % find this unit's row in the depth table
@@ -811,24 +793,24 @@ if forloop
                 end
             end
 
-          % ==============================================================
-            %  Optional: z-score each neuron's PSTH to its own baseline
-            %  Uses the across-trial baseline statistics computed per neuron
-            %  in the loop above (one baseline per neuron, shared across all
-            %  category levels) — comparable across stimuli with different
-            %  trial counts, unlike the SD across PSTH bins.
             % ==============================================================
+            %  Optional: z-score each neuron's PSTH to its own baseline
+            % ==============================================================
+            tAxis = lockedEdges(1:end-1);                                  % left edges of each bin in ms (within-window coordinates)
+
             if params.zScore
+                baselineBins = tAxis < lockedPreBase;                      % logical mask: bins that fall within the pre-stimulus baseline
+
                 for ni = 1:size(psthRateNeurons, 1)
-                    bMean = baseMeanNeuron(ni);                            % per-neuron baseline mean (spk/s)
-                    bStd  = baseStdNeuron(ni);                             % per-neuron baseline SD   (spk/s)
                     for ci = 1:nCats
                         trace = psthRateNeurons(ni, :, ci);               % firing-rate vector for this neuron × category
-                        if all(isnan(trace)); continue; end               % skip neuron×cat with no data
+                        if all(isnan(trace)); continue; end               % skip neurons with no data
+                        bMean = mean(trace(baselineBins), 'omitnan');     % mean baseline firing rate
+                        bStd  = std(trace(baselineBins), 0, 'omitnan');   % standard deviation of baseline firing rate
                         if bStd > 0
-                            psthRateNeurons(ni, :, ci) = (trace - bMean) / bStd; % z-score to across-trial baseline
+                            psthRateNeurons(ni, :, ci) = (trace - bMean) / bStd; % z-score using the neuron's own baseline
                         else
-                            psthRateNeurons(ni, :, ci) = NaN;             % zero baseline variance — z-score undefined; exclude
+                            psthRateNeurons(ni, :, ci) = NaN;             % near-zero baseline variance — z-score undefined; exclude neuron
                         end
                     end
                 end
