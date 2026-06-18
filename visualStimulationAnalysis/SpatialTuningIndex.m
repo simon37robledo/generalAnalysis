@@ -1317,7 +1317,7 @@ if params.plot
                 ps(j) = NaN;
             else
                 % hierBoot on the paired difference, respecting nesting
-                bootDiff = hierBoot(diffs, params.nBoot, insers, animals);
+                bootDiff = hierBootMatchFreq(diffs, params.nBoot, animals,insers);
                 ps(j)    = mean(bootDiff <= 0);  % P(stim1 <= stim2)
             end
 
@@ -1348,8 +1348,8 @@ if params.plot
             else
                 % hierBoot on each group separately — same nesting structure
                 % as the paired case but applied independently per group
-                BootFirst = hierBoot(V1(valid1), params.nBoot, insers1(valid1), anim1(valid1));
-                BootSec   = hierBoot(V2(valid2), params.nBoot, insers2(valid2), anim2(valid2));
+                BootFirst = hierBootMatchFreq(V1(valid1), params.nBoot, anim1(valid1),insers1(valid1));
+                BootSec   = hierBootMatchFreq(V2(valid2), params.nBoot, anim2(valid2), insers2(valid2));
 
                 % One-tailed p: P(group2 >= group1), i.e. P(stim2 >= stim1)
                 ps(j) = mean(BootSec >= BootFirst);

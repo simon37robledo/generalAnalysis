@@ -78,6 +78,7 @@ end
 
 % Extract stimulus layout: positions, sizes, luminosities
 seqMatrix = obj.VST.pos;
+
 sizes     = obj.VST.tilingRatios;
 uSize     = unique(sizes);
 nSize     = length(uSize);

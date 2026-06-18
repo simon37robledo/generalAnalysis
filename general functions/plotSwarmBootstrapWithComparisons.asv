@@ -113,7 +113,7 @@ yMaxVis    = params.yMaxVis;
 bracketPad = yMaxVis * 0.05;                           % gap between data and first bracket
 stackPad   = yMaxVis * 0.05;                           % vertical stacking between brackets
 textPad    = yMaxVis * 0.01;                           % gap between bracket and star text
-semAlpha   = 1;                                      % alpha for bootstrap error bars
+semAlpha   = 0.6;                                      % alpha for bootstrap error bars
 
 % -------------------------------------------------------------------------
 % Pre-process tbl: rename legacy labels, reorder categories, compute value
@@ -292,20 +292,17 @@ end
 
 % Significance brackets. When >5 pairs, only bracket adjacent groups to
 % avoid visual clutter; the full set is in figAllDiffs.
-maxBracketY = yMaxVis;                                 % default top when no brackets are drawn
 if ~isempty(pairs) && numel(pValues) == size(pairs, 1)
     adjacentOnly = size(pairs, 1) > 6;
-    maxBracketY = plotBrackets(ax, tblPlot, stimuli, pairs, pValues, ...
-        yMaxVis, bracketPad, stackPad, textPad, adjacentOnly, params.nearSigThresh);
+    plotBrackets(ax, tblPlot, stimuli, pairs, pValues, ...
+        yMaxVis, bracketPad, stackPad, textPad, adjacentOnly,params.nearSigThresh);
 end
 
 % Overlay user-specified example-unit markers (X for spec 1, + for spec 2)
-overlayMarkedUnits(ax, tblPlot, params, true);
+overlayMarkedUnits(ax, tblPlot, params, true);         % true: also match on stimulus column
 
-% Cap the visible y-range, but extend the top to fit lifted bracket labels so
-% they aren't clipped (text near the top of a tiled layout can be cut even
-% though the brackets themselves use Clipping=off).
-ylim(ax, [ax.YLim(1), max(yMaxVis, maxBracketY)]);
+% Cap visible y-range (brackets use Clipping=off so they remain visible)
+ylim(ax, [ax.YLim(1) yMaxVis]);
 
 end % plotRawSwarm
 
@@ -421,25 +418,28 @@ end
 % ---- Significance annotation --------------------------------------------
 % Capture the current auto-scaled Y limits AFTER all data have been drawn
 % so the lower bound reflects the true data range
-ylims     = ylim(ax);
-topNeeded = yMaxVis;   % how high the axis must reach to fit the label (default: the cap)
+ylims = ylim(ax);
 
 if ~isempty(pValues) && numel(pValues) >= 1
     pVal = pValues(1);   % scalar p-value for this difference panel
 
-    % Highest data point within the visible window (anchors the label just
-    % above the top of the visible data, not above data clipped by yMaxVis).
+    % Compute the highest data point that falls within the visible window.
+    % This anchors the star text just above the top of the visible data,
+    % not above data that has been clipped by yMaxVis.
+    % Equivalent to min(max(vals), yMaxVis) but written for clarity.
     vals       = tblDiff.value;
-    maxVisible = min(max(vals(:), [], 'omitnan'), yMaxVis);
+    maxVisible = min(max(vals(:), [], 'omitnan'), yMaxVis);  % fixed: was max(min(...)) with no 'omitnan'
+
+    % Fallback if vals was empty or all-NaN (isempty catches []; isnan catches NaN)
     if isempty(maxVisible) || isnan(maxVisible)
         maxVisible = yMaxVis;
     end
 
-    % Label sits bracketPad above the highest visible point
+    % Text sits bracketPad above the highest visible data point
     yText = maxVisible + bracketPad;
 
     % Significant -> stars; near-significant (0.05 <= p < nearSigThresh) -> exact
-    % p; clearly non-significant or NaN -> nothing.
+    % p; clearly non-significant or NaN -> nothing. One text call, one placement.
     txt = '';                                                    % default: draw nothing
     if ~isnan(pVal)
         if     pVal < 0.001,                txt = '***';
@@ -448,26 +448,23 @@ if ~isempty(pValues) && numel(pValues) >= 1
         elseif pVal < params.nearSigThresh, txt = sprintf('%.3f', pVal);  % trend
         end
     end
-
     if ~isempty(txt)
-        % Bottom-anchored so the label grows upward, clear of the data
         text(ax, 1, yText, txt, ...
             'HorizontalAlignment', 'center', ...
-            'VerticalAlignment',   'bottom', ...
             'FontSize',            7, ...
             'Clipping',            'off');
-        topNeeded = yText + bracketPad;   % headroom above the label
     end
 end
 
 % Overlay example-unit markers on the difference dots (identity match only)
 overlayMarkedUnits(ax, tblDiff, params, false);        % false: stimulus is irrelevant in a diff
 
-% Cap the upper Y limit, extending it to fit the significance label so it isn't
-% clipped. The lower bound stays auto-scaled (per-panel data range); for the
-% all-pairs figure, plotAllPairDiffs takes the union across panels via linkaxes.
-ylim(ax, [ylims(1), max(yMaxVis, topNeeded)]);
-
+ylim(ax, [ylims(1), yMaxVis]);
+% Fix the upper Y limit to yMaxVis so all panels in plotAllPairDiffs
+% start from the same ceiling before linkaxes applies the shared lower bound.
+% The lower bound is left as auto-scaled so it reflects each panel's data range;
+% plotAllPairDiffs will then extend it to the global minimum via linkaxes.
+ylim(ax, [ylims(1), yMaxVis]);
 
 end % plotDiffSwarm
 
@@ -672,17 +669,18 @@ for i = 1:numel(stimuli)
             error('Unknown ciMethod: %s. Use ''sem'' or ''percentile''.', params.ciMethod);
     end
 
-    xb = i + 0.30;                                     % place the bar just right of the swarm column
-
     % Vertical uncertainty line
-    line(ax, [xb xb], [yLo yHi], 'Color', [0 0 0 semAlpha], 'LineWidth', 2);
+    line(ax, [i i], [yLo yHi], ...
+        'Color', [0 0 0 semAlpha], 'LineWidth', 2);
     % End caps
     capW = 0.1;
-    line(ax, [xb-capW xb+capW], [yHi yHi], 'Color', [0 0 0 semAlpha], 'LineWidth', 2);
-    line(ax, [xb-capW xb+capW], [yLo yLo], 'Color', [0 0 0 semAlpha], 'LineWidth', 2);
+    line(ax, [i-capW i+capW], [yHi yHi], ...
+        'Color', [0 0 0 semAlpha], 'LineWidth', 2);
+    line(ax, [i-capW i+capW], [yLo yLo], ...
+        'Color', [0 0 0 semAlpha], 'LineWidth', 2);
     % Mean line
     dx = 0.15;
-    plot(ax, [xb-dx xb+dx], [mu mu], 'k-', 'LineWidth', 1.2);
+    plot(ax, [i-dx i+dx], [mu mu], 'k-', 'LineWidth', 1.2);
 end
 
 end % plotMeanSemBars
@@ -694,12 +692,12 @@ end % plotMeanSemBars
 % between groups at positions i and i+1 are drawn (prevents visual clutter
 % with many comparisons). All pairs are always reported to plotAllPairDiffs.
 % =========================================================================
-function maxY  = plotBrackets(ax, tblPlot, stimuli, pairs, pValues, ...
+function plotBrackets(ax, tblPlot, stimuli, pairs, pValues, ...
     yMaxVis, bracketPad, stackPad, textPad, adjacentOnly,nearSigThresh)
 
 % Track y-positions of placed brackets to prevent overlap
 usedHeights = zeros(size(pairs, 1), 1);
-maxY = yMaxVis;   % highest point drawn, so the caller can extend ylim to fit labels
+
 for k = 1:size(pairs, 1)
 
     % Skip NaN and clearly non-significant pairs. Pairs with
@@ -746,21 +744,8 @@ for k = 1:size(pairs, 1)
     elseif pValues(k) < 0.05,  txt = '*';
     else,                      txt = sprintf('%.3f', pValues(k));  % 0.05 <= p < nearSigThresh
     end
-
-    % Numeric labels are taller and sit closer to the line than stars, so lift
-    % them further and anchor by their bottom edge so they grow upward, away
-    % from the bracket, instead of overlapping it.
-    if ~startsWith(txt, '*')
-        yTxt = y + bracketPad;                         % extra lift for numbers
-    else
-        yTxt = y + textPad;                            % stars sit just above
-    end
-    text(ax, mean([x1 x2]), yTxt, txt, ...
-        'HorizontalAlignment', 'center', ...
-        'VerticalAlignment',   'bottom', ...           % text grows up, off the bracket
-        'FontSize', 8, 'Clipping', 'off');
-
-    maxY = max(maxY, yTxt + bracketPad);               % headroom above the lifted label
+    text(ax, mean([x1 x2]), y + textPad, txt, ...
+        'HorizontalAlignment', 'center', 'FontSize', 7, 'Clipping', 'off');
 end
 
 end % plotBrackets
@@ -1208,7 +1193,7 @@ for m = 1:numel(specs)
         xMark = tblPlot.stimulus(r);                   % categorical category centre (axis-safe)
         yMark = tblPlot.value(r);                      % the unit's exact value
 
-        % White halo first, then symbol on top; both small and at alpha 0.6 so
+       % White halo first, then symbol on top; both small and at alpha 0.6 so
         % the underlying swarm dot stays visible through the mark.
         plot(ax, xMark, yMark, spec.symbol, ...
             'Color', [1 1 1 0.6], 'MarkerSize', 8, 'LineWidth', 2.0, 'Clipping', 'off');  % halo

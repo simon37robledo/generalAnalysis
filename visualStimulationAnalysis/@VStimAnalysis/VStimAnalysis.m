@@ -262,6 +262,8 @@ classdef (Abstract) VStimAnalysis < handle
                 params.overwrite logical = false %if true overwrites results
                 params.analysisTime = datetime('now') %extract the time at which analysis was performed
                 params.inputParams = false %if true - prints out the iput parameters so that it is clear what can be manipulated in the method
+                params.fallbackToDigitalTriggers logical = true
+                params.mismatchThreshold = 0.1
             end
             if params.inputParams,disp(params),return,end
 
@@ -319,9 +321,38 @@ classdef (Abstract) VStimAnalysis < handle
 
             expectedFlips=numel(allFlips);
             fprintf('%d flips expected, %d found (diff=%d). Linking existing flip times with stimuli...\n',expectedFlips,measuredFlips,expectedFlips-measuredFlips);
-            if (expectedFlips-measuredFlips)>0.1*expectedFlips
-                fprintf('There are more than 10 percent mismatch in the number of diode and vStim expected flips. Cant continue!!! Please check diode extraction!\n');
-                return;
+            mismatchFrac = (expectedFlips - measuredFlips) / expectedFlips;
+            if mismatchFrac > params.mismatchThreshold
+                if params.fallbackToDigitalTriggers
+                    fprintf('Diode/vStim mismatch %.1f%% exceeds %.0f%% threshold. Re-extracting via digitalTriggerDiode...\n', ...
+                        mismatchFrac*100, params.mismatchThreshold*100);
+                    try
+                        % digitalTriggerDiode windows each trial with the TTL triggers (t{3}/t{4}) and
+                        % interpolates frame times where the photodiode failed.
+                        % overwrite=true REQUIRED: getDiodeTriggers caches per method-name only and does
+                        % not validate params.extractionMethod on reload, so without it the cached analog
+                        % result is returned. Side effect: the cache now holds the digital extraction.
+                        diode = obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
+                    catch ME
+                        fprintf('digitalTriggerDiode extraction failed (%s). Cant continue!!!\n', ME.message);
+                        return;
+                    end
+                    allDiodeFlips = sort([diode.diodeUpCross,diode.diodeDownCross]);
+                    allDiodeFlips(1+find(diff(allDiodeFlips)<obj.VST.ifi*1000*params.minDiodeInterval)) = [];
+                    measuredFlips = numel(allDiodeFlips);
+                    mismatchFrac = (expectedFlips - measuredFlips) / expectedFlips;
+                    fprintf('After digitalTriggerDiode fallback: %d expected, %d found (diff=%d, %.1f%%).\n', ...
+                        expectedFlips, measuredFlips, expectedFlips-measuredFlips, mismatchFrac*100);
+                    if mismatchFrac > params.mismatchThreshold
+                        fprintf('Mismatch still exceeds %.0f%% after digital fallback. Cant continue!!!\n', ...
+                            params.mismatchThreshold*100);
+                        return;
+                    end
+                else
+                    fprintf('There are more than %.0f%% mismatch in the number of diode and vStim expected flips. Cant continue!!! Please check diode extraction!\n', ...
+                        params.mismatchThreshold*100);
+                    return;
+                end
             end
             switch obj.trialType
                 case 'videoTrials'
@@ -440,6 +471,29 @@ classdef (Abstract) VStimAnalysis < handle
                     save(obj.getAnalysisFileName,'params','diodeFrameFlipTimes','stimOnFlipTimes','stimOffFlipTimes');
                     results = load(obj.getAnalysisFileName);
                 case 'imageTrials'
+                    % Image-trial sync needs an exact match between expected flips and detected
+                    % crossings (it pairs them off 1-on/1-off). A small over- or under-count from
+                    % the analog photodiode is fatal here, so fall back to digitalTriggerDiode,
+                    % which forces exactly one on + one off crossing per trial.
+                    if expectedFlips ~= measuredFlips && params.fallbackToDigitalTriggers
+                        fprintf('Image-trial trigger mismatch (%d expected vs %d found). Re-extracting via digitalTriggerDiode...\n', ...
+                            expectedFlips, measuredFlips);
+                        try
+                            % Two-step per the framework convention: an overwrite=true call recomputes and
+                            % saves but returns NO output; a second call (no overwrite) loads the result.
+                            obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);  % recompute + overwrite cache
+                            diode = obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode');           % load the cached digital result
+                        catch ME
+                            fprintf('digitalTriggerDiode extraction failed (%s). Cant continue!!!\n', ME.message);
+                            return;
+                        end
+                        allDiodeFlips = sort([diode.diodeUpCross,diode.diodeDownCross]);
+                        allDiodeFlips(1+find(diff(allDiodeFlips)<obj.VST.ifi*1000*params.minDiodeInterval)) = [];
+                        measuredFlips = numel(allDiodeFlips);
+                        fprintf('After digitalTriggerDiode fallback: %d expected, %d found (diff=%d).\n', ...
+                            expectedFlips, measuredFlips, expectedFlips-measuredFlips);
+                    end
+
                     if expectedFlips==measuredFlips
                         if params.analyzeOnlyOnFlips
                             stimOnFlipTimes=allDiodeFlips;
@@ -449,15 +503,15 @@ classdef (Abstract) VStimAnalysis < handle
                             stimOffFlipTimes=allDiodeFlips(2:2:end);
                         end
                     else
-                        error('This case of unequal triggers for image type trials was not addressed in the code!');
-                        return;
+                        error('Unequal triggers for image-type trials, unresolved even after digital fallback (%d expected vs %d found).', ...
+                            expectedFlips, measuredFlips);
                     end
-
                     fprintf('Saving results to file.\n');
                     save(obj.getAnalysisFileName,'params','stimOnFlipTimes','stimOffFlipTimes');
                     results=load(obj.getAnalysisFileName);
-            end
-        end
+            end %end to switch case
+
+        end %end to getSyncedTriggers function
 
         function copyFilesFromRecordingFolder(obj)
             %searches visual stimulation files and copies them to a dedicated visual stimulation folder

@@ -27,15 +27,25 @@ data = readtable(excelFile);
 %%%%%%%%
 
 %% Compare MB vs RG, use gridmode true, selects maximum spatial category across directions
-[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true,RespDurationWin=300);
+markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
+              21, 'RG', 'PV132', 6 };
+
+[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','RG'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=false,useFDR=false,SpatialGridMode=true,maxCategory=true,RespDurationWin=300, markUnits = markUnits);
+
+%% Analysis of just entry to screen
+markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
+              21, 'RG', 'PV132', 6 };
+
+[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=true,BaseRespWindow=300, markUnits = markUnits);
 
 %% Calculate spatial tuning
 results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
-    , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
+    , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = false, testStripeDetection= false);
 %%
 results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=false...
-    , topPercent = 30,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
+    , topPercent = 50,useRF=true,onOff=1,unionResponsive = true,allResponsive=false, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= false);
 %%
 results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
     indexType   = "L_amplitude_diff", ...
@@ -115,7 +125,7 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
 
 %% %% Compares MB and MG, across all categories
 [tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','MBR'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = true);
+    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = false);
 
 %% %% PSTH for MB v sMG
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=100, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
@@ -206,7 +216,7 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, sortBy="preferred
 
 %%
 %% Rect Grid
-for ex = [40:42] %84:91
+for ex = [1, 8] %84:91
     NP = loadNPclassFromTable(ex); %73 81
     vsRe = rectGridAnalysis(NP);
     % vsRe.getSessionTime("overwrite",true);

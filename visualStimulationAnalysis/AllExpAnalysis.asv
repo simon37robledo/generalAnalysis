@@ -48,7 +48,7 @@ function [tempTable] = AllExpAnalysis(expList, params)
 %         CompareCategory = {'direction','direction'}, ...
 %         CompareLevels   = {[0],[0]});
 %
-%   See also: hierBoot, plotSwarmBootstrapWithComparisons,
+%   See also: hierBoot,  ,
 %             StatisticsPerNeuronPerCategory
 
 % =========================================================================
@@ -76,7 +76,7 @@ arguments
     params.maxCategory      logical         = false % Use max-category mode in StatisticsPerNeuron
     params.applyFDR         logical         = false % Apply FDR correction inside the statistics functions
     params.overwriteStats   logical         = false % Force recomputation of statistics
-
+    params.CategoryMaximized                = ''    %Category to be maximized along levels of category to comapre
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap
@@ -86,6 +86,8 @@ arguments
 
     % --- Post-hoc correction (applied AFTER extraction, distinct from applyFDR) ---
     params.useFDR           logical         = false % Benjamini-Hochberg FDR on extracted p-values
+
+    params.markUnits       cell          = {}          % N×4 {NeurID,stimulus,animal,insertion}; row1->X, row2->+
 
     % --- Output ---
     params.overwrite        logical         = false % Force rerun of the entire per-experiment loop
@@ -165,7 +167,7 @@ stimsNeeded = unique(params.ComparePairs, 'stable');
 % =========================================================================
 
 % Load the first experiment to extract directory paths for saving
-NP0 = loadNPclassFromTable(expList(1));
+NP0 = loadNPclassFromTable(expList(end));
 vs0 = linearlyMovingBallAnalysis(NP0);
 
 % Build the root path and combined-analysis save directory
@@ -225,8 +227,8 @@ end
 % rates for every neuron that passes the responsiveness filter.
 TableStimComp = table( ...
     categorical.empty(0,1), categorical.empty(0,1), categorical.empty(0,1), ...
-    categorical.empty(0,1), double.empty(0,1), double.empty(0,1), ...
-    'VariableNames', {'animal','insertion','stimulus','NeurID','Z-score','SpkR'});
+    categorical.empty(0,1), categorical.empty(0,1), double.empty(0,1), double.empty(0,1), ...
+   'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR'});
 
 % TableRespNeurs: one row per (insertion x stimulus).  Counts of responsive
 % neurons and total somatic neurons for fraction-responsive analysis.
@@ -381,6 +383,16 @@ if runLoop
         insStr = regexp(NP.recordingDir, 'Insertion\d+', 'match', 'once');
         insNum = str2double(regexp(insStr, '\d+', 'match'));
 
+        % Real (recording) insertion number = trailing token of the recording name,
+        % e.g. 'PV103_Experiment_12_6_23_1' -> 1. This is the human-facing insertion
+        % number used downstream to mark example units; robust to dropped insertions
+        % because it is the actual recording label, not a sequential/offset index.
+        recName  = NP.recordingName;                        % == vsObj.dataObj.recordingName
+        nameTok  = strsplit(recName, '_');                  % {'PV103','Experiment','12','6','23','1'}
+        realInsertionID = str2double(nameTok{end});         % trailing token is the insertion number
+        assert(~isnan(realInsertionID), ...
+            'recordingName does not end in a numeric insertion token: %s', recName);
+
         % Register animal in the map (assigns a new index only on first encounter)
         animalKey = char(animalID);
         if ~animalMap.isKey(animalKey)
@@ -427,7 +439,7 @@ if runLoop
                 'overwrite',       params.overwriteStats, ...
                 'BaseRespWindow',  params.BaseRespWindow, ...
                 'applyFDR',        params.applyFDR,...
-                'maxCategory'      params.maxCategory};
+                'CategoryMaximized'      params.CategoryMaximized};
             if ~isempty(gratingType)
                 % Only pass GratingType for grating stimuli (SDGm/SDGs)
                 catStatsArgs = [catStatsArgs, {'GratingType', gratingType}];
@@ -601,11 +613,12 @@ if runLoop
                 newRows = table( ...
                     repmat(categorical(cellstr(animalID)), nSig, 1), ...   % animal column
                     repmat(categorical(insertionCount),    nSig, 1), ...   % insertion column
+                    repmat(categorical(realInsertionID),   nSig, 1), ...   %Real Insertion ID
                     repmat(categorical(cellstr(cl)),       nSig, 1), ...   % stimulus/item column
-                    categorical(unitIDs), ...                               % neuron ID column
+                    categorical(unitIDs), ...                                          % neuron ID column
                     stimData.(cl).z(orMask), ...                            % z-score column
                     stimData.(cl).spkR(orMask), ...                         % spike rate column
-                    'VariableNames', {'animal','insertion','stimulus','NeurID','Z-score','SpkR'});
+                    'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR'});
                 TableStimComp = [TableStimComp; newRows];                   %#ok<AGROW>
             end
         end
@@ -733,7 +746,7 @@ S.TableStimComp.stimulus  = categorical(cellstr(string(S.TableStimComp.stimulus)
 % =========================================================================
 
 % Create a fresh analysis object for the first experiment (used for printFig)
-NP = loadNPclassFromTable(expList(1));
+NP = loadNPclassFromTable(expList(end));
 vs = linearlyMovingBallAnalysis(NP, 'MultipleOffsets', false, 'Multiplesizes', false);
 
 [~, figTag, ~] = fileparts(nameOfFile);   % e.g. 'Ex_49-97_SpecLvl_SDGm-angles-0_1p57...'
@@ -787,7 +800,7 @@ ZscoreYlim = ceil(max(S.TableStimComp.('Z-score'))) +0.1*ceil(max(S.TableStimCom
 [fig,~,figAllDiffs] = plotSwarmBootstrapWithComparisons( ...
     S.TableStimComp, pairsAll, pValsZ, {'Z-score'}, ...
     yLegend = 'Z-score', yMaxVis = ZscoreYlim, ...
-    diff = true, plotMeanSem = true, Alpha = 0.7);
+    diff = true, plotMeanSem = true, Alpha = 0.7,   markUnits = params.markUnits)  ;        % N×4 {NeurID,stimulus,animal,insertion}; row1->X, row2->+);
 
 % Apply consistent font formatting to all axes in the figure
 ax = findobj(fig, 'Type', 'axes');
@@ -823,7 +836,9 @@ if ~isempty(figAllDiffs)
     end
 end
 
-
+groupcounts(S.TableStimComp, 'stimulus')                       % pooled rows per stimulus: are MB and MBR equal?
+g = groupcounts(S.TableStimComp, {'insertion','stimulus'});    % rows per (insertion, stimulus)
+unstack(g, 'GroupCount', 'stimulus')                           % one row per insertion; spot where MB ~= MBR
 % For exactly two items, also produce a paired scatter plot
 if numel(compLabels) == 2
     fig = plotPairScatter(S.TableStimComp, compLabels, ...
@@ -853,7 +868,7 @@ spkMax = max(S.TableStimComp.SpkR) +0.1*max(S.TableStimComp.SpkR);
 [fig,~,figAllDiffs] = plotSwarmBootstrapWithComparisons( ...
     S.TableStimComp, pairsAll, pValsSpk, {'SpkR'}, ...
     yLegend = 'SpkR', yMaxVis = spkMax, ...
-    diff = true, plotMeanSem = true, Alpha = 0.7);
+    diff = true, plotMeanSem = true, Alpha = 0.7, markUnits = params.markUnits);
 
 % Apply consistent font formatting
 ax = findobj(fig, 'Type', 'axes');
@@ -1449,6 +1464,7 @@ function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean)
             z        = allZ(linIdx);
             spkR     = allR(linIdx);
             spkDiff  = allDf(linIdx);
+           
             return
 
         case 'MBR'
@@ -1464,6 +1480,7 @@ function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean)
     % Extract per-neuron values from the selected sub-struct
     z = sub.ZScoreU(:);                                 % z-score
     p = sub.pvalsResponse(:);                           % p-value
+   
 
     if useZmean && isfield(sub, 'z_mean')
         spkR = sub.z_mean(:);                           % z-scored mean response

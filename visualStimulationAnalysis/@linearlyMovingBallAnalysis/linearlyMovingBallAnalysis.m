@@ -14,7 +14,7 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
             arguments (Input) %ResponseWindow.mat
                 dataObj
                 params.Session double = 1
-                params.MultipleOffsets logical = true
+                params.MultipleOffsets logical = false
                 params.Multiplesizes logical = false
             end
             if nargin==0
@@ -92,7 +92,8 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
             catch
                 obj.getSessionTime("overwrite",true);
                 obj.getDiodeTriggers("extractionMethod",'digitalTriggerDiode','overwrite',true);
-                DiodeCrossings = obj.getSyncedDiodeTriggers('overwrite',true);
+                obj.getSyncedDiodeTriggers('overwrite',true);
+                DiodeCrossings = obj.getSyncedDiodeTriggers;
             end
 
             stimOn = DiodeCrossings.stimOnFlipTimes;

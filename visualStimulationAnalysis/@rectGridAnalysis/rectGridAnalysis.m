@@ -80,6 +80,10 @@ classdef rectGridAnalysis < VStimAnalysis
 
             stimDur = mean(-stimOn+stimOff);
 
+            if ~isfield(obj.VST,'tilingRatios')
+                obj.VST.tilingRatios = ones(1,length(stimOn));
+            end
+
             A = [stimOn' obj.VST.pos' obj.VST.tilingRatios' obj.VST.rectLuminosity(obj.VST.luminosities)'];
 
             [C indRG]= sortrows(A,[2 3 4]);
@@ -132,7 +136,12 @@ classdef rectGridAnalysis < VStimAnalysis
             mergeTrials = trialDivision;
 
             %Baseline = size window
-            preBase = params.preBase;
+
+            if params.preBase > window_size(2)
+                preBase = params.preBase;
+            else
+                preBase = window_size(2)+50;
+            end
 
             [Mbd] = BuildBurstMatrix(goodU,round(p.t/bin),round((directimesSorted-preBase)/bin),round(preBase/bin)); %Baseline matrix plus
             
@@ -214,8 +223,12 @@ classdef rectGridAnalysis < VStimAnalysis
                     NeuronRespProfile(k,4) = mean(Mr(max_position_Trial(k,1)*trialDivision-trialDivision+1:max_position_Trial(k,1)*trialDivision,u,...
                         max_position_Trial(k,2):max_position_Trial(k,2)+window_size(2)-1),'all');%max_position_Trial(k,2);
 
+                    try
                     BaseResp = mean(Mbd(max_position_TrialB(k,1)*trialDivision-trialDivision+1:max_position_TrialB(k,1)*trialDivision,u,...
                         max_position_TrialB(k,2):max_position_TrialB(k,2)+window_size(2)-1),'all');
+                    catch
+                        2+2
+                    end
 
                     %4%. Resp - Baseline
                     % NeuronRespProfile(i,4) = (max_mean_value_Trial(i) - (spkRateBM(u)+max_mean_value_Trial(i))/2)/denom(u); %Zscore

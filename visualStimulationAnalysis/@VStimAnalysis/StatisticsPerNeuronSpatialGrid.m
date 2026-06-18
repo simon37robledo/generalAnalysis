@@ -50,7 +50,7 @@ rng(params.randomSeed);
 % -------------------------------------------------------------------------
 % Load spike-sorted somatic units
 % -------------------------------------------------------------------------
-p     = obj.dataObj.convertPhySorting2tIc(obj.spikeSortingFolder);  % kilosort/phy output
+p     = obj.dataObj.convertPhySorting2tIc(obj.spikeSortingFolder,0,1);  % kilosort/phy output
 label = string(p.label');                                             % unit quality labels
 goodU = p.ic(:, label == 'good');                                     % somatic units only
 
