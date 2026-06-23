@@ -90,7 +90,7 @@ arguments
     params.prefCatPSTH     logical       = false                         % if true: each panel shows each neuron's preferred-category PSTH 
                                                                          % (all trials of preferred level), via splitCategory/splitLevels; 
                                                                          % compatible with unionUnits (content only, does not reorder rows)
-    params.MarkFPnFN     logical       = false                           % in the raster, mark FP and FN units using the findFalseNegAndPos output
+    params.MarkFPnFN     logical       = false                           % in the raster, mar
 end
 
 % -------------------------------------------------------------------------
@@ -229,22 +229,6 @@ if exist([saveDir nameOfFile], 'file') == 2 && ~params.overwrite         % cache
     end
 else
     forloop = true;                                                      % no cache or overwrite requested
-end
-
-if params.MarkFPnFN
-    csvFile = strrep([saveDir nameOfFile], '.mat', '_falseNegPos.csv');
-    if exist(csvFile, 'file')
-        opts = detectImportOptions(csvFile);
-        
-        % FIX: Use setvartype to safely force the Verdict column to a string
-        opts = setvartype(opts, 'Verdict', 'string'); 
-        
-        D_fpfn = readtable(csvFile, opts);
-        fprintf('Loaded FP/FN labels from: %s\n', csvFile);
-    else
-        warning('MarkFPnFN is true, but map file was not found:\n%s\nRun findFalseNegAndPos first.', csvFile);
-        params.MarkFPnFN = false; % Turn off if file missing
-    end
 end
 
 % =========================================================================
@@ -1605,44 +1589,6 @@ for s = 1:nStim
         end
     end
 
-    if params.MarkFPnFN
-        % Extract the numeric vector for the current stimulus panel
-        currentPhy = phyAll{s};
-        currentExp = expAll{s};
-
-        % Get the right edge of the current plot axis so markers sit at the end
-        xLimits = xlim;
-        xEnd = xLimits(2) + (0.01 * diff(xLimits)); % Position 1% past the right edge
-
-        % Loop through every neuron row displayed in the current raster
-        for i = 1:numel(currentPhy)
-            % Match this row to its entry in the FP/FN table
-            idx = find(D_fpfn.Exp == currentExp(i) & D_fpfn.PhyID == currentPhy(i), 1);
-
-            if ~isempty(idx)
-                % Check if this specific stimulus panel is flagged as an FN or FP
-                isFN = (D_fpfn.FN_for(idx) == params.stimTypes(s));
-                isFP = (D_fpfn.FP_for(idx) == params.stimTypes(s));
-
-                if isFN || isFP
-                    % Determine color based on type and severity
-                    verdict = D_fpfn.Verdict(idx);
-                    if contains(verdict, 'CACHE-MISMATCH')
-                        markerColor = [1 0 0];       % Red flag for data mismatch
-                    elseif isFN
-                        markerColor = [0 0.7 0];     % Vibrant Green for False Negatives
-                    else
-                        markerColor = [1 0.5 0];     % Orange for False Positives
-                    end
-
-                    % Plot a clean, visible asterisk at the end of the row
-                    text(xEnd, i, '*', 'Color', markerColor, ...
-                        'FontSize', 12, 'FontWeight', 'bold', ...
-                        'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle');
-                end
-            end
-        end
-    end
     % ------------------------------------------------------------------
     % Depth-bin boundary lines (depth sort only)
     % ------------------------------------------------------------------

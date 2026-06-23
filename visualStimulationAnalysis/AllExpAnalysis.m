@@ -83,6 +83,7 @@ arguments
 
     % --- Data extraction ---
     params.useZmean         logical         = true  % true = use z_mean field; false = peak spike rate
+    params.useTtest         logical         = false % true = use ttest to obtain pvals
 
     % --- Post-hoc correction (applied AFTER extraction, distinct from applyFDR) ---
     params.useFDR           logical         = false % Benjamini-Hochberg FDR on extracted p-values
@@ -102,7 +103,7 @@ end
 % In SpatialGridMode the analysis window is fixed at 200 ms.  Apply the
 % override here so that every downstream call sees the corrected value.
 if params.SpatialGridMode
-    params.BaseRespWindow = 200;    % override user-supplied value
+    params.BaseRespWindow = 300;    % override user-supplied value
 end
 
 % --- Detect operating mode from parameter combinations ---
@@ -452,7 +453,11 @@ if runLoop
             for li = 1:numel(levelLabels)
                 fName = levelLabels{li};                        % field name in catStats
                 stimData.(fName).z    = catStats.(fName).ZScoreU(:);       % z-score
-                stimData.(fName).p    = catStats.(fName).pvalsResponse(:); % p-value
+                if params.useTtest
+                     stimData.(fName).p    = catStats.(fName).pValTTest(:); % p-value
+                else
+                    stimData.(fName).p    = catStats.(fName).pvalsResponse(:); % p-value
+                end
                 stimData.(fName).spkR = catStats.(fName).ObsStat(:);       % spike rate / z_mean
                 if isempty(nUnits), nUnits = numel(stimData.(fName).z); end
             end

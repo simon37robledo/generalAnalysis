@@ -693,13 +693,11 @@ for s = 1:x
 
     end
 
-   % -------------------------------------------------------------------------
-    % One-sample one-sided t-test pooled across all valid categories
-    % H0: mean(Diff) = 0  vs  H1: mean(Diff) > 0   (enhancement only)         % one-sided: only net positive drive counts as responsive
+    % -------------------------------------------------------------------------
+    % One-sample t-test pooled across all valid categories
+    % H0: mean(Diff) = 0 across all valid trials.
     % Pooling maximises df and avoids cherry-picking the preferred category.
-    % Right-tailed to match the enhancement-only direction of the primary       % directionally consistent with the max-statistic permutation test
-    % max-statistic permutation test; pooled t-test is the more conservative,    % tests overall net drive, not peak drive (see Methods)
-    % secondary measure of overall net drive.
+    % Permutation test is the primary criterion; t-test is a secondary check.
     % -------------------------------------------------------------------------
     pValTTest = zeros(1, nNeurons);
     tStat     = zeros(1, nNeurons);
@@ -721,8 +719,6 @@ for s = 1:x
         end
 
         DiffValid            = Diff(validRows, u);              % valid trials for neuron u
-        assert(all(isfinite(DiffValid)), ...                     % guard: a NaN/Inf trial would make ttest return p=NaN silently
-            'Non-finite Diff in valid trials for neuron %d.', u); % name the offending neuron for debugging
         [~, pValTTest(u), ~, stats] = ttest(DiffValid, 0, 'Tail', 'right');        % one-sample t-test vs zero
         tStat(u)             = stats.tstat;
     end

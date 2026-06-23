@@ -30,8 +30,8 @@ data = readtable(excelFile);
 markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
               21, 'RG', 'PV132', 6 };
 
-[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=false,useFDR=false,SpatialGridMode=true,maxCategory=true,RespDurationWin=300, markUnits = markUnits);
+[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=false,RespDurationWin=300, markUnits = markUnits, BaseRespWindow=300 );
 
 %% Analysis of just entry to screen
 markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
@@ -61,7 +61,8 @@ results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
 
 %%
-plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = true,splitCategory=["Directions","Position"])
+plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,sdFloorPrctile   = 15,...
+    speed= "best",useCompleteWindow=true,MarkFPnFN = true)%splitCategory=["direction", "position"])
 
 
 %% FIGURE 2 MOVING VS STATIC COMPARISON

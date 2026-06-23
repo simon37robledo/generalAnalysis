@@ -19,7 +19,7 @@ arguments (Input)
     params.plotPatch logical = true
     params.PaperFig logical = false
     params.stim2show = 300
-    params.statType string = "BootstrapPerNeuron"
+    params.statType string = "StatisticsPerNeuron"
     
 end
 
