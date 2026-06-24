@@ -427,7 +427,7 @@ if runLoop
             vsObjs(key) = vsObj;                        % store back (handle class — redundant but safe)
 
             % Extract general p-values (for optional useGeneralFilter)
-            [~, generalP, ~, ~] = extractStimData(vsObj, stimName, params.useZmean);
+            [~, generalP, ~, ~] = extractStimData(vsObj, stimName, params.useZmean, params.useTtest);
             generalPbyStim.(stimName) = generalP;
 
             % Auto-detect GratingType from stimulus abbreviation
@@ -492,7 +492,7 @@ if runLoop
                 vsObjs(key) = vsObj;
 
                 % Extract general p-values (for optional useGeneralFilter)
-                [~, generalP, ~, ~] = extractStimData(vsObj, sn, params.useZmean);
+                [~, generalP, ~, ~] = extractStimData(vsObj, sn, params.useZmean, params.useTtest);
                 generalPbyStim.(sn) = generalP;
 
                 % Auto-detect GratingType from stimulus abbreviation
@@ -562,7 +562,7 @@ if runLoop
             for si = 1:numel(stimsNeeded)
                 sn  = stimsNeeded{si};
                 key = getObjKey(sn);
-                [z, p, spkR, ~] = extractStimData(vsObjs(key), sn, params.useZmean);
+                [z, p, spkR, ~] = extractStimData(vsObjs(key), sn, params.useZmean, params.useTtest);
                 stimData.(sn).z    = z(:);
                 stimData.(sn).p    = p(:);
                 stimData.(sn).spkR = spkR(:);
@@ -1414,7 +1414,7 @@ function runStimStats(vsObj, params)
 end
 
 
-function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean)
+function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean, useTTest)
 % extractStimData  Pull z-scores, p-values, and spike rate from the
 %   StatisticsPerNeuron results.
 %
@@ -1450,8 +1450,15 @@ function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean)
                 sName  = speedFields{iS};           % e.g. 'Speed1', 'Speed2'
                 subTmp = stats.(sName);              % statistics sub-struct
                 rwTmp  = rw.(sName);                 % response window sub-struct
-
-                allP(:,iS) = subTmp.pvalsResponse(:);                       %#ok<AGROW>
+                
+                if useTTest
+                    allP(:,iS) = subTmp.pValTTest(:);
+                    
+                else
+                    allP(:,iS) = subTmp.pvalsResponse(:);
+                end 
+                
+                
                 allZ(:,iS) = subTmp.ZScoreU(:);                             %#ok<AGROW>
 
                 if useZmean && isfield(subTmp, 'z_mean')
@@ -1484,7 +1491,12 @@ function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean)
 
     % Extract per-neuron values from the selected sub-struct
     z = sub.ZScoreU(:);                                 % z-score
-    p = sub.pvalsResponse(:);                           % p-value
+
+    if useTTest
+        p = sub.pValTTest(:);                           % p-value
+    else
+        p = sub.pvalsResponse(:);                           % p-value
+    end
    
 
     if useZmean && isfield(sub, 'z_mean')

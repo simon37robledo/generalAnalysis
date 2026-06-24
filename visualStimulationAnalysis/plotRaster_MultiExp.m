@@ -63,8 +63,8 @@ arguments
     params.overwrite       logical       = false                         % if true, recompute even if cache exists
     params.TakeTopPercentTrials double   = 0                             % fraction (0,1] of trials to keep; [] or 0 = keep all
     params.zScore          logical       = true                          % z-score each neuron using its baseline
-     params.sdFloorPrctile  double        = 15                           % percentile of non-zero baseline SDs used as the z-score denominator floor (controls infinite z for silent-baseline neurons)
-    params.sortBy          string        = "none"                        % "peak" | "depth" | "spatialTuning" | "preferredCategory" | "none"
+    params.sdFloorPrctile  double        = 15                            % percentile of non-zero baseline SDs used as the z-score denominator floor (controls infinite z for silent-baseline neurons)
+    params.sortBy          string        = "none"                        % "peak"|"depth"|"spatialTuning"|"preferredCategory"|"meanZScore"|"pValue"|"none"
     params.PaperFig        logical       = false                         % if true, export figure via printFig
     params.climPrctile     double        = 90                            % upper percentile for colour scale
     params.climNeg         double        = 0                             % fixed negative z-score colour limit
@@ -91,6 +91,7 @@ arguments
                                                                          % (all trials of preferred level), via splitCategory/splitLevels; 
                                                                          % compatible with unionUnits (content only, does not reorder rows)
     params.MarkFPnFN     logical       = false                           % in the raster, mark FP and FN units using the findFalseNegAndPos output
+    params.useTtest      logical       = false                           % use ttest pvalue for selecting units    
 end
 
 % -------------------------------------------------------------------------
@@ -264,6 +265,7 @@ if forloop
     respGroupAll = cell(1, nStim);                                       % union group label per neuron ("both", "X only", etc.)
     bMeanAll     = cell(1, nStim);                                       % per-neuron baseline mean (spk/s) for deferred z-score
     bStdAll      = cell(1, nStim);                                       % per-neuron baseline SD   (spk/s) for deferred z-score
+    pvalAll      = cell(1, nStim);                                       % per-neuron response p-value (for sortBy="pValue")
 
     for s = 1:nStim
         rasterAll{s}    = [];                                            % initialise empty PSTH matrix
@@ -274,6 +276,7 @@ if forloop
         respGroupAll{s} = string.empty;                                  % initialise empty string vector
         bMeanAll{s}     = [];                                            % initialise empty baseline-mean vector
         bStdAll{s}      = [];                                            % initialise empty baseline-SD vector
+        pvalAll{s}      = [];                                            % initialise empty p-value vector
     end
 
     % Counter for neurons dropped due to zero-SD baseline
@@ -469,10 +472,16 @@ if forloop
                 spFields = fieldnames(Stats);                            % all stat sub-fields
                 spFields = spFields(startsWith(string(spFields), "Speed")); % keep Speed1, Speed2, ...
                 nSp      = numel(spFields);                              % number of speed conditions
+               
                 pSpeed   = nan(numel(Stats.(spFields{1}).pvalsResponse), nSp); % [nNeurons x nSpeeds]
+
                 Cspeed   = cell(1, nSp);                                 % per-speed condition matrices
                 for k = 1:nSp
-                    pSpeed(:,k) = Stats.(spFields{k}).pvalsResponse(:);  % p-values for this speed
+                    if params.useTtest
+                         pSpeed(:,k) = Stats.(spFields{k}).pValTTest(:);  % p-values for this speed
+                    else
+                        pSpeed(:,k) = Stats.(spFields{k}).pvalsResponse(:);  % p-values for this speed
+                    end
                     Cspeed{k}   = NeuronResp.(spFields{k}).C;            % onsets/params for this speed
                 end
                 [pvals, bestSp] = min(pSpeed, [], 2);                    % best (lowest) p and its speed per neuron
@@ -482,9 +491,17 @@ if forloop
                 C               = Cspeed{1};                             % representative C (col names / fallback)
             else
                 try
-                    pvals = Stats.(fieldName).pvalsResponse;             % stim-specific p-values
+                    if params.useTtest
+                         pvals = Stats.(fieldName).pValTTest; 
+                    else
+                        pvals = Stats.(fieldName).pvalsResponse;             % stim-specific p-values
+                    end
                 catch
-                    pvals = Stats.pvalsResponse;                         % flat struct fallback
+                    if params.useTtest
+                         pvals = Stats.pValTTest; 
+                    else
+                        pvals = Stats.pvalsResponse;             % stim-specific p-values
+                    end                      % flat struct fallback
                 end
                 try
                     C = NeuronResp.(fieldName).C;                        % condition matrix (sub-field)
@@ -549,9 +566,18 @@ if forloop
                 % Also extract Moving p-values from the same analysis object.
                 staticPvals = expPvals{1};                               % already stored by pre-scan
                 try
-                    movingPvals = expStats{1}.Moving.pvalsResponse;      % moving-phase p-values
+                    if params.useTtest
+                         movingPvals = expStats{1}.Moving.pValTTest; 
+                    else
+                        movingPvals = expStats{1}.Moving.pvalsResponse;           % stim-specific p-values
+                    end
+                        % moving-phase p-values
                 catch
-                    movingPvals = expStats{1}.pvalsResponse;             % flat struct fallback
+                    if params.useTtest
+                        movingPvals = expStats{1}.pValTTest;
+                    else
+                        movingPvals = expStats{1}.pvalsResponse;           % stim-specific p-values
+                    end
                 end
 
                 staticResp = staticPvals(:) < params.alpha;              % logical: responsive to static phase
@@ -897,6 +923,7 @@ if forloop
                             respGroupAll{s}(end+1) = expNeuronGroup(u);  % union group label
                             bMeanAll{s}(end+1)  = NaN;                   % keep baseline accumulators aligned
                             bStdAll{s}(end+1)   = NaN;                   % keep baseline accumulators aligned
+                            pvalAll{s}(end+1)   = pvals(u);             % response p-value (valid even for NaN-raster row)
                             nAppended = nAppended + 1;
                         end
                         continue                                         % all levels empty — skip neuron                                     % all levels empty — skip neuron
@@ -991,6 +1018,7 @@ if forloop
                 prefLevelAll{s}(end+1) = prefLevel;                     % preferred level (NaN if not catMode)
                 bMeanAll{s}(end+1)  = bMean;                            % baseline mean for deferred z-score
                 bStdAll{s}(end+1)   = bStd;                             % baseline SD   for deferred z-score
+                pvalAll{s}(end+1)   = pvals(u);                         % response p-value for this unit (sortBy="pValue")
                 % Store union responsiveness group label
                 if params.unionUnits && numel(expNeuronGroup) >= u
                     respGroupAll{s}(end+1) = expNeuronGroup(u);          % e.g. "both", "static", "MB"
@@ -1055,6 +1083,7 @@ if forloop
         assert(numel(prefLevelAll{s}) == nRows, 'prefLevelAll{%d} length mismatch.', s);
         assert(numel(bMeanAll{s})     == nRows, 'bMeanAll{%d} length mismatch.', s);
         assert(numel(bStdAll{s})      == nRows, 'bStdAll{%d} length mismatch.', s);
+        assert(numel(pvalAll{s})      == nRows, 'pvalAll{%d} length mismatch.', s);
         if params.unionUnits
             assert(numel(respGroupAll{s}) == nRows, 'respGroupAll{%d} length mismatch.', s);
         end
@@ -1130,6 +1159,7 @@ if forloop
         S.(sprintf('%s_phy',       stimField)) = phyAll{s};              % Phy cluster ID vector
         S.(sprintf('%s_prefLevel', stimField)) = prefLevelAll{s};        % preferred level vector
         S.(sprintf('%s_respGroup', stimField)) = respGroupAll{s};        % union responsiveness group label
+        S.(sprintf('%s_pval',      stimField)) = pvalAll{s};             % response p-value vector
     end
 
     save([saveDir nameOfFile], '-struct', 'S');                          % write cache to disk
@@ -1156,6 +1186,7 @@ else
     phyAll       = cell(1, numel(params.stimTypes));
     prefLevelAll = cell(1, numel(params.stimTypes));
     respGroupAll = cell(1, numel(params.stimTypes));
+    pvalAll      = cell(1, numel(params.stimTypes));
 
     for s = 1:numel(params.stimTypes)
         stimField    = matlab.lang.makeValidName(params.stimTypes(s));   % valid struct field name
@@ -1180,7 +1211,7 @@ else
             prefLevelAll{s} = S.(plField);                               % restore preferred levels
         elseif params.sortBy == "preferredCategory"
             error(['Cache file lacks prefLevel data (old format). ' ...
-                   'Re-run with params.overwrite = true.']);
+                'Re-run with params.overwrite = true.']);
         else
             prefLevelAll{s} = nan(1, size(rasterAll{s}, 1));             % fill NaN if unused
         end
@@ -1191,9 +1222,20 @@ else
             respGroupAll{s} = S.(rgField);                               % restore group labels
         elseif params.unionUnits
             error(['Cache file lacks respGroup data (old format). ' ...
-                   'Re-run with params.overwrite = true.']);
+                'Re-run with params.overwrite = true.']);
         else
             respGroupAll{s} = repmat("", 1, size(rasterAll{s}, 1));      % fill empty if unused
+        end
+
+        % pvalAll may be absent in old caches
+        pvField = sprintf('%s_pval', stimField);                         % cache field name
+        if isfield(S, pvField)
+            pvalAll{s} = S.(pvField);                                    % restore response p-values
+        elseif params.sortBy == "pValue"
+            error(['Cache file lacks p-value data (old format). ' ...
+                'Re-run with params.overwrite = true.']);            % required only for this sort
+        else
+            pvalAll{s} = nan(1, size(rasterAll{s}, 1));                  % fill NaN if unused
         end
     end
 
@@ -1359,6 +1401,15 @@ if params.unionUnits
         secondaryMetric    = tuningAll{refStim}(:);                      % tuning index per neuron
         secondaryDirection = char(params.tuningSortOrder);                % user-specified order
 
+    elseif params.sortBy == "meanZScore"
+        postStimBins       = tAxis{refStim} >= lockedPreBase;            % post-onset bin mask (ref stim)
+        secondaryMetric    = mean(rasterAll{refStim}(:, postStimBins), 2, 'omitnan'); % mean post-onset z-score
+        secondaryDirection = 'descend';                                  % strongest response first
+
+    elseif params.sortBy == "pValue"
+        secondaryMetric    = pvalAll{refStim}(:);                        % response p-value (ref stim)
+        secondaryDirection = 'ascend';                                   % most significant first
+
     else
         secondaryMetric    = (1:nNeurons)';                              % identity (preserve original order)
         secondaryDirection = 'ascend';
@@ -1403,6 +1454,7 @@ if params.unionUnits
         phyAll{s}       = phyAll{s}(sortIdx);                            % reorder Phy IDs
         prefLevelAll{s} = prefLevelAll{s}(sortIdx);                      % reorder preferred levels
         respGroupAll{s} = respGroupAll{s}(sortIdx);                      % reorder group labels
+        pvalAll{s}      = pvalAll{s}(sortIdx);                           % reorder p-values
         if params.sortBy == "spatialTuning"
             tuningAll{s} = tuningAll{s}(sortIdx);                        % keep tuning vector aligned
         end
@@ -1486,6 +1538,14 @@ else
                 levelGroupBounds{s} = groupInfo;                         % store for plotting
             end
 
+        elseif params.sortBy == "meanZScore"
+            postStimBins = tAxis{s} >= lockedPreBase;                    % post-onset mask
+            meanZ = mean(data(:, postStimBins), 2, 'omitnan');          % mean post-onset z-score per neuron
+            [~, sortIdx] = sort(meanZ, 'descend', 'MissingPlacement', 'last'); % strongest first
+
+        elseif params.sortBy == "pValue"
+            [~, sortIdx] = sort(pvalAll{s}, 'ascend', 'MissingPlacement', 'last'); % most significant first
+
         else
             sortIdx = 1:size(data, 1);                                   % identity permutation
         end
@@ -1497,6 +1557,7 @@ else
         phyAll{s}       = phyAll{s}(sortIdx);
         prefLevelAll{s} = prefLevelAll{s}(sortIdx);
         respGroupAll{s} = respGroupAll{s}(sortIdx);                      % reorder group labels (empty in standard mode)
+        pvalAll{s}      = pvalAll{s}(sortIdx);                           % reorder p-values
 
         if params.sortBy == "spatialTuning"
             tuningAll{s} = tuningAll{s}(sortIdx);
@@ -1561,11 +1622,29 @@ end
 % Figure and tiled layout
 % ------------------------------------------------------------------
 fig = figure;
+
+% --- Proportional tile widths: conserve the time scale (s per unit width) ---
+% tiledlayout has no column-width ratio, so we build a fine column grid and
+% let each panel span a column count proportional to its displayed duration.
+% Shorter stimuli get physically narrower tiles (no blank padding).
+panelDur = nan(1, nStim);                                                % displayed window per panel (s)
+for s = 1:nStim
+    if isempty(rasterAll{s}); continue; end                             % empty panels left as NaN
+    tsec = (tAxis{s} - lockedPreBase) / 1000;                           % this stim's time axis (s)
+    panelDur(s) = tsec(end) - tsec(1);                                  % full window length (baseline + stim)
+end
+minDur  = min(panelDur, [], 'omitnan');                                  % shortest panel sets the unit
+colSpan = ones(1, nStim);                                                % empty panels span 1 column
+valid   = ~isnan(panelDur);                                             % panels with data
+colSpan(valid) = max(1, round(panelDur(valid) / minDur * 20));          % cols ∝ duration (≈20 for shortest)
+totalCols = sum(colSpan);                                                % grid column count
+
 % FIX B: single figure sizing, width scales with panel count
 set(fig, 'Units', 'centimeters', 'Position', [5 5 5*nStim + 2, 10]);
 
-tl    = tiledlayout(fig, 1, nStim, 'TileSpacing', 'compact', 'Padding', 'compact');
+tl    = tiledlayout(fig, 1, totalCols, 'TileSpacing', 'compact', 'Padding', 'compact'); % fine column grid
 axAll = gobjects(1, nStim);                                              % pre-allocate axes handles
+
 
 for s = 1:nStim
 
@@ -1577,7 +1656,7 @@ for s = 1:nStim
         shortName = stimKey;                                             % fallback
     end
 
-    axAll(s) = nexttile(tl);                                             % create tile
+    axAll(s) = nexttile(tl, [1 colSpan(s)]);                            % tile spans cols ∝ duration
     ax = axAll(s);
 
     if isempty(data)
@@ -1734,7 +1813,6 @@ for s = 1:nStim
             'FontSize', 6);                                              % red dashed line at static→moving transition
     end
 
-    % --- Axis formatting ---
     xlim(ax, [tAxisSec(1), tAxisSec(end)]);                              % per-stim x range
     ylim(ax, [0.5, size(data,1) + 0.5]);                                 % half-row margin
 

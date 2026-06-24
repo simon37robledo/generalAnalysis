@@ -694,41 +694,77 @@ for s = 1:x
     end
 
    % -------------------------------------------------------------------------
-    % One-sample one-sided t-test pooled across all valid categories
-    % H0: mean(Diff) = 0  vs  H1: mean(Diff) > 0   (enhancement only)         % one-sided: only net positive drive counts as responsive
-    % Pooling maximises df and avoids cherry-picking the preferred category.
-    % Right-tailed to match the enhancement-only direction of the primary       % directionally consistent with the max-statistic permutation test
-    % max-statistic permutation test; pooled t-test is the more conservative,    % tests overall net drive, not peak drive (see Methods)
-    % secondary measure of overall net drive.
+    % % -------------------------------------------------------------------------
+    % One-sample right-tailed t-test (enhancement only, H1: mean(Diff) > 0)
+    %
+    % Two modes, selected by params.maxCategory (mirrors the permutation test):
+    %   maxCategory = false : pooled across all valid categories — overall net
+    %                         drive. Same trials throughout, no selection step,
+    %                         so it is valid as-is (conservative, secondary).
+    %   maxCategory = true  : preferred-category test with a SPLIT-HALF guard.
+    %                         Preferred category chosen on a SELECTION half;
+    %                         t-test run on the disjoint TEST half. This removes
+    %                         the circularity of argmax-then-test on the same
+    %                         trials, so the p-value is valid for inference.
+    %
+    % NOTE: this split is independent of the z-score's prefCat (LOO on all
+    % trials), so the preferred category here may differ from the stored
+    % prefCat — expected, as the two answer different questions.
     % -------------------------------------------------------------------------
-    pValTTest = zeros(1, nNeurons);
-    tStat     = zeros(1, nNeurons);
+    pValTTest = nan(1, nNeurons);                  % preallocate p-values [1 × nNeurons]; NaN = undefined
+    tStat     = nan(1, nNeurons);                  % preallocate t-stats  [1 × nNeurons]; NaN = undefined
 
-    for u = 1:nNeurons
-        if noValidCat(u)
-            pValTTest(u) = NaN;
-            tStat(u)     = NaN;
-            continue
-        end
+    if params.maxCategory                           % ---------- split-half preferred-category mode ----------
+        % Reproducible within-category trial split, shared across all neurons.
+        % A private RandStream is used so the global RNG state (and downstream
+        % reproducibility) is left untouched.
+        rs            = RandStream('twister', 'Seed', params.randomSeed);  % private seeded stream
+        permWithinCat = randperm(rs, trialsCat);    % shuffled trial positions 1:trialsCat
+        nSel          = floor(trialsCat / 2);       % selection-half size; test half takes the remainder
+        selPos        = permWithinCat(1:nSel);      % within-category positions -> selection half
+        testPos       = permWithinCat(nSel+1:end);  % within-category positions -> test half (disjoint)
 
-        % Logical row mask: all trials belonging to valid categories for neuron u
-        validRows = false(size(Diff, 1), 1);
-        for c = 1:nCats
-            if validCats(c, u)
-                rows            = (c-1)*trialsCat + 1 : c*trialsCat;
-                validRows(rows) = true;
+        DiffR = reshape(Diff, trialsCat, nCats, nNeurons);  % category-structured Diff [trialsCat × nCats × nNeurons]
+
+        % Preferred category from the SELECTION half only.
+        catMeansSel             = reshape(mean(DiffR(selPos, :, :), 1), nCats, nNeurons);  % selection-half means [nCats × nNeurons]
+        catMeansSel(~validCats) = -Inf;             % invalid categories cannot be preferred
+        [~, prefCatTT]          = max(catMeansSel, [], 1);  % [1 × nNeurons] preferred category per neuron
+
+        for u = 1:nNeurons                          % loop over neurons (columns of Diff)
+            if noValidCat(u)                        % no valid category -> test undefined
+                continue                            % leave NaN (preallocated)
             end
+            cPref    = prefCatTT(u);                % this neuron's preferred category (from selection half)
+            testDiff = DiffR(testPos, cPref, u);    % test-half trials of that category [nTest × 1]
+            assert(all(isfinite(testDiff)), ...     % guard: a NaN/Inf trial would make ttest return p = NaN silently
+                'Non-finite test-half Diff for neuron %d.', u);
+            [~, pValTTest(u), ~, stats] = ttest(testDiff, 0, 'Tail', 'right');  % right-tailed test on held-out half
+            tStat(u) = stats.tstat;                 % store t-statistic
         end
 
-        DiffValid            = Diff(validRows, u);              % valid trials for neuron u
-        assert(all(isfinite(DiffValid)), ...                     % guard: a NaN/Inf trial would make ttest return p=NaN silently
-            'Non-finite Diff in valid trials for neuron %d.', u); % name the offending neuron for debugging
-        [~, pValTTest(u), ~, stats] = ttest(DiffValid, 0, 'Tail', 'right');        % one-sample t-test vs zero
-        tStat(u)             = stats.tstat;
+    else                                            % ---------- pooled mode (unchanged behaviour) ----------
+        for u = 1:nNeurons                          % loop over neurons
+            if noValidCat(u)                        % no valid category -> undefined
+                continue                            % leave NaN (preallocated)
+            end
+            validRows = false(size(Diff, 1), 1);    % [nTrials × 1] inclusion mask, all-false
+            for c = 1:nCats                         % loop over categories
+                if validCats(c, u)                  % include only valid categories for this neuron
+                    rows            = (c-1)*trialsCat + 1 : c*trialsCat;  % contiguous block for category c
+                    validRows(rows) = true;         % mark this category's trials
+                end
+            end
+            DiffValid = Diff(validRows, u);         % pooled valid trials [nValid × 1]
+            assert(all(isfinite(DiffValid)), ...    % guard against silent NaN p-values
+                'Non-finite Diff in valid trials for neuron %d.', u);
+            [~, pValTTest(u), ~, stats] = ttest(DiffValid, 0, 'Tail', 'right');  % pooled right-tailed test
+            tStat(u) = stats.tstat;                 % store t-statistic
+        end
     end
-
-    pValTTest(noValidCat) = NaN;
-    tStat(noValidCat)     = NaN;
+    % (noValidCat neurons remain NaN from preallocation — the old trailing
+    %  pValTTest(noValidCat)=NaN / tStat(noValidCat)=NaN lines are now redundant
+    %  and have been removed.)
 
     % -------------------------------------------------------------------------
     % Store results for this condition

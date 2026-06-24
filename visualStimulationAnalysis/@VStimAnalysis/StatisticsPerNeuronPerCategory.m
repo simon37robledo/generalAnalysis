@@ -72,7 +72,7 @@ arguments (Input)
     params.overwrite             = false     % recompute even if a saved file exists
     params.randomSeed            = 42        % fixed seed for reproducibility
     params.ApplyFDR              = false     % Benjamini-Hochberg FDR correction across pairs × neurons
-    params.MovingWindowDuration  = 200       % ms sliding window for moving-ball per-trial peak response (response only; never applied to baseline). Only used when stimulus is linearlyMovingBall.
+    params.MovingWindowDuration  = 300       % ms sliding window for moving-ball per-trial peak response (response only; never applied to baseline). Only used when stimulus is linearlyMovingBall.
     params.GratingType           = "moving"  % grating phase to analyse when stimulus is StaticDriftingGrating
     params.CategoryMaximized     = ''        % for each neuron, pick the level of this category that maximizes mean response before running per-level statistics
 end
