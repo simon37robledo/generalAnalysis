@@ -30,7 +30,7 @@ data = readtable(excelFile);
 markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
               21, 'RG', 'PV132', 6 };
 
-[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','RG'},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=false,RespDurationWin=500, markUnits = markUnits, BaseRespWindow=500, useTtest=true);
 
 %% Analysis of just entry to screen

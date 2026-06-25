@@ -1060,7 +1060,7 @@ function specs = resolveMarkUnits(markUnits)
 
 
 % Single marker shared by every example unit (same symbol for all)
-markerSymbol = 'o';
+markerSymbol = 'x';
 
 % Empty / unset input: return a 0x0 struct with the right fields (overlay no-ops)
 if isempty(markUnits)
@@ -1208,10 +1208,10 @@ for m = 1:numel(specs)
 
         % White halo first, then symbol on top; both small and at alpha 0.6 so
         % the underlying swarm dot stays visible through the mark.
-        % plot(ax, xMark, yMark, spec.symbol, ...
-        %     'Color', [1 1 1 0.6], 'MarkerSize', 6, 'LineWidth', 2.0, 'Clipping', 'off');  % halo
         plot(ax, xMark, yMark, spec.symbol, ...
-            'Color', [0 0 0 0.6], 'MarkerSize', 4, 'LineWidth', 1.2, 'Clipping', 'off');  % symbol
+            'Color', [1 1 1 0.6], 'MarkerSize', 8, 'LineWidth', 2.0, 'Clipping', 'off');  % halo
+        plot(ax, xMark, yMark, spec.symbol, ...
+            'Color', [0 0 0 0.6], 'MarkerSize', 6, 'LineWidth', 1.2, 'Clipping', 'off');  % symbol
     end
 end
 
