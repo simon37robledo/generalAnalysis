@@ -852,7 +852,7 @@ for s = 1:x
         S.z_mean            = z_mean.*1000;   
         S.catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
         S.catColNames = sepNames;    % [1 × nSep] separating-factor names
-        S.focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});
+        S.(fieldName).focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});
     end
 
     S.params = params;  % store parameters alongside results for reproducibility

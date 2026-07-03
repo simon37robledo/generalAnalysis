@@ -77,6 +77,7 @@ arguments
     params.applyFDR         logical         = false % Apply FDR correction inside the statistics functions
     params.overwriteStats   logical         = false % Force recomputation of statistics
     params.CategoryMaximized                = ''    %Category to be maximized along levels of category to comapre
+    params.durationWindow   double          = 400   %Window length for moving window pval mode for moving ball
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap
@@ -90,9 +91,20 @@ arguments
 
     params.markUnits       cell          = {}          % N×4 {NeurID,stimulus,animal,insertion}; row1->X, row2->+
 
+
+    % --- Use specific categories to create minimum trial set ---
+    params.CategoryLevels   cell    = {}    % per-stimulus factors kept SEPARATE (their crossing = levels).
+                                            %   {} -> "all" (every factor separate) for every stimulus.
+                                            %   1 entry -> broadcast to all; else one entry per ComparePairs stim.
+                                            %   Each entry: string array of names, or "all". e.g. {["directions","offsets"],"all"}
+    params.Lock             cell    = {}    % per-stimulus lock spec; each entry {name,value,...} or {} (no lock).
+                                            %   Broadcast like CategoryLevels. e.g. {{'luminosities',255},{}}
+
     % --- Output ---
     params.overwrite        logical         = false % Force rerun of the entire per-experiment loop
     params.PaperFig         logical         = false % Save publication-quality figures via printFig
+
+
 end
 
 % =========================================================================
@@ -162,6 +174,8 @@ isSpecificLevelMode = (mode == 3);   % specific (stim, cat, level) tuples
 
 % Unique stimulus names that need to be loaded (deduplicated, preserving order)
 stimsNeeded = unique(params.ComparePairs, 'stable');
+
+
 
 % =========================================================================
 % SECTION 2 — DIRECTORY SETUP AND CACHE MANAGEMENT
@@ -675,7 +689,8 @@ if runLoop
         'useZmean',         params.useZmean, ...        % z_mean vs peak spike rate
         'useGeneralFilter', params.useGeneralFilter, ...% general vs per-item filter
         'nBoot',            params.nBoot, ...           % bootstrap iterations (pairwise)
-        'nBootCategory',    params.nBootCategory);      % bootstrap iterations (category)
+        'nBootCategory',    params.nBootCategory,...    % bootstrap iterations (category)
+        'durationWindow',   params.durationWindow);     % Window lenght for moving window 
 
     % Add mode-specific fields
     if isCategoryMode
@@ -1409,6 +1424,7 @@ function runStimStats(vsObj, params)
         'overwrite',       params.overwriteStats, ...
         'BaseRespWindow',  params.BaseRespWindow, ...
         'SpatialGridMode', params.SpatialGridMode, ...
+        'durationWindow',  params.durationWindow,...
         'maxCategory',     params.maxCategory, ...
         'applyFDR',        params.applyFDR);
 end
