@@ -105,11 +105,6 @@ assert(mod(params.preBase, params.binWidth) == 0, ...                    % preve
     'preBase (%g ms) must be a multiple of binWidth (%g ms).', ...
     params.preBase, params.binWidth);
 
-% statPrefCatPSTH (stats prefCat) and prefCatPSTH (empirical argmax over splitCategory)
-% are two different ways to pick the displayed category — forbid using both at once.
-assert(~(params.statPrefCatPSTH && params.prefCatPSTH), ...              % they would fight over PSTH content
-    'statPrefCatPSTH and prefCatPSTH are mutually exclusive — pick one preferred-category source.');
-
 % -------------------------------------------------------------------------
 % Validate unionUnits constraints
 % -------------------------------------------------------------------------
@@ -446,21 +441,7 @@ if forloop
             if params.statType == "BootstrapPerNeuron"
                 Stats = obj.BootstrapPerNeuron;                          % bootstrap p-values
             else
-                % Bare call: loads the last saved StatisticsPerNeuron result
-                % as-is. This deliberately does NOT pass computation params.
-                % StatisticsPerNeuron's nargin==1 guard treats a bare call as
-                % "return whatever was last computed", so it will NOT recompute
-                % (or overwrite) even when the cache was built with non-default
-                % params (e.g. AllExpAnalysis run with a focused
-                % durationWindow/CategoryLevels/Lock). This keeps
-                % plotRaster_MultiExp a read-only consumer.
-                %
-                % NOTE: must be a bare method call, not obj.getAnalysisFileName
-                % from here — getAnalysisFileName derives its filename from the
-                % *calling* method's name via dbstack, so calling it directly
-                % from plotRaster_MultiExp resolves to the wrong file
-                % (plotRaster_MultiExp.mat instead of StatisticsPerNeuron.mat).
-                Stats = obj.StatisticsPerNeuron;                        % load cached permutation test (flags come from the cache's own S.params)
+                Stats = obj.StatisticsPerNeuron;                         % load cached permutation test (flags come from the cache's own S.params)
             end
             expStats{s} = Stats;                                         % store for later use
 
@@ -684,15 +665,6 @@ if forloop
             speedC         = expSpeedC{s};                               % per-speed condition matrices
             startStimMs    = expStartStim(s);                           % onset offset (ms; 0 except SDGm)
 
-            % Stimulus-parameter names for prefCat decoding (statPrefCatPSTH only).
-            colNamesStim = strings(1,0);                                 % default empty (unused unless decoding)
-            if params.statPrefCatPSTH                                    % only pay this cost when needed
-                NRcn = obj.ResponseWindow;                              % response-window struct (for colNames)
-                try,   cnAll = NRcn.(fieldName).colNames{1};           % sub-field column names (Speed*/Moving/Static)
-                catch, cnAll = NRcn.colNames{1}; end                   % flat struct fallback (RG, NI, ...)
-                colNamesStim = string(cnAll(5:end));                   % strip 4 bookkeeping cols -> parameter names
-            end
-
             % =============================================================
             % CATEGORY DETECTION (for preferredCategory mode)
             % =============================================================
@@ -768,44 +740,13 @@ if forloop
                if ~params.useGeneralFilter && ~params.unionUnits
                     gt = detectGratingType(stimType);                    % '' for non-grating, 'moving'/'static' for SDG
 
-                    % --- Auto-detect Lock from the existing per-category cache ---
-                    % StatisticsPerNeuronPerCategory supports a Lock pre-filter
-                    % (mirrors CategoryLevels/Lock in StatisticsPerNeuron). Rather
-                    % than adding a redundant plotRaster_MultiExp parameter, peek
-                    % at this stimulus/category's cached results file and reuse
-                    % whatever Lock it was built with — the same auto-detection
-                    % pattern statPrefCatPSTH already uses for focusSpec. If no
-                    % cache exists yet, default to no lock (unchanged behaviour).
-                    %
-                    % Build the path directly from the analysis folder rather
-                    % than obj.getAnalysisFileName: getAnalysisFileName derives
-                    % its name from the *calling* method via dbstack, so calling
-                    % it from here would resolve to plotRaster_MultiExp.mat, not
-                    % StatisticsPerNeuronPerCategory's file. This reconstructs
-                    % StatisticsPerNeuronPerCategory's outputFile naming exactly:
-                    % <folder>\StatisticsPerNeuronPerCategory_<category>.mat.
-                    detectedLock = {};                                   % default: no lock
-                    catCacheFile = fullfile(obj.visualStimAnalysisFolder, ...
-                        ['StatisticsPerNeuronPerCategory_' lower(strtrim(char(thisCatName))) '.mat']);
-                    if isfile(catCacheFile)
-                        cachedCat = load(catCacheFile, 'params');        % peek at saved params only
-                        if isfield(cachedCat, 'params') && isfield(cachedCat.params, 'Lock')
-                            detectedLock = cachedCat.params.Lock;        % reuse the Lock the cache was built with
-                            if ~isempty(detectedLock)
-                                fprintf('  [%s] exp %d: auto-detected Lock from cache for "%s".\n', ...
-                                    stimType, ex, thisCatName);
-                            end
-                        end
-                    end
-
                     % Build name-value args for StatisticsPerNeuronPerCategory
                     catStatsArgs = { ...
                         'compareCategory', char(thisCatName), ...        % category to decompose
                         'nBoot',           params.nBootCategory, ...     % bootstrap iterations
                         'overwrite',       params.overwriteCatStats, ... % force recomputation flag
                         'BaseRespWindow',  params.catBaseRespWindow, ... % response window (ms)
-                        'applyFDR',        params.catApplyFDR, ...       % FDR inside the stats function
-                        'Lock',            detectedLock};                % auto-detected focus lock (see above)
+                        'applyFDR',        params.catApplyFDR};          % FDR inside the stats function
                     if ~isempty(gt)
                         catStatsArgs = [catStatsArgs, {'GratingType', gt}]; % pass GratingType only for SDG stim
                     end
@@ -1011,42 +952,16 @@ if forloop
 
                 else
                     % ==================================================
-                    % STANDARD MODE: PSTH from best-speed trials, optionally
-                    % restricted to the neuron's stored preferred category.
+                    % STANDARD MODE: build PSTH from this neuron's best-speed trials
                     % ==================================================
                     prefLevel = NaN;                                     % not applicable in standard mode
 
-                    Cu = speedC{ bestSpeed(u) };                         % winning speed's condition matrix
-                    % Grid-routed MB has no trial-level category to decode (its
-                    % category is a grid cell). The grid path stores no prefCat, so
-                    % its ABSENCE in the sub-struct is the grid test — no flag needed.
-                    sub      = statSubStruct(expStats{s}, stimType, bestSpeed(u));  % relevant stats sub-struct
-                    canDecode = isfield(sub, 'prefCat') && ~isempty(sub.prefCat);   % standard path -> decodable
-
-                    if params.statPrefCatPSTH && canDecode             % show the swarm's preferred category
-                        sub = statSubStruct(expStats{s}, stimType, bestSpeed(u));   % relevant stats sub-struct
-                        selRows = preferredCatRows(sub, Cu, colNamesStim, u);       % trial rows of prefCat(u)
-                        onsetsU = Cu(selRows, 1)' + startStimMs;         % preferred-category onsets (ms)
-
-                        % Baseline from ALL trials (stimulus-independent -> stable
-                        % z-scale, matching the swarm's pooled sdBase). Set bMean/bStd
-                        % here so the deferred z-score block below does not recompute
-                        % them from the preferred-category subset.
-                        if params.zScore
-                            allOns = Cu(:, 1)' + startStimMs;           % every trial's onset
-                            MRbase = BuildBurstMatrix(goodU(:, u), round(p_sort.t), ...
-                                round(allOns - lockedPreBase), round(windowTotal));  % all-trial matrix
-                            MRbase = reshape(MRbase, numel(allOns), []); % [nTrialsAll x time]
-                            ptb    = mean(MRbase(:, 1:lockedPreBase), 2) * 1000;     % per-trial baseline (spk/s)
-                            bMean  = mean(ptb);                          % across-trial baseline mean
-                            bStd   = std(ptb);                           % across-trial baseline SD
-                            if bStd == 0, nDroppedZeroSD(s) = nDroppedZeroSD(s) + 1; end  % silent baseline: floored later
-                        end
-                    else
-                        onsetsU = Cu(:, 1)' + startStimMs;               % all best-speed trials (grid MB or no decode)
-                    end
+                    Cu      = speedC{ bestSpeed(u) };                    % winning speed's condition matrix
+                    onsetsU = Cu(:, 1)' + startStimMs;                   % best-speed onsets (ms); == directimesSorted for single-speed stim
 
                     % Binary spike matrix: trials x time at 1 ms resolution.
+                    % windowTotal is fixed (preBase + truncated duration), so
+                    % all speeds share the same length — no ragged histograms.
                     MRhist = BuildBurstMatrix( ...
                         goodU(:, u), ...                                 % spike identity for this unit
                         round(p_sort.t), ...                             % rounded sample timestamps
@@ -1161,19 +1076,6 @@ if forloop
     if params.unionUnits && nSkippedUnion > 0
         fprintf('  Union mode: skipped %d experiment(s) with missing stim types.\n', nSkippedUnion);
     end
-
-    % Guard: if zero neurons were collected across every experiment and
-    % stimulus (e.g. every experiment skipped for a missing stim type / a
-    % union-mode Phy-ID mismatch, or no neuron passing the alpha threshold),
-    % the sort-by-group logic below would otherwise crash with a cryptic
-    % "0 elements on the right-hand side" error (respGroupAll{refStim}
-    % evaluating to an empty comma-separated list). Fail clearly here instead.
-    totalNeurons = sum(cellfun(@(r) size(r,1), rasterAll));
-    assert(totalNeurons > 0, 'plotRaster_MultiExp:noNeurons', ...
-        ['No responsive neurons were collected across any experiment/stimulus. ' ...
-         'Check the console output above for per-experiment skip warnings — ' ...
-         'this usually means the requested stimulus types were not present ' ...
-         '(or no neurons passed alpha) for the experiments in exList.']);
 
     % FIX 9: verify accumulator alignment after all experiments
     for s = 1:nStim
@@ -1746,15 +1648,6 @@ set(fig, 'Units', 'centimeters', 'Position', [5 5 5*nStim + 2, 10]);
 tl    = tiledlayout(fig, 1, totalCols, 'TileSpacing', 'compact', 'Padding', 'compact'); % fine column grid
 axAll = gobjects(1, nStim);                                              % pre-allocate axes handles
 
-% --- FP/FN marker styling and running totals (used inside the tile loop, and for the legend built after it) ---
-if params.MarkFPnFN
-    colorFN       = [0      0.4470 0.7410];                              % blue  -- unambiguous vs. orange FP
-    colorFP       = [0.8500 0.3250 0.0980];                              % orange -- unambiguous vs. blue FN
-    colorMismatch = [0      0      0];                                   % black 'x' -- color AND shape both differ from FN/FP asterisks
-    nFNtotal       = 0;                                                  % running count of FN markers drawn (all panels)
-    nFPtotal       = 0;                                                  % running count of FP markers drawn (all panels)
-    nMismatchTotal = 0;                                                  % running count of cache-mismatch markers drawn
-end
 
 for s = 1:nStim
 
@@ -1814,33 +1707,18 @@ for s = 1:nStim
                 isFP = (D_fpfn.FP_for(idx) == params.stimTypes(s));
 
                 if isFN || isFP
-                    % Determine color/glyph based on type and severity.
-                    % Mismatch is checked per-direction (FN:CACHE-MISMATCH vs
-                    % FP:CACHE-MISMATCH) rather than testing the whole Verdict
-                    % string: a combined Verdict like "FN:CACHE-MISMATCH;
-                    % FP:firm-sig" would otherwise mislabel this panel's firm
-                    % FP marker as a mismatch just because the OTHER stim's
-                    % FN flag was a mismatch.
-                    verdict      = D_fpfn.Verdict(idx);
-                    isMismatchFN = isFN && contains(verdict, 'FN:CACHE-MISMATCH');
-                    isMismatchFP = isFP && contains(verdict, 'FP:CACHE-MISMATCH');
-
-                    if isMismatchFN || isMismatchFP
-                        markerColor = colorMismatch;  % black
-                        markerGlyph = 'x';             % shape differs too, not just color (colorblind-safe, prints in b/w)
-                        nMismatchTotal = nMismatchTotal + 1;
+                    % Determine color based on type and severity
+                    verdict = D_fpfn.Verdict(idx);
+                    if contains(verdict, 'CACHE-MISMATCH')
+                        markerColor = [1 0 0];       % Red flag for data mismatch
                     elseif isFN
-                        markerColor = colorFN;         % blue
-                        markerGlyph = '*';
-                        nFNtotal = nFNtotal + 1;
+                        markerColor = [0 0.7 0];     % Vibrant Green for False Negatives
                     else
-                        markerColor = colorFP;         % orange
-                        markerGlyph = '*';
-                        nFPtotal = nFPtotal + 1;
+                        markerColor = [1 0.5 0];     % Orange for False Positives
                     end
 
-                    % Plot a clean, visible marker at the end of the row
-                    text(xEnd, i, markerGlyph, 'Color', markerColor, ...
+                    % Plot a clean, visible asterisk at the end of the row
+                    text(xEnd, i, '*', 'Color', markerColor, ...
                         'FontSize', 12, 'FontWeight', 'bold', ...
                         'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle');
                 end
@@ -1987,38 +1865,6 @@ cb.Label.FontSize = 8;
 cb.FontName       = 'helvetica';                                         % tick font
 cb.FontSize       = 8;
 
-% ------------------------------------------------------------------
-% FP/FN legend — colors/shapes match the markers drawn in the tile loop
-% above; entry labels report the total count of each marker type.
-% ------------------------------------------------------------------
-if params.MarkFPnFN && (nFNtotal + nFPtotal + nMismatchTotal) > 0
-    hold(axAll(end), 'on');                                              % 'on' so proxy markers don't clear the raster/colorbar already on this tile
-    legHandles = gobjects(1, 0);                                         % proxy handles to pass to legend()
-    legLabels  = {};                                                     % matching label strings
-
-    hFN = plot(axAll(end), nan, nan, '*', 'Color', colorFN, ...
-        'MarkerSize', 8, 'LineStyle', 'none');                           % FN swatch (NaN data never actually renders)
-    legHandles(end+1) = hFN;
-    legLabels{end+1}  = sprintf('False Negative (n=%d)', nFNtotal);
-
-    hFP = plot(axAll(end), nan, nan, '*', 'Color', colorFP, ...
-        'MarkerSize', 8, 'LineStyle', 'none');                           % FP swatch
-    legHandles(end+1) = hFP;
-    legLabels{end+1}  = sprintf('False Positive (n=%d)', nFPtotal);
-
-    if nMismatchTotal > 0
-        hMismatch = plot(axAll(end), nan, nan, 'x', 'Color', colorMismatch, ...
-            'MarkerSize', 8, 'LineWidth', 1.5, 'LineStyle', 'none');     % mismatch swatch (only shown if any occurred)
-        legHandles(end+1) = hMismatch;
-        legLabels{end+1}  = sprintf('Cache mismatch (n=%d)', nMismatchTotal);
-    end
-    hold(axAll(end), 'off');
-
-    lg = legend(axAll(end), legHandles, legLabels, 'FontName', 'helvetica', ...
-        'FontSize', 7, 'Box', 'off');
-    lg.Layout.Tile = 'south';                                            % dedicated row below all panels — no overlap with data or colorbar
-end
-
 sgtitle(sprintf('N = %d experiments', numel(exList)), ...
     'FontName', 'helvetica', 'FontSize', 10);                           % super-title
 
@@ -2042,53 +1888,14 @@ end
 % LOCAL HELPER FUNCTIONS
 % =========================================================================
 
-function sub = statSubStruct(Stats, stimType, speedIdx)
-% statSubStruct  Return the StatisticsPerNeuron sub-struct matching a stimulus.
-switch stimType
-    case {"MB","MBR"}, sub = Stats.(sprintf('Speed%d', speedIdx));  % per-speed sub-field
-    case "SDGm",       sub = Stats.Moving;                          % drifting phase
-    case "SDGs",       sub = Stats.Static;                          % static phase
-    otherwise,         sub = Stats;                                 % flat (RG, NI, NV, FFF)
-end
-end
-
-function rows = preferredCatRows(sub, C, colNames, u)
-% preferredCatRows  Trial rows (into C) of neuron u's stored preferred category.
-%   Reproduces the exact category blocking StatisticsPerNeuron used, so the
-%   displayed trials are the ones the swarm's ZScoreU was computed from.
-assert(all(isfield(sub, {'prefCat','validCats','ObsDiff','catTable','focusSpec'})), ...   % standard-path decoder must be present
-    'Stats sub-struct lacks the prefCat decoder (unexpected for a non-grid cache).');
-c = sub.prefCat(u);                                                 % this neuron's preferred category index
-if isnan(c), rows = (1:size(C,1))'; return; end                    % undefined pref -> all trials (safe fallback)
-
-fs    = sub.focusSpec;                                              % focus spec used when the cache was built
-isAll = isempty(fs.CategoryLevels) || ...                          % no separating factors named, or
-    (isscalar(string(fs.CategoryLevels)) && string(fs.CategoryLevels) == "all");
-focusActive = ~isempty(fs.Lock) || ~isAll;                         % lock and/or a real level subset
-
-if focusActive                                                     % --- focus-blocked categories ---
-    [keepMask, catID, catTable2] = applyCategoryFocus(C, colNames, fs.CategoryLevels, fs.Lock);  % rebuild grouping
-    assert(isequal(catTable2, sub.catTable), ...                   % guard: grouping must match the cache
-        'catTable mismatch — focus grouping differs from the cache.');
-    keptIdx = find(keepMask);                                      % original rows surviving the lock filter
-    rows    = keptIdx(catID == c);                                 % rows belonging to preferred category c
-else                                                              % --- legacy contiguous blocks ---
-    nCats     = size(sub.validCats, 1);                            % number of categories
-    trialsCat = size(sub.ObsDiff, 1) / nCats;                     % trials per category (balanced design)
-    assert(trialsCat == round(trialsCat), 'ObsDiff rows not divisible by nCats.');            % integer block size
-    assert(size(C,1) == size(sub.ObsDiff,1), 'C and ObsDiff row counts differ — order mismatch.');  % same trial order
-    rows = ((c-1)*trialsCat + 1 : c*trialsCat)';                 % contiguous block for category c
-end
-end
-
 function gt = detectGratingType(stimKey)
 % detectGratingType  Return the GratingType parameter from a stimulus
 %   abbreviation.  'moving' for SDGm, 'static' for SDGs/SDG, '' otherwise.
-switch stimKey
-    case "SDGm";           gt = 'moving';                            % moving (drifting) grating
-    case {"SDGs", "SDG"};  gt = 'static';                            % static grating (or combined viewed from static onset)
-    otherwise;             gt = '';                                   % not a grating stimulus
-end
+    switch stimKey
+        case "SDGm";           gt = 'moving';                            % moving (drifting) grating
+        case {"SDGs", "SDG"};  gt = 'static';                            % static grating (or combined viewed from static onset)
+        otherwise;             gt = '';                                   % not a grating stimulus
+    end
 end
 
 function fn = resolveFieldName(stimKey, speedParam)

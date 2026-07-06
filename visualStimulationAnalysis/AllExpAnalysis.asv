@@ -455,36 +455,24 @@ if runLoop
             key   = getObjKey(stimName);
             vsObj = vsObjs(key);
 
-            % BUG FIX: runStimStats requires 4 args (catLevels/lockSpec have no
-            % default and are referenced unconditionally inside) — the previous
-            % 2-arg call crashed with "Not enough input arguments" every time
-            % Mode 2 ran. Fetch this stimulus's focus spec, same as Mode 1/3.
-            sp = specByKey(key);                        % this stimulus's CategoryLevels/Lock focus
-            % BUG FIX: capture and reuse this result directly. extractStimData
-            % used to re-derive stats via a bare vsObj.StatisticsPerNeuron()
-            % call (all defaults), which silently discarded CategoryLevels/Lock
-            % (and any other non-default param) via a mismatched recompute.
-            stats = runStimStats(vsObj, params, sp.catLevels, sp.lock);  % general per-neuron statistics, with focus
+            % Run general per-neuron statistics (StatisticsPerNeuron)
+            runStimStats(vsObj, params);
             vsObjs(key) = vsObj;                        % store back (handle class — redundant but safe)
 
             % Extract general p-values (for optional useGeneralFilter)
-            [~, generalP, ~, ~] = extractStimData(stats, vsObj, stimName, params.useZmean, params.useTtest);
+            [~, generalP, ~, ~] = extractStimData(vsObj, stimName, params.useZmean, params.useTtest);
             generalPbyStim.(stimName) = generalP;
 
             % Auto-detect GratingType from stimulus abbreviation
             gratingType = detectGratingType(stimName);
 
             % Build name-value arguments for StatisticsPerNeuronPerCategory
-            % Lock (sp.lock) threads this stimulus's focus spec into the
-            % per-level trial sets, so a Lock used to select responsive
-            % neurons is also honoured when building the compared levels.
             catStatsArgs = { ...
                 'compareCategory', catName, ...
                 'nBoot',           params.nBootCategory, ...
                 'overwrite',       params.overwriteStats, ...
                 'BaseRespWindow',  params.BaseRespWindow, ...
                 'applyFDR',        params.applyFDR,...
-                'Lock',            sp.lock, ...
                 'CategoryMaximized'      params.CategoryMaximized};
             if ~isempty(gratingType)
                 % Only pass GratingType for grating stimuli (SDGm/SDGs)
@@ -518,22 +506,13 @@ if runLoop
                 key  = getObjKey(sn);
                 vsObj = vsObjs(key);
 
-                % Run general per-neuron statistics, with focus
-                % BUG FIX: capture and reuse this result directly, rather than
-                % letting extractStimData re-derive stats via a bare
-                % vsObj.StatisticsPerNeuron() call (all defaults), which
-                % silently discarded CategoryLevels/Lock via a mismatched recompute.
-                stats = runStimStats(vsObj, params, catLevelsPerStim{si}, lockPerStim{si});  % single call, with focus
-                vsObjs(key) = vsObj;
-
+                % Run general per-neuron statistics
+                runStimStats(vsObj, params);
+                
                 if isempty(cat)
-                    % The call above already produced the correct,
-                    % focus-respecting results for this stimulus — reuse them.
-                    % BUG FIX: useTtest was previously omitted here, but
-                    % extractStimData references useTTest unconditionally
-                    % (line ~1547/1588) — this call would have thrown
-                    % "Not enough input arguments" the moment this branch ran.
-                    [z, p, spkR, ~] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                    runStimStats(vsObj, params);
+                    vsObjs(key) = vsObj;
+                    [z, p, spkR, ~] = extractStimData(vsObj, sn, params.useZmean);
                     generalPbyStim.(sn) = p;
                     stimData.(sn).z    = z(:);
                     stimData.(sn).p    = p(:);
@@ -546,22 +525,19 @@ if runLoop
                 vsObjs(key) = vsObj;
 
                 % Extract general p-values (for optional useGeneralFilter)
-                [~, generalP, ~, ~] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                [~, generalP, ~, ~] = extractStimData(vsObj, sn, params.useZmean, params.useTtest);
                 generalPbyStim.(sn) = generalP;
 
                 % Auto-detect GratingType from stimulus abbreviation
                 gratingType = detectGratingType(sn);
 
                 % Build name-value arguments for StatisticsPerNeuronPerCategory
-                % Lock (lockPerStim{si}) threads this stimulus's focus spec
-                % into the per-level trial sets, matching the general filter.
                 catStatsArgs = { ...
                     'compareCategory', cat, ...
                     'nBoot',           params.nBootCategory, ...
                     'overwrite',       params.overwriteStats, ...
                     'BaseRespWindow',  params.BaseRespWindow, ...
-                    'applyFDR',        params.applyFDR, ...
-                    'Lock',            lockPerStim{si}};
+                    'applyFDR',        params.applyFDR};
                 if ~isempty(gratingType)
                     catStatsArgs = [catStatsArgs, {'GratingType', gratingType}];
                 end
@@ -607,18 +583,11 @@ if runLoop
             % ---- Mode 1: across-stimulus (one item per stimulus) ----
 
             % Run general statistics for every loaded stimulus object
-            % BUG FIX: capture and store each object's results directly (keyed
-            % the same way as vsObjs) instead of letting extractStimData
-            % re-derive stats via a bare vsObj.StatisticsPerNeuron() call (all
-            % defaults), which silently discarded CategoryLevels/Lock via a
-            % mismatched recompute.
             objKeys = keys(vsObjs);
-            statsByKey = containers.Map();
             for k = 1:numel(objKeys)
                 key   = objKeys{k};
                 vsObj = vsObjs(key);
-                sp    = specByKey(key);
-                statsByKey(key) = runStimStats(vsObj, params, sp.catLevels, sp.lock);
+                runStimStats(vsObj, params);
                 vsObjs(key) = vsObj;
             end
 
@@ -626,7 +595,7 @@ if runLoop
             for si = 1:numel(stimsNeeded)
                 sn  = stimsNeeded{si};
                 key = getObjKey(sn);
-                [z, p, spkR, ~] = extractStimData(statsByKey(key), vsObjs(key), sn, params.useZmean, params.useTtest);
+                [z, p, spkR, ~] = extractStimData(vsObjs(key), sn, params.useZmean, params.useTtest);
                 stimData.(sn).z    = z(:);
                 stimData.(sn).p    = p(:);
                 stimData.(sn).spkR = spkR(:);
@@ -740,9 +709,7 @@ if runLoop
         'useGeneralFilter', params.useGeneralFilter, ...% general vs per-item filter
         'nBoot',            params.nBoot, ...           % bootstrap iterations (pairwise)
         'nBootCategory',    params.nBootCategory,...    % bootstrap iterations (category)
-        'durationWindow',   params.durationWindow,...     % Window lenght for moving window
-        'CategoryLevels',   {params.CategoryLevels}, ...  % focus: separate factors per stimulus
-        'Lock',             {params.Lock});            % focus: locked factor values per stimulus
+        'durationWindow',   params.durationWindow);     % Window lenght for moving window 
 
     % Add mode-specific fields
     if isCategoryMode
@@ -1161,25 +1128,6 @@ end  % end function AllExpAnalysis
 %                       LOCAL HELPER FUNCTIONS
 % #########################################################################
 
-function specOut = normalizeFocusSpec(specIn, nStim, defaultVal)
-% normalizeFocusSpec  Broadcast/validate a per-stimulus focus spec cell.
-    if isempty(specIn)
-        specOut = repmat({defaultVal}, 1, nStim);        % default for every stimulus
-    elseif numel(specIn) == 1
-        specOut = repmat(specIn(1),    1, nStim);         % single entry -> broadcast
-    else
-        assert(numel(specIn) == nStim, ...                % else must be one per stimulus
-            'Focus spec has %d entries but %d stimuli.', numel(specIn), nStim);
-        specOut = specIn;
-    end
-end
-
-function tf = isFocusActive(catLevels, lockSpec)
-% isFocusActive  True if this stimulus uses non-default focus.
-    isAll = isempty(catLevels) || (isscalar(string(catLevels)) && string(catLevels) == "all");
-    tf    = ~isempty(lockSpec) || ~isAll;                 % lock and/or a real subset of factors
-end
-
 
 function gt = detectGratingType(stimName)
 % detectGratingType  Auto-detect the GratingType parameter from stimulus
@@ -1474,51 +1422,39 @@ function fName = levelToFieldName(catName, value)
 end
 
 
-function stats = runStimStats(vsObj, params, catLevels, lockSpec)   % + two focus args
-    assert(isa(vsObj, 'handle'), 'runStimStats:notHandle', ...
+function runStimStats(vsObj, params)
+% runStimStats  Run ResponseWindow + StatisticsPerNeuron.
+%   NOTE: This function assumes vsObj is a handle class.  If it is a value
+%   class, the caller must capture the return value (which this function
+%   does not currently provide).  Assert handle-class identity here to
+%   catch this early.
+
+    assert(isa(vsObj, 'handle'), ...
+        'runStimStats:notHandle', ...
         'Analysis object must be a handle class for in-place mutation.');
 
-    vsObj.ResponseWindow( ...                                % Step 1: response traces + condition matrix
+    % Step 1: Compute ResponseWindow (response traces, condition matrix)
+    vsObj.ResponseWindow( ...
         'overwrite',      params.overwriteResponse, ...
         'durationWindow', params.RespDurationWin);
 
-    % BUG FIX: durationWindow was previously never passed here, so
-    % StatisticsPerNeuron silently kept its own default (500 ms) regardless
-    % of the value requested at the AllExpAnalysis level.
-    %
-    % BUG FIX: the result is now captured and returned so callers can pass it
-    % straight into extractStimData. Previously extractStimData re-derived
-    % stats via a bare vsObj.StatisticsPerNeuron() call (all arguments at
-    % their defaults) — since StatisticsPerNeuron's cache guard compares ALL
-    % computation params, that parameterless call would detect a mismatch
-    % against the focused/tuned computation just performed here and silently
-    % RECOMPUTE with defaults (CategoryLevels="all", Lock={}, durationWindow=
-    % 500, ...), overwriting the correct cache and discarding the focus spec.
-    stats = vsObj.StatisticsPerNeuron( ...                   % Step 2: max-permutation + t-test stats
+    % Step 2: Run StatisticsPerNeuron (max-permutation test)
+    vsObj.StatisticsPerNeuron( ...
         'overwrite',       params.overwriteStats, ...
         'BaseRespWindow',  params.BaseRespWindow, ...
         'SpatialGridMode', params.SpatialGridMode, ...
+        'durationWindow',  params.durationWindow,...
         'maxCategory',     params.maxCategory, ...
-        'applyFDR',        params.applyFDR, ...
-        'durationWindow',  params.durationWindow, ...       % sliding-window width for MovingWindowPVal (moving ball only)
-        'CategoryLevels',  catLevels, ...                    % focus: factors kept separate
-        'Lock',            lockSpec);                        % focus: locked factor values
+        'applyFDR',        params.applyFDR);
 end
 
 
-function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmean, useTTest)
+function [z, p, spkR, spkDiff] = extractStimData(vsObj, stimName, useZmean, useTTest)
 % extractStimData  Pull z-scores, p-values, and spike rate from the
 %   StatisticsPerNeuron results.
 %
 %   INPUTS
-%     stats     struct  Result of runStimStats's vsObj.StatisticsPerNeuron(...)
-%                       call. BUG FIX: this used to be re-derived here via a
-%                       bare vsObj.StatisticsPerNeuron() (all defaults), which
-%                       silently discarded CategoryLevels/Lock/durationWindow/
-%                       etc. via a mismatched cache recompute. Callers must
-%                       now pass through the exact struct runStimStats returned.
-%     vsObj     Analysis object (used only for ResponseWindow, whose cache
-%               has no params-match guard — reloading it here is safe)
+%     vsObj     Analysis object (with computed StatisticsPerNeuron)
 %     stimName  char  Stimulus abbreviation ('MB','SDGm','SDGs', etc.)
 %     useZmean  logical  true = use z_mean; false = use peak spike rate
 %
@@ -1528,7 +1464,9 @@ function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmea
 %     spkR     (N,1) double   Spike rate (or z_mean) per neuron
 %     spkDiff  (N,1) double   Response minus baseline difference
 
-    rw = vsObj.ResponseWindow;   % safe: no params-match cache logic, just reloads the file runStimStats already wrote
+    % Always read from StatisticsPerNeuron (only stat method retained)
+    stats = vsObj.StatisticsPerNeuron;
+    rw    = vsObj.ResponseWindow;
 
     switch stimName
 

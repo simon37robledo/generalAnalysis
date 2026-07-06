@@ -87,16 +87,36 @@ arguments (Input)
 end
 
 % -------------------------------------------------------------------------
-% Load cached results if available
+% Load cached results — but only if the stored computation params match.
+% Prevents silently loading a result computed under a different focus / stat
+% configuration (CategoryLevels, Lock, maxCategory, nBoot, seed, ...).
+%
+% BUG FIX: a bare call (obj.StatisticsPerNeuron, no name-value pairs at all)
+% must always return whatever was last computed, not silently recompute
+% against internal defaults. Dozens of call sites across the codebase read
+% cached results this way (plotting/summary functions that just want "the
+% last run"); before this fix, any of them would silently trigger a stale
+% cache recompute (and overwrite) whenever the cache had been built with
+% non-default params (e.g. a focused CategoryLevels/Lock run), since the
+% bare call's all-default params would fail computationParamsMatch.
+% nargin==1 means only `obj` was passed — an explicit caller (nargin>1)
+% still goes through the normal params-match check below.
 % -------------------------------------------------------------------------
+calledBare = (nargin == 1);                                        % true iff caller passed zero name-value pairs
+
 if isfile(obj.getAnalysisFileName) && ~params.overwrite
-    if nargout == 1
-        fprintf('Loading saved results from file.\n');
-        results = load(obj.getAnalysisFileName);  % return previously computed results
+    cached = load(obj.getAnalysisFileName);                        % peek at the saved result
+    if calledBare || (isfield(cached, 'params') && computationParamsMatch(cached.params, params))
+        if nargout == 1
+            fprintf('Loading saved results from file.\n');
+            results = cached;                                     % bare call, or params match -> return cached
+        else
+            fprintf('Analysis already exists (use overwrite option to recalculate).\n');
+        end
+        return                                                    % cache valid -> done
     else
-        fprintf('Analysis already exists (use overwrite option to recalculate).\n');
+        fprintf('Computation params changed — recomputing.\n');   % stale cache -> fall through
     end
-    return
 end
 
 
@@ -900,4 +920,22 @@ else
         S.(f{1}) = [];
     end
 end
+end
+
+function tf = computationParamsMatch(pSaved, pNew)
+% computationParamsMatch  True iff every computation-relevant param matches.
+%   Generic (compares all fields) so new params are covered automatically;
+%   only non-computational flags are ignored. isequaln handles NaN and the
+%   nested cells in CategoryLevels/Lock.
+    ignore = {'overwrite', 'inputParams'};                        % flags that don't affect the result
+    fn = union(fieldnames(pSaved), fieldnames(pNew));             % all fields on either struct
+    tf = true;                                                    % assume match until proven otherwise
+    for i = 1:numel(fn)
+        f = fn{i};                                                % current field name
+        if any(strcmp(f, ignore)), continue; end                 % skip ignored flags
+        if ~isfield(pSaved, f) || ~isfield(pNew, f) || ...        % field missing on one side, or
+                ~isequaln(pSaved.(f), pNew.(f))                   % values differ (NaN-safe, recursive)
+            tf = false; return;                                   % any mismatch -> stale
+        end
+    end
 end

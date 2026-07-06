@@ -75,6 +75,7 @@ arguments (Input)
     params.MovingWindowDuration  = 300       % ms sliding window for moving-ball per-trial peak response (response only; never applied to baseline). Only used when stimulus is linearlyMovingBall.
     params.GratingType           = "moving"  % grating phase to analyse when stimulus is StaticDriftingGrating
     params.CategoryMaximized     = ''        % for each neuron, pick the level of this category that maximizes mean response before running per-level statistics
+    params.Lock                  = {}        % {name,value,...} pre-filter: lock other factors to fixed values before splitting by compareCategory (mirrors applyCategoryFocus/StatisticsPerNeuron); {} = no lock
 end
 
 % -------------------------------------------------------------------------
@@ -91,16 +92,24 @@ end
 outputFile = strrep(obj.getAnalysisFileName, '.mat', ...
     ['_' lower(strtrim(params.compareCategory)) '.mat']);                      % e.g. ..._size.mat
 
-% Short-circuit if a saved result exists and the caller did not request
-% overwriting. If they captured an output we still load and return it.
+% Short-circuit if a saved result exists, the caller did not request
+% overwriting, AND the saved computation params match the requested ones.
+% BUG FIX: previously this loaded/returned any existing file unconditionally,
+% so a stale cache computed under a different Lock (or nBoot, BaseRespWindow,
+% etc.) would be silently returned. Mirrors StatisticsPerNeuron's guard.
 if isfile(outputFile) && ~params.overwrite
-    if nargout == 1
-        fprintf('Loading saved results from file.\n');
-        results = load(outputFile);
+    cached = load(outputFile);                                                 % peek at the saved result
+    if isfield(cached, 'params') && computationParamsMatch(cached.params, params)
+        if nargout == 1
+            fprintf('Loading saved results from file.\n');
+            results = cached;                                                 % params match -> return cached
+        else
+            fprintf('Analysis already exists (use overwrite option to recalculate).\n');
+        end
+        return
     else
-        fprintf('Analysis already exists (use overwrite option to recalculate).\n');
+        fprintf('Computation params changed — recomputing.\n');               % stale cache -> fall through
     end
-    return
 end
 
 % -------------------------------------------------------------------------
@@ -172,12 +181,32 @@ if useMaxCategory && isSpeedComp
 end
 
 % -------------------------------------------------------------------------
+% Guard: Lock must not name the category being compared (or maximized) —
+% locking it to a single value would collapse the very comparison requested.
+% -------------------------------------------------------------------------
+if ~isempty(params.Lock)
+    lockNames = string(params.Lock(1:2:end));                                  % every other cell is a factor name
+    assert(~any(strcmpi(lockNames, strtrim(params.compareCategory))), ...
+        'Lock cannot include the category being compared ("%s").', params.compareCategory);
+    if useMaxCategory
+        assert(~any(strcmpi(lockNames, strtrim(params.CategoryMaximized))), ...
+            'Lock cannot include the CategoryMaximized category ("%s").', params.CategoryMaximized);
+    end
+end
+
+% -------------------------------------------------------------------------
 % Get C matrix, trial times, stimulus duration and category column names.
 % C is [nTrials × nCols]; C(:,1) is stimulus onset time, C(:,2:end) are the
 % category labels, in the order given by colNames{1}(5:end).
 % -------------------------------------------------------------------------
 if isMovingBall
-    nSpeeds = numel(unique(obj.VST.speed));                                    % how many speed conditions were presented
+    nSpeeds  = numel(unique(obj.VST.speed));                                   % how many speed conditions were presented
+    % colNames are identical across speed sub-structs; pull from Speed1.
+    % `(5:end)` drops the first 4 columns of the colNames vector (the
+    % bookkeeping columns: trial idx, onset, offset, etc.) leaving only
+    % the actual stimulus parameter names. Needed in BOTH branches below —
+    % the speed-compare branch uses it later to Lock-filter each speed's trials.
+    colNames = responseParams.colNames{1}(5:end);
 
     if isSpeedComp
         % Speed comparison: each speed is itself a level, processed below
@@ -193,11 +222,6 @@ if isMovingBall
         levels  = (1:nSpeeds)';                                                % integer levels 1..nSpeeds (Speed1, Speed2, ...)
         fprintf('Comparing %d speed conditions for %s.\n', nSpeeds, obj.stimName);
     else
-        % colNames are identical across speed sub-structs; pull from Speed1.
-        % `(5:end)` drops the first 4 columns of the colNames vector (the
-        % bookkeeping columns: trial idx, onset, offset, etc.) leaving only
-        % the actual stimulus parameter names.
-        colNames = responseParams.colNames{1}(5:end);
         % C is overwritten with a speed-pooled version inside the response
         % matrix block. Use Speed1 here only so catIdx / cCol can be found.
         C = responseParams.Speed1.C;
@@ -214,6 +238,18 @@ else
     % All other stimuli (rectGrid, static grating phase, etc.)
     C        = responseParams.C;
     colNames = responseParams.colNames{1}(5:end);
+end
+
+% -------------------------------------------------------------------------
+% Lock filter (non-speed-compare branches only): pre-restrict the reference
+% C to locked-in trials BEFORE catIdx/levels are derived from it, so the
+% existing "nLevels < 2" guard below also protects against a Lock that
+% happens to eliminate a whole level. The speed-compare branch applies the
+% identical filter per-speed later, right before its response matrices are built.
+% -------------------------------------------------------------------------
+if ~isempty(params.Lock) && ~isSpeedComp
+    lockKeep = applyCategoryFocus(C, colNames, "all", params.Lock);            % keepMask only; grouping unused here
+    C        = C(lockKeep, :);                                                 % restrict reference C to locked-in trials
 end
 
 % -------------------------------------------------------------------------
@@ -296,8 +332,17 @@ if isSpeedComp
 
     for s = 1:nSpeeds
         fName_s      = sprintf('Speed%d', s);                                  % e.g. 'Speed1'
-        trialTimes_s = responseParams.(fName_s).C(:,1)';                       % row vector of trial onset times for this speed
+        C_s          = responseParams.(fName_s).C;                             % this speed's condition matrix
+        trialTimes_s = C_s(:,1)';                                              % row vector of trial onset times for this speed
         stimDur_s    = responseParams.(fName_s).stimDur;                       % stimulus duration for this speed (ms)
+
+        % Lock filter: restrict this speed's trials to the locked-in subset
+        % before building its response/baseline matrices. Applied per-speed
+        % (rather than once) because each speed has its own C/trial ordering.
+        if ~isempty(params.Lock)
+            lockKeep_s   = applyCategoryFocus(C_s, colNames, "all", params.Lock);  % keepMask for this speed
+            trialTimes_s = trialTimes_s(lockKeep_s);                           % keep only locked-in trials
+        end
 
         % Response: sliding window over the full stimulus duration (peak in
         % time per trial), because the ball can cross the RF at different
@@ -343,19 +388,42 @@ else
         % speed and then concatenate the per-speed response/baseline blocks).
         nSpeeds = numel(unique(obj.VST.speed));
 
+        % Lock filter (per speed): compute once here and reuse below, so the
+        % pooled C_all and the per-speed response/baseline blocks stay
+        % row-aligned to the identical locked-in trial subset.
+        lockKeepBySpeed = cell(nSpeeds, 1);
+
         % Concatenate C matrices from every speed so the pooled trial
         % ordering matches the pooled response matrix.
         C_all = [];
         for s = 1:nSpeeds
             fName_s = sprintf('Speed%d', s);
-            C_all   = [C_all; responseParams.(fName_s).C];                     %#ok<AGROW> ok-for-grow: nSpeeds is small
+            C_s     = responseParams.(fName_s).C;                              % this speed's condition matrix
+            if ~isempty(params.Lock)
+                lockKeepBySpeed{s} = applyCategoryFocus(C_s, colNames, "all", params.Lock);  % keepMask for this speed
+                C_s                = C_s(lockKeepBySpeed{s}, :);                % restrict to locked-in trials
+            else
+                lockKeepBySpeed{s} = true(size(C_s, 1), 1);                    % no lock -> keep everything
+            end
+            C_all   = [C_all; C_s];                                            %#ok<AGROW> ok-for-grow: nSpeeds is small
         end
-        C    = C_all;                                                          % overwrite C with pooled version
+        C    = C_all;                                                          % overwrite C with pooled (and locked) version
         cCol = catIdx + 1;                                                     % column index recomputed defensively (same value)
 
         % Rebuild unique levels from the pooled C.
         levels  = unique(C(:, cCol));
         nLevels = numel(levels);
+
+        % BUG FIX guard: a Lock can eliminate an entire level's trials (the
+        % earlier nLevels<2 check ran on unpooled, unlocked Speed1 data only,
+        % before Lock even existed) — re-check here against the true pooled,
+        % locked level set actually used for the comparison below.
+        if nLevels < 2
+            fprintf(['Only %d level(s) of "%s" remain in %s after applying Lock. ' ...
+                     'Nothing to compare.\n'], nLevels, params.compareCategory, obj.stimName);
+            results = [];
+            return
+        end
 
         responsesList = cell(nSpeeds, 1);
         baselinesList = cell(nSpeeds, 1);
@@ -363,6 +431,7 @@ else
         for s = 1:nSpeeds
             fName_s      = sprintf('Speed%d', s);
             trialTimes_s = responseParams.(fName_s).C(:,1)';
+            trialTimes_s = trialTimes_s(lockKeepBySpeed{s});                   % same locked-in subset as C_all above
             stimDur_s    = responseParams.(fName_s).stimDur;
 
             % Response: full stimulus duration with sliding window.
@@ -653,6 +722,28 @@ save(outputFile, '-struct', 'S');
 results = S;
 
 end % end main function
+
+
+% =========================================================================
+%% Local helper: cache-staleness guard (mirrors StatisticsPerNeuron's)
+% =========================================================================
+function tf = computationParamsMatch(pSaved, pNew)
+% computationParamsMatch  True iff every computation-relevant param matches.
+%   Generic (compares all fields) so new params (e.g. Lock) are covered
+%   automatically; only non-computational flags are ignored. isequaln
+%   handles NaN and the nested cell in Lock.
+    ignore = {'overwrite'};                                       % flag that doesn't affect the result
+    fn = union(fieldnames(pSaved), fieldnames(pNew));             % all fields on either struct
+    tf = true;                                                    % assume match until proven otherwise
+    for i = 1:numel(fn)
+        f = fn{i};                                                % current field name
+        if any(strcmp(f, ignore)), continue; end                 % skip ignored flags
+        if ~isfield(pSaved, f) || ~isfield(pNew, f) || ...        % field missing on one side, or
+                ~isequaln(pSaved.(f), pNew.(f))                   % values differ (NaN-safe, recursive)
+            tf = false; return;                                   % any mismatch -> stale
+        end
+    end
+end
 
 
 % =========================================================================

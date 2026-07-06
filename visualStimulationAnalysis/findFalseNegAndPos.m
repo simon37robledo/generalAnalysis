@@ -42,7 +42,15 @@ arguments
     cacheFile (1,1) string                                  % full path to the *_union.mat cache
     % How "responsive-looking" is judged from the raster (Stage 1):
     params.binPrctile  double = 99    % a post-onset bin is "above noise" if it exceeds this percentile of the baseline (pre-onset) z
-    params.minBins     double = 10     % a neuron "looks responsive" if at least this many post-onset bins are above noise
+    % DURATION-NORMALIZED threshold: a neuron "looks responsive" if the FRACTION
+    % of its post-onset bins above noise reaches minFrac. Using a fraction (not a
+    % fixed bin count) makes MB (~2.3 s, ~280 bins) and RG (~0.5 s, ~70 bins)
+    % judged at equal sensitivity — a fixed count of 10 bins was 3.6% of the MB
+    % window but 14% of the RG window, systematically over-flagging short RG
+    % responses. minBins is retained only as an absolute floor so very short
+    % windows cannot pass on 1-2 chance bins.
+    params.minFrac     double = 0.05   % fraction of post-onset bins above noise required to "look responsive"
+    params.minBins     double = 3      % absolute floor (bins); the per-panel threshold is max(minBins, round(minFrac*nPost))
     params.confirm         logical = true                    % run Stage 2 (pull p / ZScoreU from StatisticsPerNeuron)
     params.fnMarginBand    double  = 0.20                    % FN with alpha<=p<this is "marginal"
     params.fpBorderlineFrac double = 0.5                     % FP with p>=this*alpha is "borderline"
@@ -58,6 +66,11 @@ stimTypes = string(S.params.stimTypes);                     % stimulus order (e.
 nStim     = numel(stimTypes);  assert(nStim >= 2, 'Need >= 2 panels.');
 preBase   = S.lockedPreBase;                                % baseline length (ms); stim onset sits here
 alpha     = S.params.alpha;                                 % classification threshold actually used by the raster
+% The raster labels neurons responsive with pValTTest when it was built with
+% useTtest=true, otherwise with pvalsResponse. Read the same flag here so
+% Stage-2 confirmation compares the IDENTICAL p-value field the labels came
+% from — mismatching the field would flag spurious CACHE-MISMATCH verdicts.
+useTtest  = isfield(S.params,'useTtest') && S.params.useTtest; % default false for older caches lacking the field
 
 % Per-panel raster + post-onset mask
 raster = cell(1,nStim); postIx = cell(1,nStim);
@@ -80,20 +93,24 @@ peakZ     = nan(N,nStim);                                  % strongest post-onse
 respCount = zeros(N,nStim);                                % number of post-onset bins above the noise line
 looksResp = false(N,nStim);                                % the decision: does the neuron look responsive in this panel?
 noiseLine = nan(1,nStim);                                  % per-panel noise level (z), read off the baseline
+minBinsVec = zeros(1,nStim);                               % per-panel duration-normalized bin threshold (used again for severity/plot)
 
 for s = 1:nStim
     baseZ        = raster{s}(:, ~postIx{s});               % baseline (pre-onset) z of every neuron = the noise
     noiseLine(s) = prctile(baseZ(~isnan(baseZ)), params.binPrctile);   % how high a bin gets by chance
 
+    nPost          = sum(postIx{s});                       % number of post-onset bins in this panel
+    minBinsVec(s)  = max(params.minBins, round(params.minFrac * nPost)); % proportional threshold, floored at minBins
     postZ          = raster{s}(:, postIx{s});              % post-onset z of every neuron
     peakZ(:,s)     = max(postZ, [], 2, 'omitnan');         % strongest post-onset bin (reference only)
     respCount(:,s) = sum(postZ > noiseLine(s), 2, 'omitnan');   % post-onset bins above the noise line
-    looksResp(:,s) = respCount(:,s) >= params.minBins;     % responsive if enough bins clear the line
+    looksResp(:,s) = respCount(:,s) >= minBinsVec(s);      % responsive if enough bins clear the line (duration-normalized)
 
     % Check: "both" cells genuinely respond here, so most should clear the
     % line. A low percentage means the noise line is set too high.
-    fprintf('  %s: noise line = %.3f z (%gth pctl of baseline) — captures %.0f%% of "both" cells\n', ...
-        stimTypes(s), noiseLine(s), params.binPrctile, 100*mean(looksResp(isBoth,s)));
+    fprintf('  %s: noise line = %.3f z (%gth pctl of baseline), threshold = %d/%d bins (%.1f%%) — captures %.0f%% of "both" cells\n', ...
+        stimTypes(s), noiseLine(s), params.binPrctile, minBinsVec(s), nPost, ...
+        100*params.minFrac, 100*mean(looksResp(isBoth,s)));
 end
 
 % Compare the test's label to how the neuron looks, per panel:
@@ -108,7 +125,7 @@ for k = 1:N
             severity(k) = max(severity(k), respCount(k,s));               % more bins above noise = stronger miss
         elseif calledResp(s) && ~looksResp(k,s)           % false positive
             FPfor(k) = stimTypes(s);
-            severity(k) = max(severity(k), params.minBins - respCount(k,s));  % further below the line = more clearly flat
+            severity(k) = max(severity(k), minBinsVec(s) - respCount(k,s));  % further below the panel threshold = more clearly flat
         end
     end
 end
@@ -143,10 +160,18 @@ for e = uex(:)'
     for st = needed'
         try
             obj   = buildObj(NP, st);                       % stimulus-specific analysis object
-            Stats = obj.StatisticsPerNeuron(SpatialGridMode=true, maxCategory=true); % loads cache
+            % BARE call (no name-value pairs): returns EXACTLY the last-saved
+            % StatisticsPerNeuron cache — the same one plotRaster_MultiExp read
+            % (also via a bare call) to build the raster labels. Passing explicit
+            % params here (e.g. SpatialGridMode/maxCategory) would fail
+            % computationParamsMatch against the focused cache AllExpAnalysis
+            % wrote, forcing a recompute with a DIFFERENT test AND overwriting
+            % the cache on disk — producing spurious CACHE-MISMATCH verdicts and
+            % desyncing the stats plotRaster depends on.
+            Stats = obj.StatisticsPerNeuron;                % loads cache (identical to the raster's source)
             ps    = obj.dataObj.convertPhySorting2tIc(obj.spikeSortingFolder);
             phy   = ps.phy_ID(string(ps.label') == 'good'); % good-unit Phy IDs (order matches stats vectors)
-            [pv, zv] = extractPZ(Stats, st);                % per good-unit p and ZScoreU (MB = min across speeds)
+            [pv, zv] = extractPZ(Stats, st, useTtest);      % per good-unit p and ZScoreU (MB = min across speeds); p-field matches the raster
             statMap(statKey(st,e)) = struct('phy', phy(:), 'p', pv(:), 'z', zv(:));
         catch ME
             fprintf('  exp %d %s: stats unavailable (%s)\n', e, st, ME.message);
@@ -216,7 +241,8 @@ end
 
 % Stage-1 picture: how responsive each neuron looks in each panel (bins above
 % noise), coloured by the test's label. A point whose colour disagrees with
-% where it sits is an FN or FP. Dashed lines mark the minBins cut-off.
+% where it sits is an FN or FP. Dashed lines mark the per-panel cut-offs
+% (now duration-normalized, so the two axes can differ).
 figure('Color','w'); hold on
 for g = unique(grpV)'
     m = grpV == g;
@@ -224,8 +250,8 @@ for g = unique(grpV)'
         16, 'filled', 'DisplayName', char(g));            % small jitter so equal counts don't overlap
 end
 yl = ylim; xl = xlim;
-plot(xl, (params.minBins-0.5)*[1 1], 'k--', 'HandleVisibility','off');
-plot((params.minBins-0.5)*[1 1], yl, 'k--', 'HandleVisibility','off');
+plot(xl, (minBinsVec(2)-0.5)*[1 1], 'k--', 'HandleVisibility','off');   % stim2 (y-axis) threshold
+plot((minBinsVec(1)-0.5)*[1 1], yl, 'k--', 'HandleVisibility','off');   % stim1 (x-axis) threshold
 xlabel(sprintf('%s: post-onset bins above noise', stimTypes(1)));
 ylabel(sprintf('%s: post-onset bins above noise', stimTypes(2)));
 legend('Location','northeastoutside'); box off
@@ -264,26 +290,31 @@ function obj = buildObj(NP, stim)
     end
 end
 
-function [p, z] = extractPZ(Stats, stim)
+function [p, z] = extractPZ(Stats, stim, useTtest)
 % extractPZ  Per good-unit p-value and ZScoreU for a stimulus.
 %   MB/MBR: minimum p across speeds (matches AllExpAnalysis), z at that speed.
+%   useTtest selects the p-value FIELD so it matches the one the raster used to
+%   label neurons: pValTTest when true, pvalsResponse when false.
+    if nargin < 3, useTtest = false; end                    % default: permutation-test p (pvalsResponse)
+    pField = 'pvalsResponse';                               % permutation-test p-value (raster default)
+    if useTtest, pField = 'pValTTest'; end                  % t-test p-value (raster's useTtest=true path)
     switch stim
         case {"MB","MBR"}
             spF = fieldnames(Stats); spF = spF(startsWith(string(spF),"Speed"));
             if isempty(spF)
-                p = Stats.pvalsResponse(:); z = Stats.ZScoreU(:);
+                p = Stats.(pField)(:); z = Stats.ZScoreU(:);
             else
-                P = nan(numel(Stats.(spF{1}).pvalsResponse), numel(spF)); Z = nan(size(P));
+                P = nan(numel(Stats.(spF{1}).(pField)), numel(spF)); Z = nan(size(P));
                 for k = 1:numel(spF)
-                    P(:,k) = Stats.(spF{k}).pvalsResponse(:);
+                    P(:,k) = Stats.(spF{k}).(pField)(:);
                     Z(:,k) = Stats.(spF{k}).ZScoreU(:);
                 end
                 [p, idx] = min(P, [], 2);                    % best speed per neuron
                 z = Z(sub2ind(size(Z), (1:size(Z,1))', idx));% z at the winning speed
             end
-        case "SDGs", p = Stats.Static.pvalsResponse(:); z = Stats.Static.ZScoreU(:);
-        case "SDGm", p = Stats.Moving.pvalsResponse(:); z = Stats.Moving.ZScoreU(:);
-        otherwise,   p = Stats.pvalsResponse(:); z = Stats.ZScoreU(:);
+        case "SDGs", p = Stats.Static.(pField)(:); z = Stats.Static.ZScoreU(:);
+        case "SDGm", p = Stats.Moving.(pField)(:); z = Stats.Moving.ZScoreU(:);
+        otherwise,   p = Stats.(pField)(:); z = Stats.ZScoreU(:);
     end
 end
 
