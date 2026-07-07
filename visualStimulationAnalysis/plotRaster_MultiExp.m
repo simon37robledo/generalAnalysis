@@ -87,6 +87,7 @@ arguments
     % --- Union responsive units mode ---
     params.unionUnits      logical       = false                         % if true, match neurons across stim panels (same row = same neuron)
     params.MarkFPnFN     logical       = false                           % in the raster, mark FP and FN units using the findFalseNegAndPos output
+    params.verdictFilter (1,:) string  = ["discrepant","borderline"]     % which FP/FN verdict levels to draw; "" = mark all (default). e.g. ["discrepant","borderline"] marks only genuine-disagreement verdicts, hiding benign "marginal"/"firm-sig"/CACHE-MISMATCH
     params.useTtest      logical       = false                           % use ttest pvalue for selecting units 
     % --- Preferred-category PSTH content (independent of sorting) ---
    % --- Preferred-category PSTH content (independent of sorting) ---
@@ -1822,6 +1823,23 @@ for s = 1:nStim
                     % FP marker as a mismatch just because the OTHER stim's
                     % FN flag was a mismatch.
                     verdict      = D_fpfn.Verdict(idx);
+
+                    % Optional verdict filter: only draw markers whose verdict
+                    % level was requested. The check is direction-aware — for an
+                    % FN marker it matches the "FN:" part of the verdict, for an
+                    % FP marker the "FP:" part — so a combined verdict like
+                    % "FN:marginal; FP:borderline" is judged by the level that
+                    % belongs to THIS panel's marker, not the other stim's.
+                    % Empty filter ("") keeps every candidate (default).
+                    filterActive = ~(isscalar(params.verdictFilter) && params.verdictFilter == "");
+                    if filterActive
+                        prefix = "FP"; if isFN, prefix = "FN"; end        % this panel's marker direction
+                        keepMarker = any(contains(verdict, prefix + ":" + params.verdictFilter)); % level requested?
+                        if ~keepMarker
+                            continue                                     % verdict level not in filter — skip (not drawn, not counted)
+                        end
+                    end
+
                     isMismatchFN = isFN && contains(verdict, 'FN:CACHE-MISMATCH');
                     isMismatchFP = isFP && contains(verdict, 'FP:CACHE-MISMATCH');
 

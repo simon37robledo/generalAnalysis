@@ -53,6 +53,16 @@ arguments
     params.minBins     double = 3      % absolute floor (bins); the per-panel threshold is max(minBins, round(minFrac*nPost))
     params.confirm         logical = true                    % run Stage 2 (pull p / ZScoreU from StatisticsPerNeuron)
     params.fnMarginBand    double  = 0.20                    % FN with alpha<=p<this is "marginal"
+    % An FN candidate must be CORROBORATED by a positive stat effect size
+    % (ZScoreU). When the raster's apparent response is a z-score artifact
+    % (near-silent baseline inflating the raster z to 10-50 while the stat's
+    % effect size sits at ~0 or negative), the neuron is not a genuine miss —
+    % the label and the stat's magnitude agree there is no response. Such
+    % candidates get verdict "FN:z-inflation" (benign) instead of marginal/
+    % discrepant, so they are excluded by plotRaster's verdictFilter. Uses the
+    % effect size (ZScoreU), which is independent of the p-value that did the
+    % labelling, so this is a magnitude cross-check, not p-on-p circularity.
+    params.fnMinZ          double  = 0.5                     % min stat ZScoreU for an FN candidate to count as genuine
     params.fpBorderlineFrac double = 0.5                     % FP with p>=this*alpha is "borderline"
     params.saveCSV         logical = true                    % write the table next to the cache
 end
@@ -96,19 +106,27 @@ noiseLine = nan(1,nStim);                                  % per-panel noise lev
 minBinsVec = zeros(1,nStim);                               % per-panel duration-normalized bin threshold (used again for severity/plot)
 
 for s = 1:nStim
-    baseZ        = raster{s}(:, ~postIx{s});               % baseline (pre-onset) z of every neuron = the noise
-    noiseLine(s) = prctile(baseZ(~isnan(baseZ)), params.binPrctile);   % how high a bin gets by chance
+    baseZ        = raster{s}(:, ~postIx{s});               % baseline (pre-onset) z of every neuron = the noise [N x nBaseBins]
+
+    % PER-NEURON noise line: each neuron's own high-percentile baseline bin,
+    % instead of one pooled line across all neurons. A pooled line is dominated
+    % by high-variance units, so a modest-but-real response in a low-variance
+    % unit never clears it — the source of the firm-sig FPs (permutation test
+    % firmly responsive, screen calls it flat). Per-neuron mirrors the
+    % permutation test's per-unit baseline logic. Compared row-wise below.
+    noiseLinePN  = prctile(baseZ, params.binPrctile, 2);   % [N x 1] each neuron's own noise line (NaN for empty/placeholder rows)
+    noiseLine(s) = median(noiseLinePN, 'omitnan');         % scalar summary, printout only
 
     nPost          = sum(postIx{s});                       % number of post-onset bins in this panel
     minBinsVec(s)  = max(params.minBins, round(params.minFrac * nPost)); % proportional threshold, floored at minBins
-    postZ          = raster{s}(:, postIx{s});              % post-onset z of every neuron
+    postZ          = raster{s}(:, postIx{s});              % post-onset z of every neuron [N x nPost]
     peakZ(:,s)     = max(postZ, [], 2, 'omitnan');         % strongest post-onset bin (reference only)
-    respCount(:,s) = sum(postZ > noiseLine(s), 2, 'omitnan');   % post-onset bins above the noise line
+    respCount(:,s) = sum(postZ > noiseLinePN, 2, 'omitnan');    % bins above THIS neuron's own line (implicit row-wise expansion)
     looksResp(:,s) = respCount(:,s) >= minBinsVec(s);      % responsive if enough bins clear the line (duration-normalized)
 
     % Check: "both" cells genuinely respond here, so most should clear the
     % line. A low percentage means the noise line is set too high.
-    fprintf('  %s: noise line = %.3f z (%gth pctl of baseline), threshold = %d/%d bins (%.1f%%) — captures %.0f%% of "both" cells\n', ...
+    fprintf('  %s: median per-neuron noise line = %.3f z (%gth pctl of baseline), threshold = %d/%d bins (%.1f%%) — captures %.0f%% of "both" cells\n', ...
         stimTypes(s), noiseLine(s), params.binPrctile, minBinsVec(s), nPost, ...
         100*params.minFrac, 100*mean(looksResp(isBoth,s)));
 end
@@ -198,6 +216,7 @@ for k = find(isCand)'
     if FNfor(k) ~= ""
         if isnan(FN_p(k)),                 v(end+1) = "FN:no-stat";        %#ok<AGROW>
         elseif FN_p(k) <  alpha,           v(end+1) = "FN:CACHE-MISMATCH"; %#ok<AGROW>
+        elseif FN_z(k) <= params.fnMinZ,   v(end+1) = "FN:z-inflation";    %#ok<AGROW> effect size does not corroborate the raster's apparent response
         elseif FN_p(k) <  params.fnMarginBand, v(end+1) = "FN:marginal";   %#ok<AGROW>
         else,                              v(end+1) = "FN:discrepant";     %#ok<AGROW>
         end
@@ -227,6 +246,14 @@ fprintf('\n%d candidates of %d union neurons.\n', height(D), N);
 for s = 1:nStim
     fprintf('  FN for %s: %d   FP for %s: %d\n', ...
         stimTypes(s), sum(D.FN_for==stimTypes(s)), stimTypes(s), sum(D.FP_for==stimTypes(s)));
+end
+% Genuine vs artifact split for FN: z-inflation candidates have no corroborating
+% effect size, so they are display artifacts, not real misses.
+if params.confirm
+    nZinfl   = sum(contains(D.Verdict,"FN:z-inflation"));                  % raster z-score artifacts (benign)
+    nGenuine = sum(contains(D.Verdict,"FN:marginal") | contains(D.Verdict,"FN:discrepant")); % corroborated FN
+    fprintf('  FN split: %d genuine (marginal/discrepant), %d z-inflation artifacts (ZScoreU<=%.2g, excluded from genuine).\n', ...
+        nGenuine, nZinfl, params.fnMinZ);
 end
 if params.confirm && any(contains(D.Verdict,"CACHE-MISMATCH"))
     fprintf('  WARNING: %d CACHE-MISMATCH rows — raster labels disagree with current stats (stale cache?).\n', ...

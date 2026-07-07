@@ -62,8 +62,8 @@ results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
 plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
 
 %%
-plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 15,...
-    speed= "best",useCompleteWindow=true,MarkFPnFN = false, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
+plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
+    speed= "best",useCompleteWindow=true,MarkFPnFN = true, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
 
 
 %% FIGURE 2 MOVING VS STATIC COMPARISON
