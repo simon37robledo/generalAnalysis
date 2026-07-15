@@ -29,10 +29,15 @@ data = readtable(excelFile);
 %% Compare MB vs RG, use gridmode true, selects maximum spatial category across directions
 markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
               21, 'RG', 'PV132', 6 };
+% CategoryLevels={["offsets","directions"],["position"]}
 
 [tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=true,durationWindow=500, markUnits = markUnits, BaseRespWindow=500, useTtest=false, CategoryLevels={["offsets","directions"],["position"]},...
+    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=true,durationWindow=250, markUnits = markUnits, BaseRespWindow=250, useTtest=false,...
     Lock={{"luminosities",255},{"luminosities",255}});
+
+%% 
+T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer = 10,PaperFig=true);
+
 
 %% Analysis of just entry to screen
 markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
@@ -64,6 +69,13 @@ plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,T
 %%
 plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
     speed= "best",useCompleteWindow=true,MarkFPnFN = true, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
+
+%%
+D = findFalseNegAndPos('W:\Large_scale_mapping_NP\lizards\Combined_lizard_analysis\Ex_1-97_n44_Raster_MB-RG_union.mat');
+
+Dfn = sortrows(D(D.FN_for~="",:), 'Severity', 'descend');   % strongest missed responses first
+plotFalseNegPosNeurons(Dfn(1:15,:));     % test batch — check the MB call and the filenames
+% plotFalseNegPosNeurons(D);          % full run once the test looks right
 
 
 %% FIGURE 2 MOVING VS STATIC COMPARISON
@@ -218,9 +230,11 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97], overwrite=true, sortBy="preferred
 
 %%
 %% Rect Grid
-for ex = [91] %84:91
+j = 1;
+for ex = [64 74 81 94 92] %84:91
     NP = loadNPclassFromTable(ex); %73 81
     vsRe = rectGridAnalysis(NP);
+    phyIds = T.PhyID(j);
     % vsRe.getSessionTime("overwrite",true);
     % %vsRe.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
     % vsRe.getDiodeTriggers('overwrite',true);
@@ -230,21 +244,24 @@ for ex = [91] %84:91
     % vsRe.ResponseWindow('overwrite',true)
     % results = vsRe.ShufflingAnalysis('overwrite',true);
     %vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons = true, selectedLum=[],oneTrial = true,PaperFig = true) %43
-     vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = 145, selectedLum=255,oneTrial = true,PaperFig = true) %43
-    vsRe.CalculateReceptiveFields('overwrite',true,AllResponsiveNeurons=false)
-    % [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=13,allStimParamsCombined=false,PaperFig=true,overwrite=true);
-    %result = vsRe.BootstrapPerNeuron('overwrite',true);
-    result = vsRe.StatisticsPerNeuron;
+    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = phyIds, selectedLum=255,oneTrial = true,PaperFig = true) %43
+    % vsRe.CalculateReceptiveFields('overwrite',true,AllResponsiveNeurons=false)
+    % % [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=13,allStimParamsCombined=false,PaperFig=true,overwrite=true);
+    % %result = vsRe.BootstrapPerNeuron('overwrite',true);
+    % result = vsRe.StatisticsPerNeuron;
+
+    j = j+1;
 
 end
 % vsRe.CalculateReceptiveFields
 %vsRe.PlotReceptiveFields("exNeurons",18)
 
-% Moving ball
-
-for ex =[40:42]%97  74:84  (Neurons, 96_74, )
+%% Moving ball
+j =1;
+for ex =[54 76 93 74 97]% 
     NP = loadNPclassFromTable(ex); %73 81
     vs = linearlyMovingBallAnalysis(NP);
+    phyIds = T.PhyID(j);
     % vs.getSessionTime("overwrite",true);
     % vs.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
     % % % %vs.plotDiodeTriggers
@@ -256,17 +273,18 @@ for ex =[40:42]%97  74:84  (Neurons, 96_74, )
     % vs.plotRaster('AllResponsiveNeurons',true,'overwrite',true,'MergeNtrials',1,'bin',50,'GaussianLength',30,'MaxVal_1', false, oneLuminosity = "white", OneDirection="left", ...
     %     sortingOrder=["size","direction","luminosity","offset","speed"])
     %vs.plotRaster('AllSomaticNeurons',true,'overwrite',true,'MergeNtrials',3,PaperFig=true)
-    % vs.plotRaster('exNeuronsPhyID',145,'overwrite',true,'MergeNtrials',3,'PaperFig',false,'OneDirection','down',OneLuminosity= 'white')
+    vs.plotRaster('exNeuronsPhyID',phyIds,'overwrite',true,'MergeNtrials',3,'PaperFig',true,OneLuminosity= 'white',OneDirection='right',bin=10)
     % % % % %vs.plotCorrSpikePattern
     % vs.plotRaster('exNeurons',82,'overwrite',true,'OneDirection','up','OneLuminosity','white','MergeNtrials',1,'PaperFig',false)
     % %vs.plotRaster('AllSomaticNeurons',true,'overwrite',true,'MergeNtrials',3,MaxVal_1=false,PaperFig=false)
-    vs.CalculateReceptiveFields('overwrite',true,testConvolution=false,AllResponsiveNeurons=false);   
+    %vs.CalculateReceptiveFields('overwrite',true,testConvolution=false,AllResponsiveNeurons=false);   
     % colorbarLims=vs.PlotReceptiveFields('exNeurons',13,'overwrite',true,'OneDirection','down','OneLuminosity','white','PaperFig',true);
     % %result = vs.BootstrapPerNeuron('overwrite',true);%('overwrite',true);
     % % pvals0_6Filter =result.Speed2.pvalsResponse';
     % % compare = [pvals,pvalsNoFilt,pvals0_6Filter];
     % result = vs.StatisticsPerNeuron('overwrite',true);
     % result = vs.StatisticsPerNeuronPerCategory('compareCategory','sizes','overwrite',true);
+    j = j+1;
 end
 
 
