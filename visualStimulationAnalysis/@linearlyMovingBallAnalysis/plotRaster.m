@@ -360,9 +360,13 @@ for u = eNeuron
     % --- outer group (thick lines) ---
     for i = 2:numel(groupStarts)
 
+        % LineWidth reduced from 2 to 1: at width 2 these category-boundary lines
+        % were visually covering part of the first/last trial row on each side of
+        % the boundary. Still solid black (vs. the dashed gray inner-group lines
+        % below) so the outer/inner hierarchy stays visually distinct.
         yline(groupStarts(i)-0.5, ...
             'k', ...
-            'LineWidth',2);
+            'LineWidth',1);
 
     end
 
@@ -470,6 +474,20 @@ for u = eNeuron
         [n_rows, n_cols] = size(X);
         n_windows = n_cols - round(window/params.bin) + 1;
 
+        % If this experiment's trial epoch (n_cols bins) is shorter than the fixed
+        % 500 ms raw-data window, n_windows<=0 and the search below would return an
+        % empty best_row/best_col, silently leaving the red patch and raw-data panel
+        % blank with no error. This is a recoverable, experiment-level parameter
+        % mismatch (not an alignment invariant), so warn explicitly and skip this
+        % neuron rather than erroring the whole batch run.
+        if n_windows <= 0
+            warning('plotRaster:WindowExceedsEpoch: neuron phyID=%d (unit idx %d), experiment %s: raw-data window (%d ms = %d bins) exceeds the trial epoch (%d bins at bin=%d ms). Skipping this neuron.', ...
+                phy_IDg(u), u, obj.dataObj.recordingName, window, round(window/params.bin), n_cols, params.bin);
+            close   % discard this neuron's partially-built figure
+            ur = ur+1;
+            continue   % move to the next neuron in the eNeuron loop
+        end
+
         % Compute mean for every sliding window in every row
         % Result: 20 x n_windows matrix
         window_means = zeros(n_rows, n_windows);
@@ -483,8 +501,28 @@ for u = eNeuron
         % Convert linear index to (row, col) — col = start of window
         [best_row, best_col] = ind2sub(size(window_means), linear_idx);
 
-        % Kernel column range
-        start = best_col*params.bin;
+        % When mergeTrials>1, Mr2 held trial-averaged data at search time, so best_row
+        % reflects an arbitrary "first row of the winning merge-group", not the real
+        % trial with the most spikes (rows within a merge-group are numerically
+        % identical after averaging, so max() ties break to the first one). Re-derive
+        % best_row from the REAL unmerged Mr for this neuron, restricted to the same
+        % best_col time window, so the displayed trial is the actual highest-firing
+        % one. When mergeTrials==1, Mr2 already equals real per-trial data (see the
+        % 'else' branch above), so this re-derivation is skipped.
+        if mergeTrials > 1
+            trialsForBestCol = maxRespIn*trialDivision+1 : maxRespIn*trialDivision+trialDivision;  % real trial rows in the winning condition-block
+            XrealWindow = squeeze(Mr(trialsForBestCol, ur, best_col:best_col+round(window/params.bin)-1));  % real (non-averaged) spike counts, this neuron, in the identified window
+            realRowSums = sum(XrealWindow, 2);   % total real spikes per trial row in this window
+            [~, best_row] = max(realRowSums);    % pick the real trial with the most spikes
+        end
+
+        % Kernel column range.
+        % best_col is a 1-indexed BuildBurstMatrix column; its bin covers ms offset
+        % [(best_col-1)*bin, best_col*bin) (confirmed in BuildBurstMatrix.c), so the
+        % window START is (best_col-1)*bin — using best_col*bin here shifted the
+        % extracted window and the red patch one full bin later than the window
+        % actually selected by the search above.
+        start = (best_col-1)*params.bin;
 
 
         % % --- Plot ---
@@ -537,9 +575,32 @@ for u = eNeuron
     %     [RasterTrials-0.5 RasterTrials-0.5 RasterTrials+0.5 RasterTrials+0.5],...
     %     'r','FaceAlpha',0.3,'EdgeColor','none')
 
-    patch([(start)/params.bin (start+window)/params.bin (start+window)/params.bin (start)/params.bin],...
+    % Translucent red fill marks the raw-data extraction window; opacity raised from
+    % 0.3 to 0.6 for a much stronger visual signal, and uistack forces it to the
+    % front of the axes regardless of draw order (it was invisible in some
+    % thin-row/degenerate cases).
+    hPatch = patch([(start)/params.bin (start+window)/params.bin (start+window)/params.bin (start)/params.bin],...
         [RasterTrials-0.5 RasterTrials-0.5 RasterTrials+0.5 RasterTrials+0.5],...
-        'r','FaceAlpha',0.3,'EdgeColor','none')
+        'r','FaceAlpha',0.6,'EdgeColor','none');
+    uistack(hPatch,'top');
+
+    % At higher opacity a solid red fill can visually flatten which bins in this row
+    % actually contain spikes, so redraw the real spike bins for this exact trial in
+    % red on top of the patch, guaranteeing they stay individually visible regardless
+    % of fill alpha. Drawn as one rectangle per spike bin, sized to exactly match the
+    % raster's own bin/row grid (same width as one params.bin column, same height as
+    % one trial row) rather than point markers, so they read as recolored raster
+    % pixels instead of small clumped dots.
+    winCols = best_col:(best_col+round(window/params.bin)-1);               % columns spanned by the patch
+    realRowSpikes = squeeze(Mr(RasterTrials, ur, winCols));                  % real per-bin spike counts for this exact trial
+    spikeCols = winCols(realRowSpikes > 0);                                  % bin columns that actually contain a spike
+    if ~isempty(spikeCols)
+        xLeft  = spikeCols - 0.5;    % left edge of each spike's bin column (imagesc pixel convention)
+        xRight = spikeCols + 0.5;    % right edge of each spike's bin column
+        Xv = [xLeft; xRight; xRight; xLeft];                                                          % 4 x nSpikes vertex x-coords, one column per bin
+        Yv = repmat([RasterTrials-0.5; RasterTrials-0.5; RasterTrials+0.5; RasterTrials+0.5], 1, numel(spikeCols));  % matching y-coords, one trial row tall
+        patch(Xv, Yv, 'r', 'EdgeColor', 'none');   % opaque red rectangle per real spike bin, redrawn on top
+    end
 
 
 
@@ -608,23 +669,26 @@ for u = eNeuron
     %%%%PLot raw data several trials one
     %%%%channel%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
-    %Mark selected trial
-   
-    bin3 = 1;
-    trialM = BuildBurstMatrix(goodU(:,u),round(p.t/bin3),round((directimesSorted+start)/bin3),round((window)/bin3));
-    TrialM = squeeze(trialM(trials,:,:))';
-    
-    [mxTrial TrialNumber] = max(mean(TrialM));
-
-    %RasterTrials = trials(TrialNumber);
-
-    RasterTrials = trials(best_row); 
+    %Mark selected trial (RasterTrials was already picked above by the real-spike search)
+    RasterTrials = trials(best_row);
 
     chan = goodU(1,u);
 
     subplot(18,1,[1 3])
 
     startTimes = directimesSorted(RasterTrials)+start-preBase;
+
+    % A negative startTimes means the requested raw-data window would begin before
+    % the recording/trial could exist — a directly-detectable error condition. Warn
+    % explicitly and skip this neuron's raw-data panel rather than passing a negative
+    % time into NP.getData/BuildBurstMatrix.
+    if startTimes < 0
+        warning('plotRaster:NegativeStartTime: neuron phyID=%d (unit idx %d), experiment %s: computed startTimes=%.2f ms is negative (RasterTrials=%d, start=%.2f ms, preBase=%d ms). Skipping raw-data extraction for this neuron.', ...
+            phy_IDg(u), u, obj.dataObj.recordingName, startTimes, RasterTrials, start, preBase);
+        close
+        ur = ur+1;
+        continue
+    end
 
     freq = "AP"; %or "LFP"
 

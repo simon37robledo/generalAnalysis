@@ -36,7 +36,7 @@ markUnits = { 82, 'MB', 'PV140', 2 ;   % -> X in the MB column [1, 8, 40:43,49:5
     Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
-T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer = 10,PaperFig=true);
+T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer = 15,PaperFig=true);
 
 
 %% Analysis of just entry to screen
