@@ -77,7 +77,7 @@ arguments
     params.applyFDR         logical         = false % Apply FDR correction inside the statistics functions
     params.overwriteStats   logical         = false % Force recomputation of statistics
     params.CategoryMaximized                = ''    %Category to be maximized along levels of category to comapre
-    params.durationWindow   double          = 400   %Window length for moving window pval mode for moving ball
+    params.durationWindow   double          = []   %Window length for moving window pval mode for moving ball
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap

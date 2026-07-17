@@ -338,10 +338,6 @@ for s = 1:x
     % Flag: use segmented approach for moving ball when sliding window disabled
     %useSegments = ~params.MovingWindowPVal && isfield(responseParams, "Speed1");
 
-    if isempty( params.durationWindow)
-        params.MovingWindowPVal = false;
-    end
-
     if params.MovingWindowPVal && isequal(obj.stimName, 'linearlyMovingBall')
         % --- Sliding window approach ---
         winSize = params.durationWindow;  % sliding window size in ms/bins

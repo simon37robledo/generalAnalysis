@@ -29,13 +29,13 @@ arguments
     cacheFile                                       % path to AllExpAnalysis *.mat cache, OR a preloaded struct, OR a TableStimComp table
     params.metric      string  = "Z-score"          % ranking column: "Z-score" (default) or "SpkR"
     params.nPer        double  = 5                   % candidate neurons to return per stimulus (around the median)
-    params.percentile  double  = 50                  % "middle" of the distribution = 50th percentile (exposed for flexibility)
-    params.minZ        double  = 1.64                 % responsiveness gate on Z-score for THIS stimulus (~one-tailed p=0.05, right-tailed enhancement). See note below.
+    params.percentile  double  = 60                 % "middle" of the distribution = 50th percentile (exposed for flexibility)
+    params.minZ        double  = 1.5                % responsiveness gate on Z-score for THIS stimulus (~one-tailed p=0.05, right-tailed enhancement). See note below.
     params.stimuli     string  = ["MB","RG"]          % stimulus categories to sample
     params.expList     double  = []                  % experiment integers; only needed if a bare table/struct without expList is passed
     params.plot        logical = false               % also draw each candidate's raster via that experiment's plotRaster
-    params.PaperFig    logical = false               % when true, save the rasters into a "neuron candidates_stimA_stimB" subfolder
-    params.outRoot     string  = "W:\Large_scale_mapping_NP\Paper_figs" % root that holds the save subfolder
+    params.PaperFig    logical = false               % paper-style figures; also saves them into a "neuron candidates_stimA_stimB" subfolder
+    params.outRoot     string  = ""                  % root for the save subfolder (default: folder of cacheFile, else pwd)
 end
 
 % =========================================================================
@@ -199,33 +199,81 @@ end
 % =========================================================================
 if params.plot                                       % only when plotting was requested
     % Save target: subfolder "neuron candidates_stimA_stimB" under outRoot (paper figs only).
-    saveDir = fullfile(params.outRoot, "neuron candidates_" + strjoin(params.stimuli, "_")); % requested subfolder name
+    if params.outRoot == ""                          % no explicit root given
+        if ischar(cacheFile) || (isstring(cacheFile) && isscalar(cacheFile)) % a path was passed
+            outRoot = string(fileparts(cacheFile));  % default: the cache's own folder
+        else                                         % struct/table input has no path
+            outRoot = string(pwd);                   % fall back to the current folder
+        end
+    else
+        outRoot = params.outRoot;                    % caller-specified root
+    end
+    saveDir = fullfile(outRoot, "neuron candidates_" + strjoin(params.stimuli, "_")); % requested subfolder name
     if params.PaperFig && ~exist(saveDir, 'dir'), mkdir(saveDir); end % create only when we will save
 
     okRows = T(~isnan(T.Exp), :);                     % only picks whose experiment resolved
-    gExp = findgroups(okRows.Exp, okRows.stimulus);  % group by experiment x stimulus -> one plotRaster call each
+    gExp = findgroups(okRows.Exp, okRows.stimulus);  % group by experiment x stimulus -> one shared analysis object per group
     for g = 1:max(gExp)                               % each (experiment, stimulus) group
         sub  = okRows(gExp == g, :);                  % the picks in this group
         stim = sub.stimulus(1);                       % stimulus for this group
         exp  = sub.Exp(1);                            % experiment for this group
         key  = pairKey(char(sub.animal(1)), sub.realInsertion(1)); % (animal, realInsertion) key -> cached NP
         NPh  = resolved(key).NP;                       % reuse the NP loaded during resolution
-        phyIds = sub.PhyID(:)';                        % all Phy IDs for this experiment+stimulus (vector -> one call)
 
-        before = findall(0, 'Type', 'figure');        % figures open before the call
         try
-            obj = buildStimObj(NPh, stim);            % this experiment's analysis object
-            plotPicks(obj, stim, phyIds);             % draw the raster(s); saving is handled here, not by plotRaster
+            obj = buildStimObj(NPh, stim);            % this experiment's analysis object (shared across its neurons below)
         catch ME
-            warning('Exp %g %s: plotRaster failed (%s) — skipping.', exp, stim, ME.message); % report and continue
+            warning('Exp %g %s: could not build analysis object (%s) — skipping.', exp, stim, ME.message); % report and continue
             continue
         end
-        if ~params.PaperFig, continue; end            % nothing to save unless paper figures requested
-        newFigs = setdiff(findall(0, 'Type', 'figure'), before); % figure(s) the call created
-        for fi = 1:numel(newFigs)                      % save each (plotRaster opens one per neuron)
-            fname = sprintf('%s_%s_ins%g_exp%g.jpg', stim, sub.animal(1), sub.realInsertion(1), exp); % base name
-            if numel(newFigs) > 1, fname = strrep(fname, '.jpg', sprintf('_%d.jpg', fi)); end % disambiguate multiples
-            exportgraphics(newFigs(fi), fullfile(saveDir, fname), 'Resolution', 300); % write into the subfolder
+
+        % One plotRaster call PER NEURON, not batched: plotRaster (both MB's and
+        % RG's) closes every figure except the LAST neuron in its exNeuronsPhyID
+        % list, so a batched multi-neuron call would silently drop or mislabel
+        % every earlier pick's figure(s). Calling per-neuron makes each newFigs
+        % capture unambiguously belong to that one phy ID.
+        for r = 1:height(sub)                          % each neuron picked for this experiment+stimulus
+            phyId = sub.PhyID(r);                       % this neuron's own Phy cluster ID
+
+            before = findall(0, 'Type', 'figure');      % figures open before this neuron's call
+            try
+                plotPicks(obj, stim, phyId);             % draw this one neuron's raster (RG also opens a raw-data panel)
+            catch ME
+                warning('Exp %g %s phyID %g: plotRaster failed (%s) — skipping.', exp, stim, phyId, ME.message); % report and continue
+                continue
+            end
+            if ~params.PaperFig, continue; end          % nothing to save unless paper figures requested
+            newFigs = setdiff(findall(0, 'Type', 'figure'), before); % figure(s) this neuron's call created (1 for MB, 2 for RG)
+            for fi = 1:numel(newFigs)                    % save each figure belonging to this neuron
+                fname = sprintf('%s_%s_ins%g_exp%g_U%d.jpg', stim, sub.animal(1), sub.realInsertion(1), exp, phyId); % base name, this neuron's own phy ID
+                if numel(newFigs) > 1, fname = strrep(fname, '.jpg', sprintf('_%d.jpg', fi)); end % disambiguate raster vs raw-data panel
+                % exportgraphics on a network share (W:) can hit a transient sharing
+                % violation when something else (Explorer thumbnail generation, AV/
+                % indexer) briefly opens a just-written .jpg — libjpeg surfaces that as
+                % a generic "out of disk space?" write error even with ample free space
+                % (confirmed: 15.9 TB free on W:, and most neurons in this same batch
+                % exported fine). Retry a few times before giving up; a genuine failure
+                % (bad path, truly full disk) will keep failing across all attempts.
+                nAttempts = 4;
+                for attempt = 1:nAttempts
+                    try
+                        exportgraphics(newFigs(fi), fullfile(saveDir, fname), 'Resolution', 300); % write into the subfolder
+                        break                             % succeeded — stop retrying
+                    catch ME
+                        if attempt == nAttempts           % out of retries — surface it
+                            warning('Export failed after %d attempt(s) for %s: %s', nAttempts, fname, ME.message);
+                        else                               % transient — brief pause then retry
+                            pause(1);
+                        end
+                    end
+                end
+            end
+            % plotRaster's own figure-closing logic only fires for a multi-neuron batch
+            % ("close all but the last"), which never applies now that each call is a
+            % single neuron — so nothing else closes these figures. Close them here once
+            % saved, or they accumulate for the whole run (up to nPer x numel(stimuli)
+            % neurons, 2 figures each for RG) and exhaust graphics/memory resources.
+            close(newFigs);
         end
     end
     if params.PaperFig, fprintf('Saved candidate rasters to:\n  %s\n', saveDir); end % tell the user where they went
@@ -255,12 +303,26 @@ function plotPicks(obj, stim, phyIds)
 %   Argument sets follow the user's canonical MB / RG example calls, EXCEPT
 %   PaperFig=false and overwrite=false: plotRaster's printFig self-saves on EITHER
 %   PaperFig=true (to Paper_figs) OR overwrite=true (to visualStimPlotsFolder), and
-%   PaperFig does not change the figure's appearance — only where it saves. Forcing
-%   both off makes this function the sole writer, so rasters land only in the subfolder.
+%   neither of those internal filenames includes the phy ID. Forcing both off makes
+%   this function the sole writer, so rasters land only in the subfolder, named
+%   with the phy ID that was actually requested.
     switch stim                                          % stimulus-specific plotRaster arguments
-        case {"MB","MBR"}                                % moving ball / bar
+        case "MB"                                        % moving ball: multi-speed, needs per-neuron speed pick
+            % plotRaster's own 'speed'="max" default picks the HIGHEST-NUMBERED
+            % Speed field (a naming coincidence), not the neuron's best-responding
+            % speed. TableStimComp's MB responsiveness (what selected this neuron
+            % as an example in the first place) instead picks the speed with the
+            % LOWEST p-value per neuron (AllExpAnalysis.m's extractStimData). Without
+            % this fix, the raster title could show a non-significant Speed2 p-value
+            % for a neuron that is actually significant (and was selected) at Speed1.
+            bestSpeed = resolveBestSpeed(obj, phyIds);    % per-neuron best-p Speed field, as a "1"/"2"/... string
             obj.plotRaster('exNeuronsPhyID', phyIds, 'overwrite', false, ...
-                'MergeNtrials', 3, 'PaperFig', false, 'OneLuminosity', 'white'); % MB example call
+                'MergeNtrials', 3, 'PaperFig', false, 'OneLuminosity', 'white', 'speed', bestSpeed); % MB example call
+        case "MBR"                                       % moving bar: AllExpAnalysis always uses Speed1 for this
+            % stimulus (extractStimData's 'MBR' case has no multi-speed selection),
+            % so plotRaster's "max" default already matches — no per-neuron pick needed.
+            obj.plotRaster('exNeuronsPhyID', phyIds, 'overwrite', false, ...
+                'MergeNtrials', 3, 'PaperFig', false, 'OneLuminosity', 'white'); % MBR example call
         case "RG"                                        % rectified grid (RG/SB)
             obj.plotRaster('MergeNtrials', 1, 'overwrite', false, 'AllResponsiveNeurons', false, ...
                 'exNeuronsPhyID', phyIds, 'selectedLum', 255, 'oneTrial', true, 'PaperFig', false); % RG example call
@@ -268,6 +330,34 @@ function plotPicks(obj, stim, phyIds)
             obj.plotRaster('exNeuronsPhyID', phyIds, 'overwrite', false, ...
                 'AllResponsiveNeurons', false, 'PaperFig', false); % generic fallback
     end
+end
+
+function speedStr = resolveBestSpeed(obj, phyId)
+% resolveBestSpeed  Per-neuron best-p Speed field for MB, mirroring
+%   AllExpAnalysis.m's extractStimData (argmin of pvalsResponse across Speed1,
+%   Speed2, ...), so the raster title's p-value reflects the same speed that
+%   drove this neuron's inclusion as a responsive MB example, rather than
+%   plotRaster's own "max" default (highest-numbered Speed field).
+    Stats = obj.StatisticsPerNeuron();                        % bare call -> returns cached results only, never recomputes
+    speedFields = fieldnames(Stats);                          % all top-level fields of the cached stats struct
+    speedFields = speedFields(contains(speedFields, 'Speed')); % keep only Speed1, Speed2, ... (drop 'params' etc.)
+    if numel(speedFields) <= 1                                % single-speed experiment -> nothing to choose between
+        speedStr = "max";                                     % plotRaster's own default already resolves correctly
+        return
+    end
+
+    p = obj.dataObj.convertPhySorting2tIc(obj.spikeSortingFolder); % phy sorting table (same source plotRaster itself uses)
+    phy_IDg = p.phy_ID(string(p.label') == 'good');               % phy IDs of good units, in unit-index order
+    unitIdx = find(phy_IDg == phyId, 1);                          % this neuron's unit index within the good-unit list
+    assert(~isempty(unitIdx), ...                                 % ALIGNMENT INVARIANT: phy ID must exist among good units
+        'resolveBestSpeed: phy ID %d not found among good units for %s.', phyId, obj.dataObj.recordingName);
+
+    allP = nan(1, numel(speedFields));                        % this neuron's p-value at each speed field
+    for iS = 1:numel(speedFields)                             % one speed field at a time
+        allP(iS) = Stats.(speedFields{iS}).pvalsResponse(unitIdx); % pvalsResponse is what plotRaster's title itself displays
+    end
+    [~, bestIdx] = min(allP);                                 % lowest p-value wins (matches extractStimData's selection)
+    speedStr = extractAfter(speedFields{bestIdx}, "Speed");   % "Speed2" -> "2", the format plotRaster's 'speed' param expects
 end
 
 function el = pickExpList(S, argExpList)

@@ -8,7 +8,7 @@ arguments (Input)
     params.preBase = 200
     params.bin = 30
     params.exNeurons = 1
-     params.exNeuronsPhyID double = []   % alternative to exNeurons: specify neurons by phy cluster ID
+    params.exNeuronsPhyID double = []   % alternative to exNeurons: specify neurons by phy cluster ID
     params.AllSomaticNeurons = false
     params.AllResponsiveNeurons = false
     params.SelectedWindow = true
@@ -200,17 +200,21 @@ switch outerGroup
 
             switch val
 
+                % Direction group labels use actual arrow glyphs (Unicode arrow
+                % code points, via char() for encoding-independent rendering)
+                % instead of letter codes, so the group label reads visually as
+                % the ball's motion direction rather than as text.
                 case 0
-                    groupLabels(i) = "U";
+                    groupLabels(i) = char(8593); % U+2191 up arrow
 
                 case 1.57
-                    groupLabels(i) = "L";
+                    groupLabels(i) = char(8592); % U+2190 left arrow
 
                 case 3.14
-                    groupLabels(i) = "D";
+                    groupLabels(i) = char(8595); % U+2193 down arrow
 
                 case 4.71
-                    groupLabels(i) = "R";
+                    groupLabels(i) = char(8594); % U+2192 right arrow
 
                 otherwise
                     groupLabels(i) = string(val);
@@ -365,7 +369,7 @@ for u = eNeuron
         % the boundary. Still solid black (vs. the dashed gray inner-group lines
         % below) so the outer/inner hierarchy stays visually distinct.
         yline(groupStarts(i)-0.5, ...
-            'k', ...
+            'b', ...
             'LineWidth',1);
 
     end
@@ -411,15 +415,29 @@ for u = eNeuron
 
     xText = -8;
 
+    % Direction group labels (now arrow glyphs, see the "direction" case above)
+    % are placed to the right of the raster instead of the left; every other
+    % group-label type (size/luminosity/offset/speed) keeps the original left
+    % placement at xText.
+    if outerGroup == "direction"
+        xTextPos = round(stimDur+preBase*2)/params.bin + 3;  % just past the raster's right edge
+        horzAlign = 'left';
+        labelFontSize = 14;  % larger than other group labels so the arrow glyphs read as bold/thick
+    else
+        xTextPos = xText;
+        horzAlign = 'right';
+        labelFontSize = 8;
+    end
+
     for i = 1:numel(groupCenters)
 
-        text(xText, ...
+        text(xTextPos, ...
             groupCenters(i), ...
             groupLabels(i), ...
-            'HorizontalAlignment','right', ...
+            'HorizontalAlignment',horzAlign, ...
             'VerticalAlignment','middle', ...
             'FontWeight','bold', ...
-            'FontSize',8, ...
+            'FontSize',labelFontSize, ...
             'FontName','helvetica', ...
             'Clipping','off');
 
@@ -448,58 +466,62 @@ for u = eNeuron
 
     ylabel('Trials','FontSize',10,'FontName','helvetica')
 
-    if params.SelectedWindow  %%Select highest window stim type
-        j =1;
-        meanMr = zeros(1,nT/trialDivision);
-        for i = 1:trialDivision:nT
-            meanMr(j) = mean(Mr2(i:i+trialDivision-1,:),'all');
-            j = j+1;
-        end
-        
-        %Find max trial category
-        [maxTrialCat,maxRespIn]= max(meanMr);
-        maxRespIn = maxRespIn-1;
-        X = squeeze(Mr2(maxRespIn*trialDivision+1:maxRespIn*trialDivision + trialDivision,:,:));
+    if params.SelectedWindow  %%Select the trial set whose best in-stimulus 500 ms window is max
         window = 500; %in ms
+        winBins = round(window/params.bin);   % number of bins spanning the fixed extraction window
 
+        % Full merged/averaged raster as (trials x bins). squeeze() handles both
+        % layouts: mergeTrials>1 leaves Mr2 already 2D, mergeTrials==1 leaves it
+        % trials x 1 x bins. The search runs over ALL trials/categories at once so
+        % the winning trial set is chosen by its single best 500 ms window (below),
+        % not by overall epoch spiking.
+        Xall = squeeze(Mr2);
+        Xall(Xall>1) = 1;
+        [nAllRows, n_cols] = size(Xall);
 
-        % % Moving mean across 2nd dimension
-        % mm = movmean(X, round(window/params.bin), 2, 'Endpoints', 'discard');
-        % % Average across rows to get kernel score
-        % score = mean(mm, 1);
-        % % Find max kernel location
-        % [maxVal, idx] = max(score);
+        % Restrict the sliding-window search so the selected window lies ENTIRELY
+        % within the stimulus period — never in the pre/post baseline. Column c of
+        % Xall covers ms offset [(c-1)*bin, c*bin) relative to the epoch start (which
+        % is preBase ms before stim onset), so a window starting at column c spans ms
+        % [(c-1)*bin, (c-1)*bin + window]. Requiring that interval to sit inside
+        % [preBase, preBase+stimDur] gives these column bounds (also clamped to the
+        % matrix so a window is never read past the available bins).
+        firstStimCol = max(1, ceil(preBase/params.bin) + 1);                                     % earliest start col with window start >= stim onset
+        lastStimCol  = min(n_cols - winBins + 1, floor((preBase+stimDur-window)/params.bin) + 1); % latest start col with window end <= stim offset
 
-        X(X>1) = 1;
-        [n_rows, n_cols] = size(X);
-        n_windows = n_cols - round(window/params.bin) + 1;
-
-        % If this experiment's trial epoch (n_cols bins) is shorter than the fixed
-        % 500 ms raw-data window, n_windows<=0 and the search below would return an
-        % empty best_row/best_col, silently leaving the red patch and raw-data panel
-        % blank with no error. This is a recoverable, experiment-level parameter
-        % mismatch (not an alignment invariant), so warn explicitly and skip this
-        % neuron rather than erroring the whole batch run.
-        if n_windows <= 0
-            warning('plotRaster:WindowExceedsEpoch: neuron phyID=%d (unit idx %d), experiment %s: raw-data window (%d ms = %d bins) exceeds the trial epoch (%d bins at bin=%d ms). Skipping this neuron.', ...
-                phy_IDg(u), u, obj.dataObj.recordingName, window, round(window/params.bin), n_cols, params.bin);
+        % If no window of this fixed width fits inside the stimulus (e.g. stimDur <
+        % window, or the epoch is too short), there is no valid in-stimulus
+        % selection. This is a recoverable, experiment-level parameter mismatch (not
+        % an alignment invariant), so warn explicitly and skip this neuron rather
+        % than erroring the whole batch run.
+        if lastStimCol < firstStimCol
+            warning('plotRaster:WindowExceedsStim: neuron phyID=%d (unit idx %d), experiment %s: no %d ms window (%d bins) fits inside the stimulus (stimDur=%d ms, bin=%d ms). Skipping this neuron.', ...
+                phy_IDg(u), u, obj.dataObj.recordingName, window, winBins, stimDur, params.bin);
             close   % discard this neuron's partially-built figure
             ur = ur+1;
             continue   % move to the next neuron in the eNeuron loop
         end
 
-        % Compute mean for every sliding window in every row
-        % Result: 20 x n_windows matrix
-        window_means = zeros(n_rows, n_windows);
-        for col = 1:n_windows
-            window_means(:, col) = mean(X(:, col:col+round(window/params.bin)-1), 2);
+        % Mean over every candidate in-stimulus window, for EVERY trial in EVERY
+        % category (the full raster), so the peak window is found jointly across
+        % trial sets rather than within a pre-chosen one.
+        candCols = firstStimCol:lastStimCol;                 % valid window-start columns (each keeps the whole window inside the stimulus)
+        window_means = zeros(nAllRows, numel(candCols));
+        for k = 1:numel(candCols)
+            col = candCols(k);                               % actual column for this candidate window
+            window_means(:, k) = mean(Xall(:, col:col+winBins-1), 2);
         end
 
-        % Find the overall maximum mean across all rows and windows
+        % The global maximum picks the single highest 500 ms window across all trials
+        % and positions. The winning trial set (category) is simply whichever block
+        % of trialDivision trials that winning row falls in — this replaces the old
+        % "highest overall epoch spiking" category selection with "highest peak
+        % windowed response".
         [~, linear_idx] = max(window_means(:));
-
-        % Convert linear index to (row, col) — col = start of window
-        [best_row, best_col] = ind2sub(size(window_means), linear_idx);
+        [best_row_all, best_col_local] = ind2sub(size(window_means), linear_idx);
+        best_col  = candCols(best_col_local);                        % window-start column on the real time axis
+        maxRespIn = floor((best_row_all-1)/trialDivision);           % 0-indexed winning trial set (category)
+        best_row  = best_row_all - maxRespIn*trialDivision;          % winning row within that trial set (1..trialDivision)
 
         % When mergeTrials>1, Mr2 held trial-averaged data at search time, so best_row
         % reflects an arbitrary "first row of the winning merge-group", not the real
@@ -511,7 +533,7 @@ for u = eNeuron
         % 'else' branch above), so this re-derivation is skipped.
         if mergeTrials > 1
             trialsForBestCol = maxRespIn*trialDivision+1 : maxRespIn*trialDivision+trialDivision;  % real trial rows in the winning condition-block
-            XrealWindow = squeeze(Mr(trialsForBestCol, ur, best_col:best_col+round(window/params.bin)-1));  % real (non-averaged) spike counts, this neuron, in the identified window
+            XrealWindow = squeeze(Mr(trialsForBestCol, ur, best_col:best_col+winBins-1));  % real (non-averaged) spike counts, this neuron, in the identified window
             realRowSums = sum(XrealWindow, 2);   % total real spikes per trial row in this window
             [~, best_row] = max(realRowSums);    % pick the real trial with the most spikes
         end
@@ -575,31 +597,59 @@ for u = eNeuron
     %     [RasterTrials-0.5 RasterTrials-0.5 RasterTrials+0.5 RasterTrials+0.5],...
     %     'r','FaceAlpha',0.3,'EdgeColor','none')
 
-    % Translucent red fill marks the raw-data extraction window; opacity raised from
-    % 0.3 to 0.6 for a much stronger visual signal, and uistack forces it to the
-    % front of the axes regardless of draw order (it was invisible in some
-    % thin-row/degenerate cases).
-    hPatch = patch([(start)/params.bin (start+window)/params.bin (start+window)/params.bin (start)/params.bin],...
-        [RasterTrials-0.5 RasterTrials-0.5 RasterTrials+0.5 RasterTrials+0.5],...
-        'r','FaceAlpha',0.6,'EdgeColor','none');
-    uistack(hPatch,'top');
+    % A red fill confined to exactly one trial row (tried previously at FaceAlpha
+    % 0.3 and 0.6) is essentially unreadable in a dense raster, since one row is
+    % only a few screen pixels tall no matter the opacity or z-order — a fixed
+    % geometry problem, not a colour problem. Two elements identify the
+    % extraction instead: (1) a translucent red vertical band spanning the whole
+    % winning trial-category block (y1:y2, already computed above) marks the
+    % extracted TIME WINDOW at a height that is actually visible; (2) the exact
+    % TRIAL ROW is identified below by recoloring its own real spikes in red.
+    hBand = patch([(start)/params.bin (start+window)/params.bin (start+window)/params.bin (start)/params.bin],...
+        [y2 y2 y1 y1],...
+        'r','FaceAlpha',0.25,'EdgeColor','none');
+    uistack(hBand,'top');
 
-    % At higher opacity a solid red fill can visually flatten which bins in this row
-    % actually contain spikes, so redraw the real spike bins for this exact trial in
-    % red on top of the patch, guaranteeing they stay individually visible regardless
-    % of fill alpha. Drawn as one rectangle per spike bin, sized to exactly match the
-    % raster's own bin/row grid (same width as one params.bin column, same height as
-    % one trial row) rather than point markers, so they read as recolored raster
-    % pixels instead of small clumped dots.
-    winCols = best_col:(best_col+round(window/params.bin)-1);               % columns spanned by the patch
-    realRowSpikes = squeeze(Mr(RasterTrials, ur, winCols));                  % real per-bin spike counts for this exact trial
-    spikeCols = winCols(realRowSpikes > 0);                                  % bin columns that actually contain a spike
-    if ~isempty(spikeCols)
-        xLeft  = spikeCols - 0.5;    % left edge of each spike's bin column (imagesc pixel convention)
-        xRight = spikeCols + 0.5;    % right edge of each spike's bin column
-        Xv = [xLeft; xRight; xRight; xLeft];                                                          % 4 x nSpikes vertex x-coords, one column per bin
-        Yv = repmat([RasterTrials-0.5; RasterTrials-0.5; RasterTrials+0.5; RasterTrials+0.5], 1, numel(spikeCols));  % matching y-coords, one trial row tall
-        patch(Xv, Yv, 'r', 'EdgeColor', 'none');   % opaque red rectangle per real spike bin, redrawn on top
+    % A plot()-based triangle/arrow marker placed past the raster's right edge
+    % did not render reliably. The direction-arrow group labels use text() at
+    % that same past-the-edge position and do render correctly (confirmed
+    % above), so the same text()-based approach is reused here for a red
+    % left-pointing triangle glyph at the exact RasterTrials row — a fixed-size
+    % marker that does not depend on how many spikes that trial happens to have.
+    % text(round(stimDur+preBase*2)/params.bin + 3, RasterTrials, char(9668), ...   % U+25C4 black left-pointing triangle
+    %     'Color','r', 'FontSize',16, 'FontWeight','bold', ...
+    %     'HorizontalAlignment','left', 'VerticalAlignment','middle', 'Clipping','off');
+
+    % Recolor in red the raster's OWN displayed bins for the selected row, inside
+    % the extraction window. The red MUST come from Mr2 (the matrix actually drawn
+    % by imagesc above), not from the real single trial Mr: with MergeNtrials>1 the
+    % displayed row is the merge-averaged pattern, so Mr's real-trial spikes sit at
+    % different time columns than the black pixels on screen and the red looked
+    % time-shifted relative to the raster. Using Mr2 makes the red overlay the
+    % exact bins the raster shows, within the window.
+    % Columns are derived from start/window (the same quantities passed to the raw
+    % extraction), so the red span matches the red band above in both the
+    % SelectedWindow and the NeuronVals branches.
+    % Bin count comes from size(Mr,3): Mr is always 3D (trials x neurons x bins),
+    % whereas Mr2 is 2D only when merged (it is trials x 1 x bins when unmerged, so
+    % size(Mr2,2) would be 1 there). The 2-subscript Mr2(row,col) read below is
+    % correct in both layouts because Mr2's middle dim is 1 when 3D.
+    winColStart = round(start/params.bin) + 1;                                       % first raster column of the extraction window (col c covers [(c-1)*bin, c*bin) ms)
+    winCols = winColStart : min(winColStart + round(window/params.bin) - 1, size(Mr,3));  % window columns, clamped to the available bins
+    dispRowSpikes = Mr2(RasterTrials, winCols);                         % displayed (raster) values for this row, inside the window
+    spikeColsFull = winCols(dispRowSpikes > 0);                         % window bin columns the raster shows as active
+    if ~isempty(spikeColsFull)
+        % Each spike is drawn as a vertical line rather than a one-row-tall
+        % patch. A patch sized to exactly one trial row is invisible here: with
+        % many trials in this short subplot a single row is sub-pixel, so it is
+        % rasterized away completely (verified: it rendered 0 red pixels at this
+        % figure's real geometry). A line's LineWidth is in points (device
+        % units), so it always survives rasterization, and the vertical extent is
+        % scaled to the trial count to stay visible without swamping neighbours.
+        halfH = max(0.5, size(Mr,1)/120);   % half-height in trial rows, scaled so the mark reads at any trial count
+        plot([spikeColsFull; spikeColsFull], ...                                             % x: one column per active bin, same bin index top and bottom
+            [repmat(RasterTrials-halfH,1,numel(spikeColsFull)); repmat(RasterTrials+halfH,1,numel(spikeColsFull))], ...  % y: spans halfH rows either side of the selected trial
+            'r-', 'LineWidth', 1);   % red vertical tick per displayed spike bin, drawn on top
     end
 
 
@@ -621,7 +671,12 @@ for u = eNeuron
     spikeTimes = spikeTimes(logical(MRhist));
     % Define bin edges (adjust for resolution)
     binWidth = 125; % 10 ms bins
-    if nB>300
+    % Bin count must come from size(Mr,3), not nB: the loop above does
+    % [nT,nN,nB]=size(Mr2), and when mergeTrials>1 Mr2 is 2D (trials x bins), so
+    % that call leaves nB=1 and this condition never fired — the PSTH silently
+    % used 125 ms bins for long epochs whenever trials were merged, making the
+    % bin width depend on MergeNtrials rather than on the epoch length.
+    if size(Mr,3)>300
          binWidth = 250;
     end
     edges = [1:binWidth:round((stimDur+preBase*2))]; % Adjust time window as needed

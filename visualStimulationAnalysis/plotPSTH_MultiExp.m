@@ -138,7 +138,7 @@ end
 % -------------------------------------------------------------------------
 % Build save directory path using the first experiment as a reference
 % -------------------------------------------------------------------------
-NP_first  = loadNPclassFromTable(exList(1));                               % load NP class for the first experiment to extract paths
+NP_first  = loadNPclassFromTable(exList(end));                               % load NP class for the first experiment to extract paths
 vs_first  = linearlyMovingBallAnalysis(NP_first);                         % construct a ball-analysis object just to access getAnalysisFileName
 
 basePath  = extractBefore(vs_first.getAnalysisFileName, 'lizards');        % trim the path at 'lizards' to get the shared root
@@ -147,6 +147,8 @@ saveDir   = fullfile(basePath, 'Combined_lizard_analysis');                % com
 if ~exist(saveDir, 'dir')
     mkdir(saveDir);                                                        % create directory if it doesn't already exist
 end
+
+ extractBefore(vs_first.getAnalysisFileName, 'lizards');
 
 % ---- Construct the cache filename (encodes key parameter choices) ----
 stimLabel   = strjoin(params.stimTypes, '-');                              % e.g. 'RG-MB'

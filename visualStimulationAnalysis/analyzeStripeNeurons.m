@@ -97,8 +97,20 @@ tbl     = tbl(idxCond, :);
 % =========================================================================
 depthFile = fullfile(saveDir, 'NeuronDepths.mat');
 if exist(depthFile, 'file')
-    depthRes = load(depthFile);
-    fprintf('Loaded cached depths from %s\n', depthFile);
+    depthRes     = load(depthFile);                          % load the cached depth struct
+    cachedExNums = [depthRes.perExp.exNum];                   % experiments actually present in the cache (getNeuronDepths never stores its own exList)
+    missingEx    = setdiff(exList, cachedExNums);             % experiments requested now but absent from the cache
+    if ~isempty(missingEx)
+        % Stale/undersized cache: silently keeping it would leave every
+        % row from a missing experiment with depth_um = NaN. Recompute
+        % for the full current exList instead (getNeuronDepths re-saves
+        % depthFile itself).
+        warning('NeuronDepths cache missing experiment(s) %s — recomputing via getNeuronDepths(exList).', ...
+            mat2str(missingEx));
+        depthRes = getNeuronDepths(exList);
+    else
+        fprintf('Loaded cached depths from %s\n', depthFile);
+    end
 else
     fprintf('Cached depths not found — running getNeuronDepths...\n');
     depthRes = getNeuronDepths(exList);
@@ -153,6 +165,7 @@ zp.movingWindow   = 200;    % ms sliding window for MB peak
 
 tbl.zResp = nan(height(tbl), 1);
 zCache    = containers.Map('KeyType','char','ValueType','any');   % key 'exp_stim'
+unmatchedZPhy = containers.Map('KeyType','char','ValueType','any');  % key 'exp_stim' -> phyIDs that failed to match (for the loud warning below)
 
 for ri = 1:height(tbl)
     ex_ri   = str2double(string(tbl.experimentNum(ri)));
@@ -182,10 +195,31 @@ for ri = 1:height(tbl)
     zc = zCache(key);
     if ~isempty(zc.phy)
         idx = find(zc.phy == tbl.phyID(ri), 1);
-        if ~isempty(idx), tbl.zResp(ri) = zc.z(idx); end
+        if ~isempty(idx)
+            tbl.zResp(ri) = zc.z(idx);
+        else
+            % phyID from the cached SpatialTuningIndex table was not found
+            % among this experiment's freshly-loaded good units (e.g. the
+            % spike sorting/curation changed since the cache was built).
+            % This is the silent path that produces NaN with no warning —
+            % record it here so we can report it once per (exp,stim) below
+            % instead of one warning per row.
+            if ~unmatchedZPhy.isKey(key), unmatchedZPhy(key) = []; end
+            unmatchedZPhy(key) = [unmatchedZPhy(key), tbl.phyID(ri)];
+        end
     end
 end
 fprintf('  z-score assigned to %d/%d rows.\n', sum(~isnan(tbl.zResp)), height(tbl));
+
+% Loudly report every (experiment,stim) with at least one unmatched phyID —
+% a silent identity mismatch here is otherwise indistinguishable from a
+% legitimate "not responsive" NaN.
+unmatchedZKeys = keys(unmatchedZPhy);
+for ki = 1:numel(unmatchedZKeys)
+    k = unmatchedZKeys{ki};
+    warning('zResp: %d phyID(s) not found in good-unit list for %s: %s', ...
+        numel(unmatchedZPhy(k)), k, mat2str(unmatchedZPhy(k)));
+end
 
 % =========================================================================
 % 2c. Direction/orientation tuning (OSI, DSI) for MB neurons.
@@ -196,6 +230,8 @@ tbl.OSI = nan(height(tbl), 1);
 tbl.DSI = nan(height(tbl), 1);
 
 dtCache = containers.Map('KeyType','double','ValueType','any');   % key: experiment
+unmatchedDTPhy = containers.Map('KeyType','double','ValueType','any');  % key: experiment -> phyIDs that failed to match
+
 for ri = 1:height(tbl)
     if tbl.stimulus(ri) ~= "linearlyMovingBall", continue; end    % MB only
     ex_ri = str2double(string(tbl.experimentNum(ri)));
@@ -218,10 +254,24 @@ for ri = 1:height(tbl)
         if ~isempty(idx)
             tbl.OSI(ri) = dc.OSI(idx);
             tbl.DSI(ri) = dc.DSI(idx);
+        else
+            % Same silent-mismatch risk as the zResp loop above: phyID
+            % from the cached table is absent from DirectionTuning's
+            % freshly-computed phyID list for this experiment.
+            if ~unmatchedDTPhy.isKey(ex_ri), unmatchedDTPhy(ex_ri) = []; end
+            unmatchedDTPhy(ex_ri) = [unmatchedDTPhy(ex_ri), tbl.phyID(ri)];
         end
     end
 end
 fprintf('  OSI/DSI assigned to %d MB rows.\n', sum(~isnan(tbl.OSI)));
+
+% Loudly report every experiment with at least one unmatched phyID.
+unmatchedDTKeys = keys(unmatchedDTPhy);
+for ki = 1:numel(unmatchedDTKeys)
+    k = unmatchedDTKeys{ki};
+    warning('OSI/DSI: %d phyID(s) not found in DirectionTuning output for exp %d: %s', ...
+        numel(unmatchedDTPhy(k)), k, mat2str(unmatchedDTPhy(k)));
+end
 
 % =========================================================================
 % 3.  Split rows into the four groups of interest
@@ -257,10 +307,16 @@ sbStripe.insertion = sbStripe.experimentNum;
 mbStripe.stimulus(mbStripe.stimulus == "linearlyMovingBall") = "MB";
 sbStripe.stimulus(sbStripe.stimulus == "rectGrid")           = "SB";
 
+% Overwrite NeurID with the phy cluster ID (phyID), not the raw cache's
+% running index — matches the convention used by every other output
+% table below (depthData, zData, tuneData, idxData), and is required so
+% NeurID can actually be traced back to a real neuron.
+mbStripe.NeurID = mbStripe.phyID;
+sbStripe.NeurID = sbStripe.phyID;
+
 % Long-format table — two independent groups, no NaN rows
-tblStripe = [mbStripe(:, {'value','stimulus','insertion','animal'}); ...
-             sbStripe(:, {'value','stimulus','insertion','animal'})];
-tblStripe.NeurID = (1:height(tblStripe))';
+tblStripe = [mbStripe(:, {'value','stimulus','insertion','animal','NeurID'}); ...
+             sbStripe(:, {'value','stimulus','insertion','animal','NeurID'})];
 
 
 % Two-sample hierBoot p-value
