@@ -1,12 +1,18 @@
 function result = detectStripeRF(rfImage, options)
 % detectStripeRF  Detect diagonal excitatory stripe patterns in a 2D RF.
 %
-%   Four filters must all pass for isStripe = true:
+%   Filters that must all pass for isStripe = true:
 %     (i)   anisotropy score significant vs pixel-permutation null
 %           AND above minStripeScore
 %     (ii)  stripe orientation within [minStripeAngle, maxStripeAngle]
 %           in the requested diagonal direction
 %     (iii) stripe is excitatory (positive projection peak)
+%     (iv)  [opt-in, requireContiguity] the excitatory pixels form a
+%           spatially contiguous, elongated cluster — not just a single
+%           strong pixel. The Radon-variance ratio in (i) can be driven
+%           by one outlier pixel interacting with background noise on a
+%           coarse grid (e.g. the 9x9 rectGrid), independent of whether
+%           the response is actually spatially elongated. See below.
 %
 %   Stripeness metric:  S = max(var) / min(var)   (anisotropy)
 %
@@ -29,6 +35,28 @@ function result = detectStripeRF(rfImage, options)
 %                           For BLtoTR these apply directly.
 %                           For BRtoTL they are mirrored: (180-max, 180-min).
 %       requirePositive     require excitatory peak (default true)
+%       requireContiguity   apply the spatial-contiguity filter (iv) (default false)
+%       contiguityThreshSD  active-pixel threshold, in SDs above the RF's
+%                            own mean (default 1.5). Recomputed per RF, not
+%                            a fixed value, so it scales with each image's
+%                            own noise level.
+%       minStripeCells       minimum size (pixels) of the largest connected
+%                            excitatory cluster (default 3 — the geometric
+%                            minimum needed to define a direction at all;
+%                            2 pixels is just an edge that could point
+%                            anywhere by chance).
+%       minElongation        minimum major/minor axis ratio of that cluster
+%                            (default 1.5 — excludes roughly circular/blob
+%                            clusters, keeps elongated ones).
+%       contiguityImage      optional separate image to run the contiguity
+%                            check (iv) on instead of rfImage (default: use
+%                            rfImage). MUST be supplied when rfImage has been
+%                            smoothed/interpolated (e.g. a convolution-based
+%                            RF map) — blurring manufactures spatial
+%                            correlation regardless of whether the true,
+%                            non-interpolated data actually forms a
+%                            contiguous cluster, so checking contiguity on
+%                            a smoothed image is close to a no-op filter.
 
 arguments
     rfImage       (:,:) double
@@ -42,6 +70,18 @@ arguments
     options.minStripeAngle     (1,1) double  = 20      % degrees — lower bound
     options.maxStripeAngle     (1,1) double  = 60     % degrees — upper bound
     options.requirePositive    (1,1) logical = true
+    options.requireContiguity  (1,1) logical = false
+    options.contiguityThreshSD (1,1) double  = 1.5
+    options.minStripeCells     (1,1) double  = 3
+    options.minElongation      (1,1) double  = 1.5
+    options.contiguityImage    (:,:) double  = []   % optional: check contiguity on a
+                                                      % different (typically raw, non-
+                                                      % interpolated) image than rfImage.
+                                                      % Required whenever rfImage has been
+                                                      % smoothed/interpolated, since blurring
+                                                      % manufactures spatial correlation
+                                                      % regardless of the true underlying
+                                                      % signal. Defaults to rfImage.
 end
 
 % -------------------------------------------------------------------------
@@ -121,16 +161,37 @@ else
     passedPositive = true;
 end
 
+% (iv) Spatial contiguity — opt-in, independent of the Radon anisotropy
+% metric above. See checkContiguity for the mechanism. Uses
+% contiguityImage if the caller supplied one (e.g. the raw, non-
+% interpolated grid), otherwise falls back to rfImage itself.
+if options.requireContiguity
+    if isempty(options.contiguityImage)
+        imgForContiguity = rfImage;
+    else
+        imgForContiguity = options.contiguityImage;
+    end
+    [passedContiguity, clusterSize, clusterElongation] = checkContiguity( ...
+        imgForContiguity, options.contiguityThreshSD, options.minStripeCells, options.minElongation);
+else
+    passedContiguity  = true;   % filter disabled: does not affect isStripe
+    clusterSize       = NaN;
+    clusterElongation = NaN;
+end
+
 % Final
-isStripe = passedScore && passedDiagonal && passedPositive;
+isStripe = passedScore && passedDiagonal && passedPositive && passedContiguity;
 
 % -------------------------------------------------------------------------
 % 5.  Package
 % -------------------------------------------------------------------------
-result.isStripe        = isStripe;
-result.passedScore     = passedScore;
-result.passedDiagonal  = passedDiagonal;
-result.passedPositive  = passedPositive;
+result.isStripe          = isStripe;
+result.passedScore       = passedScore;
+result.passedDiagonal    = passedDiagonal;
+result.passedPositive    = passedPositive;
+result.passedContiguity  = passedContiguity;
+result.clusterSize       = clusterSize;         % NaN if requireContiguity=false
+result.clusterElongation = clusterElongation;   % NaN if requireContiguity=false
 result.stripeScore     = stripeScore;
 result.stripePval      = pval;
 result.stripeAngle     = stripeAngle;
@@ -164,5 +225,56 @@ score = maxVar / minVar;
 [~, maxIdx] = max(varProfile);
 bestAngle   = angles(maxIdx);
 bestProj    = R(:, maxIdx);
+
+end
+
+
+% =========================================================================
+function [passed, clusterSize, elongation] = checkContiguity(rfImage, threshSD, minCells, minElong)
+% checkContiguity  Require the excitatory response to form a real,
+% spatially contiguous, elongated cluster of pixels — not a single
+% strong pixel. This is independent of (and complements) the Radon
+% anisotropy ratio: a lone bright pixel on a coarse grid can still
+% produce a high maxVar/minVar ratio by chance interaction with
+% background noise, without the response actually being stripe-shaped.
+%
+% Mechanism:
+%   1. Threshold rfImage at mean + threshSD*SD (recomputed per RF, so it
+%      scales with each image's own noise level rather than a fixed value).
+%   2. Label 8-connected components of that binary mask (diagonal
+%      neighbors count as connected, since we're looking for diagonal
+%      stripes).
+%   3. Take the largest component and require it has >= minCells pixels
+%      (below that, a "direction" isn't geometrically well-defined) and
+%      an elongation (major/minor axis ratio) >= minElong (excludes
+%      round/blob-shaped clusters).
+
+thresh = mean(rfImage(:)) + threshSD * std(rfImage(:));
+mask   = rfImage > thresh;
+
+if ~any(mask(:))
+    passed = false; clusterSize = 0; elongation = 0;
+    return
+end
+
+cc = bwconncomp(mask, 8);                 % 8-connectivity: diagonal neighbors count
+sizes = cellfun(@numel, cc.PixelIdxList);
+[clusterSize, biggest] = max(sizes);
+
+if clusterSize < minCells
+    passed = false; elongation = 0;
+    return
+end
+
+props = regionprops(cc, 'MajorAxisLength', 'MinorAxisLength');
+majorAx = props(biggest).MajorAxisLength;
+minorAx = props(biggest).MinorAxisLength;
+if minorAx <= 0
+    elongation = Inf;              % perfectly thin line — maximally elongated
+else
+    elongation = majorAx / minorAx;
+end
+
+passed = elongation >= minElong;
 
 end

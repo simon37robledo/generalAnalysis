@@ -72,7 +72,7 @@ arguments
                                            % the test visualisation (half pass,
                                            % half fail, if available).
     params.stripeMinAngle  double = 20     % Lower bound of accepted stripe angle (deg), BL→TR
-    params.stripeMaxAngle  double = 60     % Upper bound of accepted stripe angle (deg), BL→TR
+    params.stripeMaxAngle  double = 55     % Upper bound of accepted stripe angle (deg), BL→TR
 end
 
 % -------------------------------------------------------------------------
@@ -746,22 +746,34 @@ if ~goto_plot
 
                     case "rectGrid"
                         % -------------------------------------------------
-                        % RG: single RF per neuron (9×9 resolution).
-                        % Use the downsampled gridSpikeRateSelected and
-                        % gridShuffMean already computed above.
-                        % Both are [nGrid, nGrid, nN, nSize, nLum].
+                        % RG: single RF per neuron, tested at NATIVE
+                        % (screenRed x screenRed) resolution — NOT the
+                        % downsampled 9x9 grid used for the spatial tuning
+                        % index below. The anisotropy ratio S=maxVar/minVar
+                        % in detectStripeRF is resolution-sensitive: testing
+                        % on a coarse 9x9 grid mechanically inflates S
+                        % relative to MB (which is tested on its native
+                        % RFuSTDirSizeLum resolution), making stripeBestScore
+                        % non-comparable across stim types. rfRaw/rfShuffRaw
+                        % are the pre-downsampling native maps computed above
+                        % for this stim type, [nLums, nSize, screenRed, screenRed, nN_rf].
                         % -------------------------------------------------
 
                         for u = 1:nN
 
-                            % Extract the 9×9 RF at the requested condition
-                            rfGrid = gridSpikeRateSelected(:, :, u, params.sizeIdx, params.lumIdx);
-                            % Extract the 9×9 shuffle-mean at the same condition
-                            rfGridShuff = gridShuffMean(:, :, u, params.sizeIdx, params.lumIdx);
+                            % Map this shared/responsive-neuron loop index to
+                            % its position in the full good-unit list, i.e.
+                            % into rfRaw/rfShuffRaw's neuron dimension.
+                            uRF = neuronIdx(u);
+
+                            % Extract the native-resolution RF at the requested condition
+                            rfGrid = squeeze(rfRaw(params.lumIdx, params.sizeIdx, :, :, uRF));
+                            % Extract the native-resolution shuffle-mean at the same condition
+                            rfGridShuff = squeeze(rfShuffRaw(params.lumIdx, params.sizeIdx, :, :, uRF));
                             % Subtract shuffle to isolate signal
                             rfSub = rfGrid - rfGridShuff;
 
-                            % Run the stripe detector on the 9×9 image
+                            % Run the stripe detector on the native-resolution image
                             res = detectStripeRF(rfSub, ...
                                 'angleStep',      params.stripeAngleStep, ...
                                 'nSurrogates',    params.stripeNSurr, ...

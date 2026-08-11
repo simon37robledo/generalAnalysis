@@ -55,6 +55,10 @@ arguments
     params.PaperFig         logical = false
     params.zStim            string  = "linearlyMovingBall"  % "linearlyMovingBall" | "rectGrid" | "both"
     params.idxStim          string  = "linearlyMovingBall"  % "linearlyMovingBall" | "rectGrid" | "both"
+    params.exclusionList    cell    = {}   % manual QC overrides: N x 3 cell, one
+                                            % row per unit to drop from the stripe
+                                            % group: {stimulus, experimentNum, phyID}
+                                            % e.g. {"rectGrid", 49, 185; "rectGrid", 84, 576}
 end
 
 % =========================================================================
@@ -91,6 +95,40 @@ end
 % Apply the same condition filter that SpatialTuningIndex uses for plotting
 idxCond = tbl.onOff == params.onOff & tbl.sizeIdx == params.sizeIdx & tbl.lumIdx == params.lumIdx;
 tbl     = tbl(idxCond, :);
+
+% =========================================================================
+% 1b.  Manual QC exclusions (params.exclusionList)
+%      Overrides isStripe -> false for specific (stimulus, exp, phyID)
+%      units without deleting their row from tbl, so RF data for excluded
+%      units stays available in results.joinedTbl (filter on
+%      isStripe | stripeExcluded to recover the full stripe-candidate set).
+%      Excluded units fall into the "responsive non-stripe" group used by
+%      every downstream comparison, since isStripe is the exact column
+%      that group split is keyed on in section 3 below.
+% =========================================================================
+tbl.stripeExcluded = false(height(tbl), 1);
+for ei = 1:size(params.exclusionList, 1)
+    exStim = string(params.exclusionList{ei,1});
+    exExp  = params.exclusionList{ei,2};
+    exPhy  = params.exclusionList{ei,3};
+
+    match = tbl.stimulus == exStim & ...
+            str2double(string(tbl.experimentNum)) == exExp & ...
+            tbl.phyID == exPhy;
+
+    if ~any(match)
+        warning('exclusionList entry [%s, exp %d, phy %d] matched no rows in tbl (already filtered out, or a typo).', ...
+            exStim, exExp, exPhy);
+        continue
+    end
+
+    tbl.isStripe(match)       = false;   % reclassify as non-stripe for stats/plots
+    tbl.stripeExcluded(match) = true;    % audit trail: this unit was manually dropped
+end
+if any(tbl.stripeExcluded)
+    fprintf('  Manually excluded %d unit(s) from stripe classification via exclusionList.\n', ...
+        sum(tbl.stripeExcluded));
+end
 
 % =========================================================================
 % 2.  Load (or compute) cortical depths and join into tbl
@@ -591,6 +629,181 @@ if ~isempty(mbStripe) && ismember('stripeBestDir', mbStripe.Properties.VariableN
     end
 end
 
+% =========================================================================
+% 7b. STRIPE DIRECTION DISTRIBUTION PER INSERTION — swarm plot + stats
+%     Companion to §7's pooled bar chart: instead of one count per
+%     direction across all MB stripe neurons, count them separately for
+%     each insertion (experiment) so between-insertion/animal variability
+%     is visible and testable with this file's hierarchical-bootstrap
+%     machinery. Every insertion with >=1 direction-classified MB stripe
+%     neuron gets a count-point in ALL FOUR direction groups (0 allowed),
+%     keeping the groups paired on the same insertion set — required for
+%     a fair hierBootMatchFreq comparison across directions.
+% =========================================================================
+if exist('stripeDirRad', 'var') && any(~isnan(stripeDirRad))
+
+    % Independent copy of §7's reference directions/labels (those locals
+    % only get assigned when params.plot is true there).
+    dirRadRef = [0, pi/2, pi, 3*pi/2];    % 0=up, pi/2=right, pi=down, 3pi/2=left
+    dirNames  = {'up', 'right', 'down', 'left'};
+
+    validMask = ~isnan(stripeDirRad);     % rows with a resolved stripe direction
+
+    % Fixed insertion set shared by all four direction groups (paired design).
+    insertionsValid = unique(mbStripe.experimentNum(validMask));
+    nInsValid        = numel(insertionsValid);
+
+    % Long-format accumulator table: one row per insertion x direction.
+    dirCountData = table([], categorical([]), categorical([]), categorical([]), ...
+        'VariableNames', {'count','group','insertion','animal'});
+
+    for ii = 1:nInsValid
+        insID    = insertionsValid(ii);                              % this insertion's experimentNum
+        insMask  = mbStripe.experimentNum == insID & validMask;      % its valid-direction stripe rows
+        insRows  = mbStripe(insMask, :);
+        insDirs  = stripeDirRad(insMask);                            % their resolved directions (rad)
+
+        % Hard assertion: an insertion must map to exactly one animal —
+        % alignment invariant. A violation means experimentNum collided
+        % across animals (see CLAUDE.md note on globally-unique insertion IDs).
+        insAnimals = unique(insRows.animal);
+        assert(isscalar(insAnimals), ...
+            'analyzeStripeNeurons:mixedAnimalInsertion', ...
+            'Insertion %s maps to %d animals (%s) — experimentNum must be globally unique per animal.', ...
+            string(insID), numel(insAnimals), strjoin(string(insAnimals), ', '));
+        thisAnimal = insAnimals(1);
+
+        % Count this insertion's stripe neurons per direction, including
+        % zeros, so all four direction groups share the same insertion set.
+        for k = 1:numel(dirRadRef)
+            cnt_k  = sum(abs(mod(insDirs, 2*pi) - dirRadRef(k)) < 1e-3);   % tolerance match, same as §7
+            newRow = table(cnt_k, categorical(dirNames(k)), insID, thisAnimal, ...
+                'VariableNames', {'count','group','insertion','animal'});
+            dirCountData = [dirCountData; newRow]; %#ok<AGROW>
+        end
+    end
+
+    results.dirCountData = dirCountData;
+
+    % Pairwise two-tailed hierBootMatchFreq comparisons, all 6 direction
+    % pairs. Raw p-values, no multiple-comparison correction — matches this
+    % file's existing convention in §5/§8/§9/§10.
+    dirPairs = nchoosek(1:4, 2);      % increasing-index pairs: (1,2)(1,3)(1,4)(2,3)(2,4)(3,4)
+    pDirVals = nan(size(dirPairs,1), 1);
+    results.pDirCount = struct();
+    fprintf('\nMB stripe direction counts per insertion (two-tailed hierBoot p):\n');
+    for pp = 1:size(dirPairs,1)
+        dA = dirNames{dirPairs(pp,1)};
+        dB = dirNames{dirPairs(pp,2)};
+        pV = compareGroupsHB(dirCountData, 'count', dA, dB, params.nBoot);
+        pDirVals(pp) = pV;
+        results.pDirCount.(matlab.lang.makeValidName([dA '_vs_' dB])) = pV;
+        fprintf('  %-5s vs %-5s : p = %.4f\n', dA, dB, pV);
+    end
+
+    % --- Section 7b plot: per-insertion direction swarm with significance brackets ---
+    if params.plot
+        figDirSwarm = figure('Units','centimeters','Position',[5 5 14 8]);
+        hold on;
+
+        % Global animal -> color mapping, consistent across all four columns.
+        allAnimalNames = categories(removecats(dirCountData.animal));
+        nAnimals       = numel(allAnimalNames);
+        animalCmap     = lines(max(nAnimals, 1));
+
+        for gi = 1:numel(dirNames)
+            rows = dirCountData(dirCountData.group == dirNames{gi}, :);
+            if isempty(rows), continue; end
+
+            [~, animalIdx] = ismember(string(rows.animal), allAnimalNames);
+            dotColors = animalCmap(animalIdx, :);
+
+            swarmchart(gi * ones(height(rows), 1), rows.count, ...
+                16, dotColors, 'filled', ...
+                'XJitter',         'density', ...
+                'XJitterWidth',    0.35, ...
+                'MarkerFaceAlpha', 0.65, ...
+                'MarkerEdgeColor', 'none');
+
+            try
+                bM  = hierBootMatchFreq(rows.count, params.nBoot, ...
+                              double(rows.insertion), double(rows.animal));
+                m   = mean(bM);
+                ciB = prctile(bM, [2.5 97.5]);
+                errorbar(gi, m, m-ciB(1), ciB(2)-m, 'k', ...
+                    'LineWidth', 1.5, 'CapSize', 8);
+                plot(gi, m, 'ko', 'MarkerFaceColor','w', ...
+                    'MarkerSize', 7, 'LineWidth', 1.5);
+            catch ME
+                warning('hierBoot failed for %s: %s', dirNames{gi}, ME.message);
+            end
+        end
+
+        % Significance brackets, stacked outward by direction-index span,
+        % drawn only for pairs with p < 0.05 (adjacent pairs innermost,
+        % opposite corner up-vs-left outermost).
+        yMaxC       = max(dirCountData.count);
+        yRangeC     = max(yMaxC, 1);            % guard against all-zero counts
+        bracketStep = yRangeC * 0.12;
+        tickH       = yRangeC * 0.03;
+
+        for pp = 1:size(dirPairs,1)
+            g1 = dirPairs(pp,1);  g2 = dirPairs(pp,2);
+            pV = pDirVals(pp);    lv = g2 - g1;        % span = bracket stacking level
+
+            if isnan(pV) || pV >= 0.05
+                continue;   % skip non-significant comparisons — no clutter
+            end
+
+            yB = yMaxC + lv * bracketStep;
+            plot([g1 g2], [yB yB],        'k-', 'LineWidth', 1);
+            plot([g1 g1], [yB-tickH, yB], 'k-', 'LineWidth', 1);
+            plot([g2 g2], [yB-tickH, yB], 'k-', 'LineWidth', 1);
+            text((g1+g2)/2, yB+tickH*0.5, sigStars(pV), ...
+                'HorizontalAlignment', 'center', ...
+                'VerticalAlignment',   'bottom', ...
+                'FontSize', 11, 'FontWeight', 'bold');
+        end
+
+        % Reserve vertical space only up to the highest significant bracket.
+        maxSigLevel = 0;
+        for pp = 1:size(dirPairs,1)
+            if ~isnan(pDirVals(pp)) && pDirVals(pp) < 0.05
+                maxSigLevel = max(maxSigLevel, dirPairs(pp,2) - dirPairs(pp,1));
+            end
+        end
+        ylim([-bracketStep*0.5, yMaxC + (maxSigLevel + 1.5) * bracketStep]);
+
+        % Animal legend
+        lgdH = gobjects(nAnimals, 1);
+        for ai = 1:nAnimals
+            lgdH(ai) = plot(nan, nan, 'o', ...
+                'Color', animalCmap(ai,:), 'MarkerFaceColor', animalCmap(ai,:), ...
+                'MarkerSize', 6, 'DisplayName', allAnimalNames{ai});
+        end
+        if params.plotLegend
+            legend(lgdH, 'Location','best', 'FontSize',7, 'Box','off');
+        end
+
+        set(gca, 'XTick', 1:numel(dirNames), 'XTickLabel', dirNames, ...
+            'XLim', [0.5 numel(dirNames)+0.5], ...
+            'FontSize', 8, 'FontName', 'helvetica');
+        ylabel('Stripe neurons per insertion', 'FontSize', 9);
+        xlabel('Ball direction', 'FontSize', 9);
+        xtickangle(20);
+        title(sprintf('MB stripe direction, per insertion (n=%d insertions)', nInsValid), ...
+            'FontSize', 9);
+        box on;  hold off;
+
+        if params.PaperFig
+            vs_first.printFig(figDirSwarm, sprintf('StripeNeurons_dirDist_perInsertion_%s', params.indexType), ...
+                PaperFig = params.PaperFig);
+        end
+
+        results.figDirSwarm = figDirSwarm;
+    end
+end
+
 
 % =========================================================================
 % 8.  RESPONSIVENESS Z-SCORE: stripe vs responsive non-stripe
@@ -925,6 +1138,122 @@ if params.plot && ~isempty(idxData) && any(~isnan(idxData.val))
 end
 
 % =========================================================================
+% 11.  STRIPENESS (continuous score) vs RESPONSIVENESS (z) CORRELATION
+%      Uses stripeBestScore (computed for EVERY neuron, not just isStripe
+%      passers) against zResp (also computed for every neuron), across the
+%      full per-stim-type population — a graded test of whether "how
+%      stripe-like" a neuron's RF is predicts its responsiveness, rather
+%      than the binary stripe/non-stripe split used elsewhere in this file.
+%      Not circular: stripeBestScore feeds into isStripe, zResp never does.
+% =========================================================================
+
+% Which stim type(s) to correlate — reuses params.zStim since this is the
+% same zResp column that section 8 already gates on that parameter.
+switch params.zStim
+    case "linearlyMovingBall"
+        stimSpecs = {struct('label','MB', 'tbl',mbAll)};
+    case "rectGrid"
+        stimSpecs = {struct('label','SB', 'tbl',sbAll)};
+    case "both"
+        stimSpecs = {struct('label','MB','tbl',mbAll), struct('label','SB','tbl',sbAll)};
+end
+
+% Long-format accumulator across stim types, matching this file's
+% established convention (§4/§5/§8/§9/§10).
+corrData = table([], [], categorical([]), categorical([]), categorical([]), [], ...
+    'VariableNames', {'score','zResp','group','insertion','animal','NeurID'});
+
+results.rhoStripeZ = struct();
+for si = 1:numel(stimSpecs)
+    label   = stimSpecs{si}.label;
+    stimTbl = stimSpecs{si}.tbl;
+
+    % Keep only rows with both a valid stripe score and a valid z-score —
+    % NaN filtering must be joint so score/z stay paired.
+    keep = ~isnan(stimTbl.stripeBestScore) & ~isnan(stimTbl.zResp);
+    n    = sum(keep);
+
+    % Append to the long-format plotting table regardless of n, so the
+    % table always reflects what was attempted (even if the fit was skipped).
+    corrData = [corrData; table(stimTbl.stripeBestScore(keep), stimTbl.zResp(keep), ...
+        categorical(repmat({label}, n, 1)), stimTbl.experimentNum(keep), ...
+        stimTbl.animal(keep), stimTbl.phyID(keep), ...
+        'VariableNames', {'score','zResp','group','insertion','animal','NeurID'})]; %#ok<AGROW>
+
+    % Guard against too few pairs for a meaningful correlation/bootstrap —
+    % mirrors compareGroupsHB's small-sample guard.
+    if n < 5
+        warning('analyzeStripeNeurons:corrTooFewPairs', ...
+            '%s: only %d valid (score,z) pairs — skipping correlation.', label, n);
+        results.rhoStripeZ.(label) = struct('rho',NaN,'ci',[NaN NaN],'p',NaN,'n',n);
+        continue;
+    end
+
+    x    = stimTbl.stripeBestScore(keep);
+    y    = stimTbl.zResp(keep);
+    lvl1 = double(stimTbl.animal(keep));          % animal grouping for the bootstrap
+    lvl2 = double(stimTbl.experimentNum(keep));    % insertion grouping (globally unique across animals)
+
+    % Point estimate: raw full-sample Spearman rho (standard practice —
+    % NOT the bootstrap-mean convention used for group means elsewhere in
+    % this file). The bootstrap below is used only for the CI and p-value.
+    rho = corr(x, y, 'Type', 'Spearman');
+
+    try
+        btrho = hierBootCorrSpearman(x, y, params.nBoot, lvl1, lvl2);
+        btrho = btrho(~isnan(btrho));              % drop degenerate (constant-vector) reps
+        ci    = prctile(btrho, [2.5 97.5]);
+        pOne  = mean(btrho >= 0);
+        pVal  = 2 * min(pOne, 1 - pOne);
+    catch ME
+        warning('hierBootCorrSpearman failed for %s: %s', label, ME.message);
+        ci = [NaN NaN]; pVal = NaN;
+    end
+
+    results.rhoStripeZ.(label) = struct('rho',rho, 'ci',ci, 'p',pVal, 'n',n);
+    fprintf('  stripeBestScore vs zResp (%s): rho = %.3f, 95%% CI [%.3f, %.3f], p = %.4f, n = %d\n', ...
+        label, rho, ci(1), ci(2), pVal, n);
+
+    % --- Section 11 plot: animal-colored scatter for this stim type ---
+    if params.plot
+        figCorr = figure('Units','centimeters','Position',[5 5 10 8]);
+        hold on;
+
+        allAnimalNames = categories(removecats(stimTbl.animal(keep)));
+        nAnimals       = numel(allAnimalNames);
+        animalCmap     = lines(max(nAnimals, 1));
+        [~, animalIdx] = ismember(string(stimTbl.animal(keep)), allAnimalNames);
+        dotColors      = animalCmap(animalIdx, :);
+
+        scatter(x, y, 16, dotColors, 'filled', 'MarkerFaceAlpha', 0.65);
+
+        if params.plotLegend
+            lgdH = gobjects(nAnimals, 1);
+            for ai = 1:nAnimals
+                lgdH(ai) = plot(nan, nan, 'o', ...
+                    'Color', animalCmap(ai,:), 'MarkerFaceColor', animalCmap(ai,:), ...
+                    'MarkerSize', 6, 'DisplayName', allAnimalNames{ai});
+            end
+            legend(lgdH, 'Location','best', 'FontSize',7, 'Box','off');
+        end
+
+        set(gca, 'FontSize', 8, 'FontName', 'helvetica');
+        xlabel('Stripe score (stripeBestScore)', 'FontSize', 9);
+        ylabel('Responsiveness z-score', 'FontSize', 9);
+        title(sprintf('%s: rho=%.3f, 95%%CI[%.3f,%.3f], p=%.4f, n=%d', ...
+            label, rho, ci(1), ci(2), pVal, n), 'FontSize', 8);
+        box on;  hold off;
+
+        if params.PaperFig
+            vs_first.printFig(figCorr, sprintf('StripeNeurons_scoreZcorr_%s_%s', label, params.indexType), ...
+                PaperFig = params.PaperFig);
+        end
+        results.figCorr.(label) = figCorr;
+    end
+end
+results.corrData = corrData;
+
+% =========================================================================
 % 6.  Save the joined table to disk for downstream use
 % =========================================================================
 results.joinedTbl = tbl;
@@ -954,6 +1283,54 @@ try
     pVal = 2 * min(pOne, 1 - pOne);
 catch
     pVal = NaN;
+end
+end
+
+function btrho = hierBootCorrSpearman(x, y, nrep, lvl1, lvl2)
+% Joint hierarchical bootstrap for a Spearman correlation between paired
+% vectors x and y. Mirrors hierBootMatchFreq's 3-level animal -> insertion
+% -> observation resampling (see hierBootMatchFreq.m for the reference
+% implementation this is derived from), but stores row INDICES per
+% (animal, insertion) bucket instead of raw values, so the same resampled
+% index set is applied to x and y together each rep — keeping the pairs
+% intact — and Spearman rho is computed per rep instead of a single-vector
+% mean. Requires lvl2 (insertion) IDs to be globally unique across animals,
+% same requirement as hierBootMatchFreq.
+btrho = nan(1, nrep);                              % preallocate bootstrap rho values
+
+grp1   = unique(lvl1);                             % distinct animals
+ngrps1 = length(grp1);
+
+lvls = struct();
+for k = 1:ngrps1                                   % build animal -> insertion -> index map
+    lvls(k).id = grp1(k);
+    grp2 = unique(lvl2(lvl1==lvls(k).id));          % insertions belonging to this animal
+    for n = 1:length(grp2)
+        lvls(k).lvl2(n).id  = grp2(n);
+        lvls(k).lvl2(n).idx = find(lvl2==grp2(n));  % row indices for this insertion (not values)
+    end
+end
+
+for j = 1:nrep                                      % bootstrap repetitions
+    tmpIdx   = [];                                   % accumulated resampled row indices for this rep
+    res1_ind = randi(ngrps1, ngrps1, 1);              % resample animals with replacement
+
+    for k = 1:length(res1_ind)                        % loop over resampled animals
+        ngrps2   = length(lvls(res1_ind(k)).lvl2);
+        res2_ind = randi(ngrps2, ngrps2, 1);           % resample insertions within this animal
+
+        for m = 1:ngrps2                                % loop over resampled insertions
+            pool     = lvls(res1_ind(k)).lvl2(res2_ind(m)).idx;
+            res3_ind = randi(length(pool), size(pool));  % resample observations within this insertion
+            tmpIdx   = [tmpIdx; pool(res3_ind)];          %#ok<AGROW>
+        end
+    end
+
+    try
+        btrho(j) = corr(x(tmpIdx), y(tmpIdx), 'Type', 'Spearman');
+    catch
+        % degenerate resample (e.g. constant x or y) — leave as NaN
+    end
 end
 end
 

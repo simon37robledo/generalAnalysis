@@ -36,7 +36,7 @@ markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54
     Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
-T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Figure 1 No FDR _general result\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer =50,PaperFig=true);
+T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Figure 1 No FDR _general result\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer =15,PaperFig=true);
 
 
 %% Analysis of just entry to screen
@@ -60,19 +60,55 @@ Dfn = sortrows(D(D.FN_for~="",:), 'Severity', 'descend');   % strongest missed r
 plotFalseNegPosNeurons(Dfn(1:15,:));     % test batch — check the MB call and the filenames
 % plotFalseNegPosNeurons(D);          % full run once the test looks right
 
-%% Figure 2 spatial tuning and stripes
-% 
-% 
-% 
+%% Plot examples neurons MB and SB
+%%% Rect Grid
+
+for ex = [74] %84:9    81  14
+    NP = loadNPclassFromTable(ex); %73 81
+    vsRe = rectGridAnalysis(NP);
+    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [], exNeurons= [111], selectedLum=255,oneTrial = true,PaperFig = true) 
+    [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=111,allStimParamsCombined=false,PaperFig=true,overwrite=true);
+end
+
+for ex = [97] %84:91
+    NP = loadNPclassFromTable(ex); %73 81
+    vsRe = rectGridAnalysis(NP);
+    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [], exNeurons= [1], selectedLum=255,oneTrial = true,PaperFig = true) 
+  
+end
+
+
+%%% Moving ball
+
+for ex =[97]%
+    NP = loadNPclassFromTable(ex); %73 81
+    vs = linearlyMovingBallAnalysis(NP);
+    vs.plotRaster('exNeuronsPhyID',357,'overwrite',true,'MergeNtrials',1,'PaperFig',true,OneLuminosity= 'white',OneDirection='up',bin=20)
+    colorbarLims=vs.PlotReceptiveFields('exNeurons',1,'overwrite',true,'OneDirection','up','OneLuminosity','white','PaperFig',true);
+end
+
+for ex =[74]%
+    NP = loadNPclassFromTable(ex); %73 81
+    vs = linearlyMovingBallAnalysis(NP);
+    vs.plotRaster('exNeuronsPhyID',[],'exNeurons',1111,'overwrite',true,'MergeNtrials',1,'PaperFig',true,OneLuminosity= 'white',OneDirection='up',bin=20)
+end
+
+%% FIGURE 2: SPATIAL TUNING ANS STRIPE ANALYSIS
+%%%%%%%%
+%%%%%%%%
+%%%%%%%%
+%%%%%%%%
+%%%%%%%%
+%%%%%%%%
+%%%%%%%%
+
 %%  Calculate spatial tuning
 for tp = 5
 results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
     , topPercent = tp,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
 
 end
-%%
-results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
-    , topPercent = 30,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
+
 %%
 results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
     indexType   = "L_amplitude_diff", ...
@@ -84,6 +120,24 @@ results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
     unionResponsive = false,...
     allResponsive=true, PaperFig=true);   % match what you used in SpatialTuningIndex
 
+%% Plot examples neurons MB and SB
+%%% Rect Grid
+
+for ex = [81] %84:91
+    NP = loadNPclassFromTable(ex); %73 81
+    vsRe = rectGridAnalysis(NP);
+    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [288], exNeurons= [], selectedLum=255,oneTrial = true,PaperFig = true) 
+    [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=14,allStimParamsCombined=false,PaperFig=true,overwrite=true);
+end
+
+%%% Moving ball
+
+for ex =[70]%
+    NP = loadNPclassFromTable(ex); %73 81
+    vs = linearlyMovingBallAnalysis(NP);
+    vs.plotRaster('exNeuronsPhyID',[180],'overwrite',true,'MergeNtrials',2,'PaperFig',true,OneLuminosity= 'white',OneDirection='down',bin=20)
+    colorbarLims=vs.PlotReceptiveFields('exNeurons',19,'overwrite',true,'OneDirection','down','OneLuminosity','white','PaperFig',true);
+end
 
 %% FIGURE 3 MOVING VS STATIC COMPARISON
 %%%%%%%%
@@ -252,7 +306,7 @@ for ex = [69] %84:91
     % results = vsRe.ShufflingAnalysis('overwrite',true);
     %vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons = true, selectedLum=[],oneTrial = true,PaperFig = true) %43
     vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [], exNeurons= [21], selectedLum=255,oneTrial = true,PaperFig = true) %43
-    % vsRe.CalculateReceptiveFields('overwrite',true,AllResponsiveNeurons=false)
+    vsRe.CalculateReceptiveFields('overwrite',true,AllResponsiveNeurons=false)
     % % [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=13,allStimParamsCombined=false,PaperFig=true,overwrite=true);
     % %result = vsRe.BootstrapPerNeuron('overwrite',true);
     % result = vsRe.StatisticsPerNeuron;
