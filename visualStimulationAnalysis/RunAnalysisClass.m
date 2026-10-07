@@ -31,8 +31,12 @@ markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54
               14, 'RG', 'PV140', 9 };
 % CategoryLevels={["offsets","directions"],["position"]}
 
-[tempTableMW, summaryStats] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=true,durationWindow=250, markUnits = markUnits, BaseRespWindow=250, useTtest=false,...
+% MB: spatial-grid test (300 ms window at each ball crossing, max over cells x
+% directions after the sign flip). RG: fixed 300 ms from onset. Both: 300 ms
+% baseline (BaseRespWindow is forced to 300 in grid mode). No durationWindow:
+% the MB sliding-window test is invalid (~100% FPR, checkMovingWindowNullFPR).
+[tempTableMW, summaryStats] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
+    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true, markUnits = markUnits, useTtest=false,...
     Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
