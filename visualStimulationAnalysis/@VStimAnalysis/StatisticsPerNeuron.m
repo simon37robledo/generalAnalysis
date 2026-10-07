@@ -93,8 +93,20 @@ end
 % parameter: computationParamsMatch then rejects every older cache.
 %   v2: permutation null is per neuron (v1 pooled the null across all neurons
 %       of a recording through a transposed reshape).
+%   v3: with durationWindow=[] every condition uses the fixed response window
+%       (v2 gave the first condition of a stimulus its full duration instead).
 % -------------------------------------------------------------------------
-params.statsVersion = 2;                                           % current statistics code version
+params.statsVersion = 3;                                           % current statistics code version
+
+% -------------------------------------------------------------------------
+% Without a sliding-window width the sliding-window mode cannot run. Resolve
+% this once, before the cache check and the condition loop, so every condition
+% of a stimulus uses the same fixed response window (BaseRespWindow from
+% onset), and the saved params equal those of a repeat call.
+% -------------------------------------------------------------------------
+if isempty(params.durationWindow)
+    params.MovingWindowPVal = false;                               % fixed-window mode
+end
 
 % -------------------------------------------------------------------------
 % Load cached results — but only if the stored computation params match.
@@ -384,15 +396,12 @@ for s = 1:x
     %   MovingWindowPVal=true            : per-trial sliding window max (all stimuli)
     %   MovingWindowPVal=false, moving ball : nSegments equal epochs of stimDur/nSegments ms
     %                                        max-statistic taken across cats AND segments
-    %   MovingWindowPVal=false, other stimuli: full duration mean (same as Diff)
+    %   MovingWindowPVal=false, other stimuli: mean over the response window
+    %                                        (BaseRespWindow from onset), same as Diff
     % -------------------------------------------------------------------------
 
     % Flag: use segmented approach for moving ball when sliding window disabled
     %useSegments = ~params.MovingWindowPVal && isfield(responseParams, "Speed1");
-
-    if isempty( params.durationWindow)
-        params.MovingWindowPVal = false;
-    end
 
     if params.MovingWindowPVal && isequal(obj.stimName, 'linearlyMovingBall')
         % --- Sliding window approach ---

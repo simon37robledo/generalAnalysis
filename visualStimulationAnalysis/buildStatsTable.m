@@ -385,7 +385,8 @@ end
 if isGrid
     parts{end+1} = ['Moving ball: spatial-grid test (9x9 cells; mean rate in a 300 ms ' ...
         'window from each ball crossing minus a 300 ms pre-trial baseline; null maximised ' ...
-        'jointly over cells and directions). Other stimuli: 300 ms baseline window'];  % methods text for grid mode
+        'jointly over cells and directions). Other stimuli without a sliding window: ' ...
+        'mean rate in the first 300 ms after onset minus a 300 ms pre-stimulus baseline'];  % methods text for grid mode
 end
 
 % --- Trial focus (Lock) ---

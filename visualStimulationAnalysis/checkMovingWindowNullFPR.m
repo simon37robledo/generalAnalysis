@@ -12,7 +12,7 @@ function [fprTable, deltaTable, info] = checkMovingWindowNullFPR(expNum, params)
 %     MB_slide     sliding-window MB test, per-neuron null      (StatisticsPerNeuron v2)
 %     MB_slide_v1  same, null pooled across neurons            (pre-fix v1 behaviour)
 %     MB_grid      spatial-grid MB test                         (StatisticsPerNeuronSpatialGrid)
-%     RG           full-duration RG test, per-neuron null       (StatisticsPerNeuron v2)
+%     RG           fixed-window RG test, per-neuron null        (StatisticsPerNeuron v3)
 %     RG_v1        same, null pooled across neurons            (pre-fix v1 behaviour)
 %
 %   Each simulated recording ("chunk") mixes neurons at every firing rate, so a
@@ -34,6 +34,7 @@ arguments
     params.slideWin double = 250                % Figure 1 durationWindow = BaseRespWindow (ms)
     params.gridWin double = 300                 % GridAnalysisWindow used by StatisticsPerNeuron:154
     params.gridSize double = 9                  % 9 x 9 grid, as in StatisticsPerNeuron:154
+    params.rgWin double = 300                   % RG response (from onset) and baseline window: BaseRespWindow forced to 300 in grid mode
     params.seed double = 1                      % RNG seed for reproducibility
     params.selfTest logical = true              % check vectorised grid null against production loop
 end
@@ -64,7 +65,8 @@ assert(tcMB >= 2, 'Split-half needs >= 2 trials per MB category.');  % odd/even 
 vsRG = rectGridAnalysis(NP);                                       % rect-grid analysis object
 rwRG = vsRG.ResponseWindow;                                        % cached RG response-window struct
 CRG       = rwRG.C;                                                % RG conditions
-stimDurRG = round(rwRG.stimDur);                                   % RG response length (MovingWindowPVal -> full stimDur, StatisticsPerNeuron:305)
+stimDurRG = round(rwRG.stimDur);                                   % full RG stimulus length (reported only)
+assert(params.rgWin <= stimDurRG, 'rgWin exceeds the RG stimulus duration.');  % fixed window must fit in the stimulus
 [keepRG, catRG] = applyCategoryFocus(CRG, rwRG.colNames{1}(5:end), "all", params.lock);  % same focus as production
 assert(numel(catRG) == sum(keepRG), 'RG catID is not one entry per kept trial.');  % alignment invariant
 catRGs = sort(catRG);                                              % category of each kept trial, block-sorted
@@ -157,11 +159,11 @@ for k = 1:nChunks                                                  % one simulat
     end
     clear Mr Mb MbS gridDiff                                       % free MB arrays
 
-    % ---- (c) RG full-duration mean (StatisticsPerNeuron:346, 414) ----
-    MrR = single(rand(nTrRG, nU, stimDurRG, 'single') < pLam);     % RG response spikes
-    MbR = single(rand(nTrRG, nU, params.slideWin, 'single') < pLam);  % RG baseline spikes (250 ms)
+    % ---- (c) RG fixed-window mean (StatisticsPerNeuron, MovingWindowPVal=false) ----
+    MrR = single(rand(nTrRG, nU, params.rgWin, 'single') < pLam);  % RG response spikes, fixed window from onset
+    MbR = single(rand(nTrRG, nU, params.rgWin, 'single') < pLam);  % RG baseline spikes, same length
     [P(4, cols), P(5, cols)] = maxCatSignFlip(double(mean(MrR, 3) - mean(MbR, 3)), tcRG, nCatRG, params.nBoot);  % v2 and v1
-    Dlt(3, cols) = splitHalfDelta(movmean(MrR, params.slideWin, 3, 'Endpoints', 'discard') - mean(MbR, 3), catRGs, halfRG);  % split-half
+    Dlt(3, cols) = splitHalfDelta(mean(MrR, 3) - mean(MbR, 3), catRGs, halfRG);  % split-half over positions (one fixed window)
     clear MrR MbR                                                  % free RG arrays
 
     fprintf('  simulated recording %d/%d done\n', k, nChunks);     % progress
