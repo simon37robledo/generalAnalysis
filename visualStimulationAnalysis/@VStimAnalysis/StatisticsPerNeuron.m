@@ -83,8 +83,17 @@ arguments (Input)
     params.CategoryLevels = "all"   % factors kept separate (their crossing = response levels);
                                     % "all" -> every parameter separate (legacy). Unnamed factors pool.
     params.Lock           = {}      % {name,value,...} lock factors to fixed values (pre-filter); {} = none
-                                    
+
 end
+
+% -------------------------------------------------------------------------
+% Code version of the statistics, stored in params and therefore in the cache.
+% Bump it whenever a code change alters results without changing any
+% parameter: computationParamsMatch then rejects every older cache.
+%   v2: permutation null is per neuron (v1 pooled the null across all neurons
+%       of a recording through a transposed reshape).
+% -------------------------------------------------------------------------
+params.statsVersion = 2;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Load cached results — but only if the stored computation params match.
@@ -106,7 +115,19 @@ calledBare = (nargin == 1);                                        % true iff ca
 
 if isfile(obj.getAnalysisFileName) && ~params.overwrite
     cached = load(obj.getAnalysisFileName);                        % peek at the saved result
-    if calledBare || (isfield(cached, 'params') && computationParamsMatch(cached.params, params))
+    % A bare call skips the params check, so it must refuse a cache written by
+    % older statistics code instead of silently returning outdated p-values.
+    cachedVersion = 1;                                             % caches without the field predate versioning
+    if isfield(cached, 'params') && isfield(cached.params, 'statsVersion')
+        cachedVersion = cached.params.statsVersion;                % version that wrote this cache
+    end
+    if calledBare && cachedVersion < params.statsVersion
+        error(['StatisticsPerNeuron: cache for %s was written by statistics v%d ', ...
+               '(current v%d). Recompute it with an explicit call ', ...
+               '(e.g. AllExpAnalysis with overwriteStats=true) before reading it bare.'], ...
+              obj.dataObj.recordingName, cachedVersion, params.statsVersion);  % fail loudly
+    end
+    if calledBare ||(isfield(cached, 'params') && computationParamsMatch(cached.params, params))
         if nargout == 1
             fprintf('Loading saved results from file.\n');
             results = cached;                                     % bare call, or params match -> return cached
@@ -523,7 +544,9 @@ for s = 1:x
             catMeansPermSeg(~validCats3D)  = -Inf;
 
             % Max across categories for this segment: [nBoot × nNeurons]
-            nullMaxSeg = reshape(max(catMeansPermSeg, [], 1), params.nBoot, nNeurons);
+            % max over cats is [1 × nNeurons × nBoot]: reshape neuron-major, then
+            % transpose, so each column holds ONE neuron's null (not a pooled mix)
+            nullMaxSeg = reshape(max(catMeansPermSeg, [], 1), nNeurons, params.nBoot).';
 
             % Running max across segments — equivalent to max across cats AND segs
             nullMax = max(nullMax, nullMaxSeg);
@@ -547,12 +570,14 @@ for s = 1:x
         validCats3D               = repmat(validCats, 1, 1, params.nBoot);
         catMeansAll(~validCats3D) = -Inf;
 
-        nullMax = reshape(max(catMeansAll, [], 1), params.nBoot, nNeurons);
+        % max over cats is [1 × nNeurons × nBoot]: reshape neuron-major, then
+        % transpose to [nBoot × nNeurons] so column u is neuron u's own null
+        nullMax = reshape(max(catMeansAll, [], 1), nNeurons, params.nBoot).';
 
         if ~params.maxCategory
 
             ObsStat = mean(catMeansMasked, 1);
-            nullMax = reshape(mean(catMeansAll, 1), params.nBoot, nNeurons);
+            nullMax = reshape(mean(catMeansAll, 1), nNeurons, params.nBoot).';  % same neuron-major reshape + transpose
 
         end
 
