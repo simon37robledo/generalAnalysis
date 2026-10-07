@@ -28,6 +28,9 @@ function [T, outPaths] = buildStatsTable(spec, params)
 %             pvalSeed  - RNG seed applied before every p-value (default 0)
 %             metrics   - metrics to include (default all four)
 %             write     - false to compute without writing files
+%             excludeAnimals - string array of animals removed before any
+%                         statistic (sensitivity analyses; recorded in the
+%                         excludedAnimals output column; see leaveOneAnimalOut)
 %
 %   OUTPUT
 %     T         table, one row per (comparison x metric x pair)
@@ -49,6 +52,7 @@ arguments
     params.pvalSeed    double  = 0
     params.metrics     cell    = {'Z-score','SpkR','DeltaRate','FracResponsive'}
     params.write       logical = true
+    params.excludeAnimals string = strings(1,0)   % animals dropped before any statistic (sensitivity analyses)
 end
 
 assert(size(spec,2) == 3, ...
@@ -74,6 +78,9 @@ for si = 1:size(spec,1)
         'buildStatsTable: struct not found for %s:\n  %s', figLabel, structPath);
 
     S = load(structPath);
+    if ~isempty(params.excludeAnimals)
+        S = dropAnimals(S, params.excludeAnimals, figLabel);     % sensitivity: remove whole animals
+    end
 
     % ---- Normalise exactly as AllExpAnalysis does before plotting --------
     TS = S.TableStimComp;
@@ -190,6 +197,9 @@ for si = 1:size(spec,1)
 end
 
 T = rows;
+if ~isempty(T)
+    T.excludedAnimals = repmat(strjoin(params.excludeAnimals, ','), height(T), 1);  % "" = all animals included
+end
 
 % ---- Write -------------------------------------------------------------
 outPaths = {};
@@ -208,6 +218,28 @@ if params.write && ~isempty(T)
 end
 
 end % buildStatsTable
+
+
+% =========================================================================
+% LOCAL: dropAnimals
+% Remove every row of the listed animals from both tables. Categories are not
+% re-encoded (rows are only deleted), so the bootstrap pools of the remaining
+% animals are enumerated exactly as in the full analysis.
+% =========================================================================
+function S = dropAnimals(S, excl, figLabel)
+
+present = unique(string(S.TableStimComp.animal));                % animals in this struct
+unknown = setdiff(excl, present);                                % requested but absent (typo?)
+assert(isempty(unknown), 'buildStatsTable: %s has no animal(s) %s; present: %s', ...
+    figLabel, strjoin(unknown, ', '), strjoin(present', ', '));  % fail loudly, never ignore a typo
+
+S.TableStimComp = S.TableStimComp(~ismember(string(S.TableStimComp.animal), excl), :);  % drop unit rows
+if isfield(S, 'TableRespNeurs')
+    S.TableRespNeurs = S.TableRespNeurs(~ismember(string(S.TableRespNeurs.animal), excl), :);  % drop insertion rows
+end
+assert(height(S.TableStimComp) > 0, ...
+    'buildStatsTable: no units left in %s after excluding %s.', figLabel, strjoin(excl, ', '));  % nothing to test
+end % dropAnimals
 
 
 % =========================================================================

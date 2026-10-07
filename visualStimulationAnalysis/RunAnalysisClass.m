@@ -40,7 +40,12 @@ markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54
     Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
-T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Figure 1 No FDR _general result\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer =15,PaperFig=true);
+% Struct written by the Figure 1 call above (statsVersion >= 4). The copy in
+% "Figure 1 No FDR _general result\" predates the permutation-null fix.
+T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer =15,PaperFig=true);
+
+%% Leave-one-animal-out sensitivity of the Figure 1 comparison
+Tloao = leaveOneAnimalOut("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat");
 
 
 %% Analysis of just entry to screen
