@@ -47,6 +47,9 @@ T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined
 %% Leave-one-animal-out sensitivity of the Figure 1 comparison
 Tloao = leaveOneAnimalOut("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat");
 
+%% Titled CSV tables for the supplement (Paper_figs\Stats summary tables\)
+statsTablePaths = makeStatsSummaryTables();   % needs the Figure 1 struct and the LOAO .xlsx above
+
 
 %% Analysis of just entry to screen
 markUnits = { 19, 'MB', 'PV132', 7 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
