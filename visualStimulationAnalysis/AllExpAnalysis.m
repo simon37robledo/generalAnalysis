@@ -313,7 +313,8 @@ end
 TableStimComp = table( ...
     categorical.empty(0,1), categorical.empty(0,1), categorical.empty(0,1), ...
     categorical.empty(0,1), categorical.empty(0,1), double.empty(0,1), double.empty(0,1), ...
-   'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR'});
+    double.empty(0,1), ...                                                % DeltaRate: split-half peak delta rate (spikes/s)
+   'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR','DeltaRate'});
 
 % TableRespNeurs: one row per (insertion x stimulus).  Counts of responsive
 % neurons and total somatic neurons for fraction-responsive analysis.
@@ -555,6 +556,7 @@ if runLoop
                     stimData.(fName).p    = catStats.(fName).pvalsResponse(:); % p-value
                 end
                 stimData.(fName).spkR = catStats.(fName).ObsStat(:);       % spike rate / z_mean
+                stimData.(fName).dRate = nan(size(stimData.(fName).z));    % per-category stats carry no DeltaRateCV
                 if isempty(nUnits), nUnits = numel(stimData.(fName).z); end
             end
             compLabels = levelLabels;                   % items to compare = level labels
@@ -584,11 +586,12 @@ if runLoop
                     % extractStimData references useTTest unconditionally
                     % (line ~1547/1588) — this call would have thrown
                     % "Not enough input arguments" the moment this branch ran.
-                    [z, p, spkR, ~] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                    [z, p, spkR, ~, dRate] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
                     generalPbyStim.(sn) = p;
                     stimData.(sn).z    = z(:);
                     stimData.(sn).p    = p(:);
                     stimData.(sn).spkR = spkR(:);
+                    stimData.(sn).dRate = dRate(:);              % split-half peak delta rate
                     compLabels{end+1}  = sn;                    %#ok<AGROW>
                     if isempty(nUnits), nUnits = numel(z); end
                     continue
@@ -642,6 +645,7 @@ if runLoop
                     stimData.(cLabel).z    = catStats.(fName).ZScoreU(:);
                     stimData.(cLabel).p    = catStats.(fName).pvalsResponse(:);
                     stimData.(cLabel).spkR = catStats.(fName).ObsStat(:);
+                    stimData.(cLabel).dRate = nan(size(stimData.(cLabel).z));  % per-category stats carry no DeltaRateCV
 
                     compLabels{end+1} = cLabel;                 %#ok<AGROW>
                     if isempty(nUnits), nUnits = numel(stimData.(cLabel).z); end
@@ -677,10 +681,11 @@ if runLoop
             for si = 1:numel(stimsNeeded)
                 sn  = stimsNeeded{si};
                 key = getObjKey(sn);
-                [z, p, spkR, ~] = extractStimData(statsByKey(key), vsObjs(key), sn, params.useZmean, params.useTtest);
+                [z, p, spkR, ~, dRate] = extractStimData(statsByKey(key), vsObjs(key), sn, params.useZmean, params.useTtest);
                 stimData.(sn).z    = z(:);
                 stimData.(sn).p    = p(:);
                 stimData.(sn).spkR = spkR(:);
+                stimData.(sn).dRate = dRate(:);         % split-half peak delta rate
                 generalPbyStim.(sn) = p(:);             % general p = per-stimulus p in mode 1
                 if isempty(nUnits), nUnits = numel(z); end
             end
@@ -738,7 +743,8 @@ if runLoop
                     categorical(unitIDs), ...                                          % neuron ID column
                     stimData.(cl).z(orMask), ...                            % z-score column
                     stimData.(cl).spkR(orMask), ...                         % spike rate column
-                    'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR'});
+                    stimData.(cl).dRate(orMask), ...                        % split-half delta rate column
+                    'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR','DeltaRate'});
                 TableStimComp = [TableStimComp; newRows];                   %#ok<AGROW>
             end
         end
@@ -850,13 +856,21 @@ end
 if isempty(S.TableStimComp) || height(S.TableStimComp) == 0
     warning('AllExpAnalysis:noUnits', 'No significant units found. Returning empty.');
     tempTable    = table();
-    summaryStats = struct('Zscore', [], 'SpkR', [], 'FracResponsive', []);  % keep the output defined on every path
+    summaryStats = struct('Zscore', [], 'SpkR', [], 'DeltaRate', [], 'FracResponsive', []);  % keep the output defined on every path
     return
 end
 
-% Replace NaN z-scores and spike rates with zero (prevents plotting issues)
+% A pooled cache written before DeltaRate existed cannot feed the new panel.
+assert(ismember('DeltaRate', S.TableStimComp.Properties.VariableNames), ...
+    'AllExpAnalysis:noDeltaRate', ...
+    'Pooled cache %s predates the DeltaRate column; rerun with overwrite=true.', savePath);
+
+% Replace NaN z-scores and spike rates with zero (prevents plotting issues).
+% DeltaRate is NOT zero-filled: a NaN there means "not computed" (e.g.
+% per-category mode), and a fabricated 0 would enter the statistics.
 S.TableStimComp.('Z-score')(isnan(S.TableStimComp.('Z-score'))) = 0;
 S.TableStimComp.SpkR(isnan(S.TableStimComp.SpkR))               = 0;
+summaryStats.DeltaRate = [];                                       % filled by SECTION 9b when computable
 
 % Defensive: ensure animal/insertion/stimulus are string-based categoricals.
 % Prevents numeric-named categoricals from being silently converted to
@@ -1054,6 +1068,56 @@ if numel(compLabels) == 2
     if params.PaperFig
         vs.printFig(fig, sprintf('SpkRate-Scatter-%s', figTag), ...
             PaperFig = params.PaperFig);
+    end
+end
+
+% =========================================================================
+% SECTION 9b — CROSS-VALIDATED DELTA-RATE PAIRWISE COMPARISON
+% =========================================================================
+% DeltaRate = split-half peak response minus baseline (spikes/s): the
+% preferred category / grid cell is chosen on one half of the repetitions and
+% measured on the other, so unlike SpkR (z_mean, a plain max) it is not
+% inflated by the number of categories a stimulus offers.
+
+nDRmissing = sum(isnan(S.TableStimComp.DeltaRate));               % rows without a delta rate
+if nDRmissing > 0
+    warning('AllExpAnalysis:deltaRateMissing', ...
+        ['%d of %d rows have no DeltaRate (e.g. per-category mode or an unsplittable ', ...
+         'condition); the delta-rate panel is skipped rather than zero-filled.'], ...
+        nDRmissing, height(S.TableStimComp));                      % explicit, not silent
+else
+    % Hierarchical-bootstrap p-value per pair, re-seeded as in SECTION 9
+    rng(params.pvalSeed);
+    pValsDR = zeros(1, size(pairsAll, 1));                         % one p-value per pair
+    for pi = 1:size(pairsAll, 1)
+        pValsDR(pi) = bootstrapPairDifference( ...
+            S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'DeltaRate');
+    end
+
+    drMax = max(S.TableStimComp.DeltaRate) + 0.1*abs(max(S.TableStimComp.DeltaRate));  % upper y-limit
+    drMax = max(drMax, 1);                                         % keep positive: bracket padding scales with it
+
+    % Swarm + bootstrap plot, same layout as the other metrics
+    [fig,~,figAllDiffs,summaryStats.DeltaRate] = plotSwarmBootstrapWithComparisons( ...
+        S.TableStimComp, pairsAll, pValsDR, {'DeltaRate'}, ...
+        yLegend = 'Δ rate (spikes/s)', yMaxVis = drMax, pValRes = pValRes, ...
+        diff = true, plotMeanSem = true, Alpha = 0.7, markUnits = params.markUnits);
+
+    printStatsSummary('Delta rate (split-half)', summaryStats.DeltaRate, pValRes);  % echo the numbers
+
+    ax = findobj(fig, 'Type', 'axes');                             % consistent font formatting
+    for i = 1:numel(ax)
+        formatAxes(ax(i), 8, 'helvetica');
+    end
+    figure(fig);
+    set(fig, 'Units', 'centimeters', 'Position', [20 20 10 6]);    % same size as the other swarms
+    colormap(fig, sharedCmap);
+    drawnow;                                                       % render before printing
+    if params.PaperFig
+        vs.printFig(fig, sprintf('DeltaRate-Swarm-%s', figTag), PaperFig = params.PaperFig);
+    end
+    if ~isempty(figAllDiffs) && params.PaperFig
+        vs.printFig(figAllDiffs, sprintf('AllDiff-DeltaRate-Swarm-%s', figTag), PaperFig = params.PaperFig);
     end
 end
 
@@ -1704,7 +1768,7 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec)   % + two focu
 end
 
 
-function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmean, useTTest)
+function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, useZmean, useTTest)
 % extractStimData  Pull z-scores, p-values, and spike rate from the
 %   StatisticsPerNeuron results.
 %
@@ -1725,8 +1789,12 @@ function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmea
 %     p        (N,1) double   P-values per neuron
 %     spkR     (N,1) double   Spike rate (or z_mean) per neuron
 %     spkDiff  (N,1) double   Response minus baseline difference
+%     dRate    (N,1) double   Split-half cross-validated peak delta rate (spikes/s)
 
     rw = vsObj.ResponseWindow;   % safe: no params-match cache logic, just reloads the file runStimStats already wrote
+    needDR = @(s) assert(isfield(s, 'DeltaRateCV'), ...
+        'AllExpAnalysis:noDeltaRate', ['Stats for %s lack DeltaRateCV (cache from older ', ...
+        'statistics code); rerun with overwriteStats=true.'], stimName);  % fail loudly on an outdated cache
 
     switch stimName
 
@@ -1740,6 +1808,7 @@ function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmea
             allZ  = [];     % (nNeurons x nSpeeds) z-score matrix
             allR  = [];     % (nNeurons x nSpeeds) spike rate matrix
             allDf = [];     % (nNeurons x nSpeeds) difference matrix
+            allDR = [];     % (nNeurons x nSpeeds) split-half delta rate matrix
 
             for iS = 1:nSpeeds
                 sName  = speedFields{iS};           % e.g. 'Speed1', 'Speed2'
@@ -1762,15 +1831,21 @@ function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmea
                     allR(:,iS) = max(rwTmp.NeuronVals(:,:,4), [], 2);      %#ok<AGROW>
                 end
                 allDf(:,iS) = max(rwTmp.NeuronVals(:,:,5), [], 2);         %#ok<AGROW>
+                needDR(subTmp);                                             % DeltaRateCV must exist
+                allDR(:,iS) = subTmp.DeltaRateCV(:);                        %#ok<AGROW>
             end
 
-            % Select the speed with the lowest p-value for each neuron
+            % Select the speed with the lowest p-value for each neuron.
+            % NOTE: with two speeds this choice uses all trials, so dRate (itself
+            % cross-validated within a speed) inherits a mild speed-selection bias;
+            % recordings with a single speed are unaffected.
             [p, bestIdx] = min(allP, [], 2);
             nNeurons = size(allP, 1);
             linIdx   = sub2ind(size(allP), (1:nNeurons)', bestIdx);
             z        = allZ(linIdx);
             spkR     = allR(linIdx);
             spkDiff  = allDf(linIdx);
+            dRate    = allDR(linIdx);                    % delta rate at the same speed as p and z
            
             return
 
@@ -1801,6 +1876,8 @@ function [z, p, spkR, spkDiff] = extractStimData(stats, vsObj, stimName, useZmea
     end
 
     spkDiff = max(rwSub.NeuronVals(:,:,5), [], 2);     % peak response - baseline
+    needDR(sub);                                        % DeltaRateCV must exist
+    dRate   = sub.DeltaRateCV(:);                       % split-half peak delta rate, spikes/s
 end
 
 

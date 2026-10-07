@@ -95,8 +95,9 @@ end
 %       of a recording through a transposed reshape).
 %   v3: with durationWindow=[] every condition uses the fixed response window
 %       (v2 gave the first condition of a stimulus its full duration instead).
+%   v4: adds DeltaRateCV (split-half cross-validated peak delta rate).
 % -------------------------------------------------------------------------
-params.statsVersion = 3;                                           % current statistics code version
+params.statsVersion = 4;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve
@@ -907,6 +908,25 @@ for s = 1:x
     %  and have been removed.)
 
     % -------------------------------------------------------------------------
+    % Split-half cross-validated peak delta rate (spikes/s)
+    % The preferred category is chosen on the odd repetitions of each category
+    % and measured on the even ones (and vice versa), on the same response
+    % window as Diff. Free of the winner's-curse inflation of z_mean (a plain
+    % max over categories); invalid categories cannot be chosen.
+    % -------------------------------------------------------------------------
+    if trialsCat >= 2
+        grpCat  = repelem((1:nCats)', trialsCat);                  % category of each Diff row (contiguous blocks)
+        halfCat = repmat(2 - mod((1:trialsCat)', 2), nCats, 1);    % 1 = odd repetition, 2 = even repetition
+        DiffCV  = Diff;                                            % copy used only for the split-half estimate
+        DiffCV(~repelem(validCats, trialsCat, 1)) = NaN;           % exclude invalid (category, neuron) pairs
+        DeltaRateCV = splitHalfDelta(DiffCV, grpCat, halfCat);     % [1 × nNeurons] spikes/s
+    else
+        warning('%s: %d trial per category, split-half delta rate undefined (NaN).', ...
+            obj.dataObj.recordingName, trialsCat);                 % a single repetition cannot be split
+        DeltaRateCV = nan(1, nNeurons);                            % undefined without two halves
+    end
+
+    % -------------------------------------------------------------------------
     % Store results for this condition
     % -------------------------------------------------------------------------
     if isfield(responseParams, "Speed1") || isequal(obj.stimName, 'StaticDriftingGrating')
@@ -923,6 +943,7 @@ for s = 1:x
         S.(fieldName).tStat              = tStat;        % [1 × nNeurons] t-statistics
         %S.(fieldName).prefSeg            = prefSeg;   % [1 × nNeurons] preferred segment (empty if not segmented)
         S.(fieldName).z_mean             = z_mean.*1000;   % [1 × nNeurons] mean spikes/sec difference (resp-base) of preferred segment (empty if not segmented)
+        S.(fieldName).DeltaRateCV        = DeltaRateCV;  % [1 × nNeurons] split-half peak delta rate, spikes/s
         S.(fieldName).catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
         S.(fieldName).catColNames = sepNames;    % [1 × nSep] separating-factor names
         S.(fieldName).focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});
@@ -938,7 +959,8 @@ for s = 1:x
         S.MaxMovWinResponse = max(MW,[],1);
         S.pValTTest         = pValTTest;
         S.tStat             = tStat;
-        S.z_mean            = z_mean.*1000;   
+        S.z_mean            = z_mean.*1000;
+        S.DeltaRateCV       = DeltaRateCV;   % [1 × nNeurons] split-half peak delta rate, spikes/s
         S.catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
         S.catColNames = sepNames;    % [1 × nSep] separating-factor names
         S.focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});

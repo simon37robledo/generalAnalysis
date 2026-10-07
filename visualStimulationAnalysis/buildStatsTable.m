@@ -26,7 +26,7 @@ function [T, outPaths] = buildStatsTable(spec, params)
 %             outName   - base filename (default 'SupplementaryStatsTable')
 %             nBootPval - bootstrap replicates for p-values (default 1e5)
 %             pvalSeed  - RNG seed applied before every p-value (default 0)
-%             metrics   - metrics to include (default all three)
+%             metrics   - metrics to include (default all four)
 %             write     - false to compute without writing files
 %
 %   OUTPUT
@@ -34,7 +34,7 @@ function [T, outPaths] = buildStatsTable(spec, params)
 %     outPaths  cellstr of files written
 %
 %   NOTE ON n: it means different things per metric, which is precisely why
-%   this table is worth having. For Z-score and SpkR, n counts NEURONS (paired
+%   this table is worth having. For Z-score, SpkR and DeltaRate, n counts NEURONS (paired
 %   within insertion by NeurID). For FracResponsive, n counts INSERTIONS. The
 %   nUnitIs column states which, and nAnimals/nInsertions disambiguate further.
 %
@@ -47,7 +47,7 @@ arguments
     params.outName     char    = 'SupplementaryStatsTable'
     params.nBootPval   double  = 1e5
     params.pvalSeed    double  = 0
-    params.metrics     cell    = {'Z-score','SpkR','FracResponsive'}
+    params.metrics     cell    = {'Z-score','SpkR','DeltaRate','FracResponsive'}
     params.write       logical = true
 end
 
@@ -101,10 +101,19 @@ for si = 1:size(spec,1)
 
     exclusionText = describeExclusions(S);             % one statement per comparison
 
-    % ---- Unit-level metrics (Z-score, SpkR) ------------------------------
+    % ---- Unit-level metrics (Z-score, SpkR, DeltaRate) -------------------
     for mi = 1:numel(params.metrics)
         metric = params.metrics{mi};
         if strcmp(metric, 'FracResponsive'), continue; end    % handled separately
+        if ~ismember(metric, TS.Properties.VariableNames)     % e.g. DeltaRate in a struct saved before it existed
+            warning('buildStatsTable:metricMissing', ...
+                '%s: struct has no %s column (saved by older code) - metric omitted for this comparison.', ...
+                figLabel, metric);                            % explicit, so the gap in the table is visible
+            continue
+        end
+        assert(~any(isnan(TS.(metric))), ...                   % DeltaRate is never zero-filled (see AllExpAnalysis 9b)
+            'buildStatsTable: %s has NaN values in %s; refusing to compute statistics on them.', ...
+            metric, figLabel);
 
         rng(params.pvalSeed);                          % reproducible, plot-independent
         pv = zeros(1, size(pairsUse,1));

@@ -287,29 +287,3 @@ end
 obs = max(obsPerDir, [], 1);                                       % line 270
 p   = mean(nullMax >= obs, 1);                                     % line 271
 end
-
-function dlt = splitHalfDelta(X, grp, half)
-% Split-half cross-validated peak delta. X: [nTrials x nNeurons x nOptions]
-% (options = window positions or grid cells; NaN = not measurable), grp: selection
-% group per trial (category or direction), half: 1/2 per trial. Select the
-% (group, option) maximising the mean on one half, measure it on the other half,
-% swap, average; returns spikes/s [1 x nNeurons].
-[nTr, nU, nOpt] = size(X);                                         % dimensions
-nGrp = max(grp);                                                   % selection groups
-ok   = ~isnan(X);                                                  % measurable entries
-X(~ok) = 0;                                                        % zero-fill for summation
-M = cell(1, 2);                                                    % group x option means per half
-for h = 1:2
-    G    = double(sparse(grp(half == h), find(half == h), 1, nGrp, nTr));  % [nGrp x nTrials] membership in this half
-    sums = full(G * reshape(double(X),  nTr, []));                 % sums  [nGrp x nNeurons*nOpt]
-    cnts = full(G * reshape(double(ok), nTr, []));                 % counts [nGrp x nNeurons*nOpt]
-    M{h} = reshape(permute(reshape(sums ./ cnts, nGrp, nU, nOpt), [1 3 2]), nGrp*nOpt, nU);  % [nGrp*nOpt x nNeurons]
-end
-est = zeros(2, nU);                                                % held-out estimate per direction of the split
-for h = 1:2
-    sel = M{h}; sel(isnan(sel)) = -Inf;                            % unmeasurable options cannot be selected
-    [~, idx] = max(sel, [], 1);                                    % selected (group, option) per neuron
-    est(h, :) = M{3-h}(idx + (0:nU-1) * nGrp * nOpt);              % measured on the other half
-end
-dlt = mean(est, 1) * 1000;                                         % average of both splits, spikes/ms -> spikes/s
-end

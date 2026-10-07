@@ -373,6 +373,29 @@ for s = 1:nSpeeds
     end
 
     % =========================================================================
+    % Split-half cross-validated peak delta rate (spikes/s)
+    % Cell x direction is chosen on the odd repetitions of each stimulus
+    % condition and measured on the even ones (and vice versa), so the value is
+    % free of the winner's-curse inflation of z_mean (a plain max over cells x
+    % directions). Splitting within each condition (direction x offset x size
+    % ...) puts every crossed cell's trials into both halves.
+    % =========================================================================
+    [~, ~, condID] = unique(C(:, 2:end), 'rows');      % condition index per trial (all stimulus factors)
+    repRank = zeros(nTrials, 1);                       % repetition rank of each trial within its condition
+    for k = 1:max(condID)
+        rows          = find(condID == k);             % trials of this condition, in trial order
+        repRank(rows) = (1:numel(rows))';              % 1, 2, 3, ... within the condition
+    end
+    nRepMin = min(accumarray(condID, 1));              % fewest repetitions of any condition
+    if nRepMin < 2                                     % a single repetition cannot be split
+        warning('%s %s: a condition has %d repetition(s); split-half delta rate is NaN for its cells.', ...
+            obj.dataObj.recordingName, fieldName, nRepMin);
+    end
+    halfID      = 2 - mod(repRank, 2);                 % 1 = odd repetition, 2 = even repetition
+    [~, ~, dirID] = unique(directions);                % direction index per trial (selection group)
+    DeltaRateCV = splitHalfDelta(permute(gridDiff, [1 3 2]), dirID, halfID);  % [1 × nNeurons] spikes/s
+
+    % =========================================================================
     % Store results for this speed condition
     % =========================================================================
     S.(fieldName).pvalsResponse         = pVal;                % [1 × nNeurons]
@@ -388,7 +411,8 @@ for s = 1:nSpeeds
     S.(fieldName).nTrialsPerCellDir     = nTrialsPerCellDir;     % [nCells × nDirs]
     S.(fieldName).ZScorePerGrid         = ZScorePerGrid;         % struct of 4D arrays
     S.(fieldName).gridSize              = params.GridSize;       % scalar, grid dimensions
-    S.(fieldName).z_mean               = z_mean*1000;     
+    S.(fieldName).z_mean               = z_mean*1000;
+    S.(fieldName).DeltaRateCV           = DeltaRateCV;           % [1 × nNeurons] split-half peak delta rate, spikes/s
 
     S.params = params;   % store parameters for reproducibility
 

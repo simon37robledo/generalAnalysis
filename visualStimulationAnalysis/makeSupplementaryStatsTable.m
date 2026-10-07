@@ -42,7 +42,7 @@ arguments
     params.include     cell    = {'Fig 1'}   % which SPEC rows to run, matched as
                                              %   substrings of the figure label.
                                              %   Default: the MB vs SB comparison
-                                             %   only (3 rows: Z-score, SpkR,
+                                             %   only (4 rows: Z-score, SpkR, DeltaRate,
                                              %   FracResponsive). Widen when you
                                              %   want other stimuli, e.g.
                                              %   include = {'Fig 1','Fig 3'}, or
