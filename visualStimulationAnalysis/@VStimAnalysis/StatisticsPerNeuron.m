@@ -96,8 +96,10 @@ end
 %   v3: with durationWindow=[] every condition uses the fixed response window
 %       (v2 gave the first condition of a stimulus its full duration instead).
 %   v4: adds DeltaRateCV (split-half cross-validated peak delta rate).
+%   v5: grid results also store trialOnsets/trialDirections/crossingMs, used
+%       to align MB rasters and PSTHs to the ball crossing (gridAlignedMR).
 % -------------------------------------------------------------------------
-params.statsVersion = 4;                                           % current statistics code version
+params.statsVersion = 5;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve

@@ -413,6 +413,9 @@ for s = 1:nSpeeds
     S.(fieldName).gridSize              = params.GridSize;       % scalar, grid dimensions
     S.(fieldName).z_mean               = z_mean*1000;
     S.(fieldName).DeltaRateCV           = DeltaRateCV;           % [1 × nNeurons] split-half peak delta rate, spikes/s
+    S.(fieldName).trialOnsets           = trialTimes(:);         % [nTrials × 1] onset (ms) of each analysed (locked) trial
+    S.(fieldName).trialDirections       = directions(:);         % [nTrials × 1] direction of each analysed trial
+    S.(fieldName).crossingMs            = crossingMsInTrial;     % [nTrials × nCells] crossing time from onset (ms), NaN = not crossed
 
     S.params = params;   % store parameters for reproducibility
 

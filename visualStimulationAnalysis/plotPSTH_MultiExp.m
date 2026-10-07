@@ -380,6 +380,8 @@ if forloop
 
     % ----- Time-axis parameters: locked on the first successful experiment ----
     lockedPreBase = [];                                                    % pre-stimulus baseline duration, locked once
+    gridAlignedStim = false(1, numel(params.stimTypes));                   % true: line aligned to the RF crossing (grid-tested MB)
+    gridStimSeen    = false(1, numel(params.stimTypes));                   % true once a line's alignment has been fixed
     lockedNBins   = [];                                                    % number of time bins, locked once
     lockedEdges   = [];                                                    % bin edge vector in ms, locked once
 
@@ -626,6 +628,29 @@ if forloop
             C = getConditionMatrix(obj, stimType, params.speed);           % each row = one trial; C(:,1) = onset time in ms
             directimesSorted = C(:, 1)' + startStim;                      % shift onset times by the intra-stimulus offset (e.g. SDGm starts after static phase)
 
+            % ---- MB tested with the spatial grid: baseline | from RF crossing ----
+            % The grid test compares the window after the ball crosses a cell with
+            % the pre-trial baseline; gridAlignedMR builds exactly that per unit.
+            isGridMB = false;                                              % default: onset-aligned PSTH
+            if stimType == "MB"
+                if isempty(Stats)
+                    StatsMB = obj.StatisticsPerNeuron;                     % bare call (union mode does not load Stats above)
+                else
+                    StatsMB = Stats;                                       % already loaded
+                end
+                isGridMB = isfield(StatsMB, 'Speed1') && isfield(StatsMB.Speed1, 'prefGridCell');  % grid results carry prefGridCell
+            end
+            if ~gridStimSeen(s)
+                gridAlignedStim(s) = isGridMB;                             % fix this line's alignment on its first recording
+                gridStimSeen(s)    = true;
+            end
+            assert(gridAlignedStim(s) == isGridMB, ...
+                'Grid-tested and onset-tested MB recordings cannot share one PSTH line.');  % mixed alignment guard
+            if isGridMB
+                assert(isempty(params.TakeTopPercentTrials) || params.TakeTopPercentTrials >= 1, ...
+                    'TakeTopPercentTrials is not supported for grid-tested MB.');  % no trial trimming on the aligned path
+            end
+
             % ---- Lock the time-axis on the first valid experiment -------
             % All experiments must share the same bin edges for the grand average to be valid.
             preBase     = params.preBase;                                  % pre-stimulus baseline window in ms
@@ -642,6 +667,8 @@ if forloop
             % ---- Determine whether a category split is active -----------
             nCats         = numel(catLabelsAll{s});                        % number of category levels for this stim type
             isSplitActive = params.splitBy ~= "" && ~isequal(catLabelsAll{s}, "all"); % true = split is in use
+            assert(~(isGridMB && isSplitActive), ...
+                'splitBy is not supported for grid-tested MB (its categories are grid cells).');  % no trial categories there
 
             % ---- Select responsive neurons -----------------------------
             % Priority order:
@@ -730,7 +757,7 @@ if forloop
                 % more stable than a per-category estimate and identical across
                 % the split levels). Matches sdBase in StatisticsPerNeuron and
                 % does NOT shrink with trial count, unlike the SD across PSTH bins.
-                if params.zScore
+                if params.zScore && ~isGridMB                              % grid MB: baseline comes from gridAlignedMR below
                     MRbase = BuildBurstMatrix( ...
                         goodU(:, u), ...                                   % spike times for this unit
                         round(p_sort.t), ...                               % all sample times (rounded to ms)
@@ -760,6 +787,22 @@ if forloop
                     end
                 else
                     neuronBinIdx(ni) = 1;                                  % all neurons go to the single bin when byDepth is false
+                end
+
+                % ---- Grid-tested MB: one crossing-aligned PSTH ------------
+                if isGridMB
+                    [MRhist, baseRatesU] = gridAlignedMR(StatsMB, u, goodU(:, u), p_sort.t, ...
+                        lockedPreBase, windowTotal - lockedPreBase);       % baseline | from the preferred-cell crossing
+                    if params.zScore
+                        baseMeanNeuron(ni) = mean(baseRatesU);             % across-trial baseline mean (all trials)
+                        baseStdNeuron(ni)  = std(baseRatesU);              % across-trial baseline SD (all trials)
+                    end
+                    counts = zeros(1, lockedNBins);                        % per-bin spike counts, summed across trials
+                    for bi = 1:lockedNBins
+                        counts(bi) = sum(MRhist(:, lockedEdges(bi)+1 : lockedEdges(bi+1)), 'all');  % spikes in this bin
+                    end
+                    psthRateNeurons(ni, :, 1) = (counts / size(MRhist, 1)) / (params.binWidth / 1000);  % spikes/s
+                    continue                                               % no category levels on this path
                 end
 
                 % ---- Build PSTH for each category level -----------------
@@ -987,6 +1030,7 @@ if forloop
 
     % Store catLabelsAll — needed to reconstruct category loop on reload
     S.catLabelsAll   = catLabelsAll;
+    S.gridAlignedStim = gridAlignedStim;                                   % crossing-aligned lines (grid-tested MB)
 
     % Flatten psthAll cell array into named fields for safe .mat storage
     for s = 1:numel(params.stimTypes)
@@ -1009,6 +1053,11 @@ else
     lockedEdges   = S.lockedEdges;                                         % recover bin edges
     lockedPreBase = S.lockedPreBase;                                       % recover baseline duration
     catLabelsAll  = S.catLabelsAll;                                        % recover category labels
+    if isfield(S, 'gridAlignedStim')
+        gridAlignedStim = S.gridAlignedStim;                               % recover crossing alignment per line
+    else
+        gridAlignedStim = false(1, numel(params.stimTypes));               % old cache: all lines onset-aligned
+    end
 
     maxCats = max(cellfun(@numel, catLabelsAll));                           % maximum number of categories across stim types
     psthAll = cell(numel(params.stimTypes), nDepthBins, maxCats);          % re-allocate cell array
@@ -1185,6 +1234,9 @@ for s = 1:nStim
                 % Default: one colour per stim type
                 lineColor   = baseColors(s,:);
                 legendLabel = sprintf('%s (n=%d)', shortName, nValid);
+                if gridAlignedStim(s)
+                    legendLabel = [legendLabel ', t=0: RF crossing'];      % this line is aligned to the ball crossing
+                end
             end
 
             % ---- SEM shading -------------------------------------------

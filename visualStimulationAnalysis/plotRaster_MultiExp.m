@@ -60,6 +60,7 @@ arguments
     params.alpha           double        = 0.05                          % significance threshold
     params.postStim        double        = 0                             % post-stimulus window in ms
     params.preBase         double        = 200                           % pre-stimulus baseline in ms
+    params.gridPostMs      double        = 500                           % MB with spatial-grid stats: ms shown after the ball crossing
     params.overwrite       logical       = false                         % if true, recompute even if cache exists
     params.TakeTopPercentTrials double   = 0                             % fraction (0,1] of trials to keep; [] or 0 = keep all
     params.zScore          logical       = true                          % z-score each neuron using its baseline
@@ -305,6 +306,7 @@ if forloop
     tAxis         = cell(1, nStim);                                      % left bin edge (ms) per stimulus
     stimDurAll    = zeros(1, nStim);                                     % stim duration (ms) per stim for xline
     movingOnsetAll = nan(1, nStim);                                      % ms from stim onset to moving phase (SDG only; NaN elsewhere)
+    gridAlignedAll = false(1, nStim);                                    % true: panel aligned to the RF crossing (grid-tested MB)
 
     % -----------------------------------------------------------------
     % Pre-scan: find shortest stimulus duration per type across all exps
@@ -838,7 +840,18 @@ if forloop
             % --- Determine total trial window ---
             preBase = params.preBase;                                    % baseline in ms
 
-            if params.useCompleteWindow
+            % MB tested with the spatial grid: each trial is shown as its
+            % pre-trial baseline followed by the period after the ball crosses
+            % the unit's preferred cell (gridAlignedMR), i.e. what the test compares.
+            isGridMB = stimType == "MB" && isfield(expStats{s}, 'Speed1') && ...
+                isfield(expStats{s}.Speed1, 'prefGridCell');              % grid results carry prefGridCell
+            assert(~(isGridMB && isCatMode), ...
+                'Category split / preferredCategory sorting is not supported for grid-tested MB.');  % no trial categories there
+
+            if isGridMB
+                rawStimDur_ms = expStats{s}.gridParams.GridAnalysisWindow; % test window (ms): drawn as the offset line
+                windowTotal   = preBase + params.gridPostMs;              % baseline + time after the crossing
+            elseif params.useCompleteWindow
                 rawStimDur_ms = minStimDur(s);                           % truncate to shortest duration
                 windowTotal   = preBase + rawStimDur_ms + params.postStim; % full window in ms
             else
@@ -857,6 +870,7 @@ if forloop
                 lockedNBins(s) = numel(lockedEdges{s}) - 1;              % number of bins
                 tAxis{s}       = lockedEdges{s}(1:end-1);               % left edge per bin (ms)
                 stimDurAll(s)  = rawStimDur_ms;                          % for xline in plot
+                gridAlignedAll(s) = isGridMB;                            % alignment of this panel, fixed on first experiment
 
                 % Store moving-phase onset for SDG combined type.
                 % Use the pre-scanned minimum static duration across
@@ -869,6 +883,9 @@ if forloop
                 fprintf('  [%s] Locked window: preBase=%d ms, stimDur=%.0f ms, nBins=%d\n', ...
                     stimType, lockedPreBase, rawStimDur_ms, lockedNBins(s));
             end
+            assert(gridAlignedAll(s) == isGridMB, ...
+                ['[%s] exp %d: grid-tested and onset-tested MB recordings cannot share one panel; ', ...
+                 'recompute all stats with the same SpatialGridMode.'], stimType, ex);  % mixed alignment would corrupt the panel
 
             % --- Find responsive neurons ---
             % In union mode, expResponsive was already overwritten with
@@ -1017,6 +1034,17 @@ if forloop
                     % ==================================================
                     prefLevel = NaN;                                     % not applicable in standard mode
 
+                  if isGridMB
+                    % Grid-tested MB: baseline | from the preferred-cell crossing,
+                    % on the preferred direction's crossing trials (gridAlignedMR).
+                    [MRhist, baseRatesU] = gridAlignedMR(expStats{s}, u, goodU(:, u), ...
+                        p_sort.t, lockedPreBase, windowTotal - lockedPreBase);  % [nSel x windowTotal]
+                    if params.zScore
+                        bMean = mean(baseRatesU);                        % across-trial baseline mean (all trials)
+                        bStd  = std(baseRatesU);                         % across-trial baseline SD (all trials)
+                        if bStd == 0, nDroppedZeroSD(s) = nDroppedZeroSD(s) + 1; end  % silent baseline: floored later
+                    end
+                  else
                     Cu = speedC{ bestSpeed(u) };                         % winning speed's condition matrix
                     % Grid-routed MB has no trial-level category to decode (its
                     % category is a grid cell). The grid path stores no prefCat, so
@@ -1054,6 +1082,7 @@ if forloop
                         round(onsetsU - lockedPreBase), ...              % trial start = onset - baseline
                         round(windowTotal));                             % window length (ms, integer)
                     MRhist = squeeze(MRhist);                            % remove singleton dims
+                  end                                                    % end grid-MB / onset-aligned branch
                 end
 
                 % --- Optionally keep only the highest-firing trials ---
@@ -1250,6 +1279,7 @@ if forloop
     S.lockedPreBase   = lockedPreBase;                                   % shared baseline
     S.stimDurAll      = stimDurAll;                                      % per-stim duration for xline
     S.movingOnsetAll  = movingOnsetAll;                                  % static-to-moving transition (SDG only)
+    S.gridAlignedAll  = gridAlignedAll;                                  % panels aligned to the RF crossing (grid-tested MB)
     S.sdFloor         = sdFloor;                                         % data-driven z-score SD floor (spk/s) for reproducibility
     S.params          = params;                                          % full parameter set
 
@@ -1280,6 +1310,11 @@ else
         movingOnsetAll = S.movingOnsetAll;                               % restore static-to-moving transition
     else
         movingOnsetAll = nan(1, numel(params.stimTypes));                % old cache: no SDG combined data
+    end
+    if isfield(S, 'gridAlignedAll')
+        gridAlignedAll = S.gridAlignedAll;                               % restore crossing alignment per panel
+    else
+        gridAlignedAll = false(1, numel(params.stimTypes));              % old cache: every panel onset-aligned
     end
 
     rasterAll    = cell(1, numel(params.stimTypes));                     % pre-allocate
@@ -1941,7 +1976,7 @@ for s = 1:nStim
     % --- Stim onset / offset lines (seconds) ---
     % --- Stim onset line (offset omitted when the window is a fixed truncation) ---
     xline(ax, 0, 'k', 'LineWidth', 1.5);                             % onset at t = 0 s
-    if params.useCompleteWindow                                      % only draw offset when showing the full stimulus duration
+    if params.useCompleteWindow || gridAlignedAll(s)                 % full stimulus end, or end of the grid test window
         xline(ax, stimDurAll(s)/1000, 'k', 'LineWidth', 1.5);       % real stimulus end (seconds)
     end
 
@@ -1974,8 +2009,11 @@ for s = 1:nStim
         end
     end
 
-    title(ax, sprintf('%s  (n=%d)', shortName, size(data,1)), ...
-        'FontName', 'helvetica', 'FontSize', 8);                        % tile title with neuron count
+    titleTxt = sprintf('%s  (n=%d)', shortName, size(data,1));           % tile title with neuron count
+    if gridAlignedAll(s)
+        titleTxt = {titleTxt, 'baseline | from RF crossing'};            % this panel's t = 0 is the ball crossing
+    end
+    title(ax, titleTxt, 'FontName', 'helvetica', 'FontSize', 8);
 
     ax.FontName = 'helvetica';                                           % consistent font
     ax.FontSize = 8;                                                     % readable size
