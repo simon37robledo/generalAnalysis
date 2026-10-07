@@ -94,7 +94,7 @@ arguments
 
     % --- StatisticsPerNeuron parameters (maxPermuteTest) ---
     params.BaseRespWindow   double          = 100   % Base response window (ms) for statistics computation
-    params.SpatialGridMode  logical         = false % When true, forces BaseRespWindow = 200 ms
+    params.SpatialGridMode  logical         = false % When true, forces BaseRespWindow = 300 ms
     params.maxCategory      logical         = false % Use max-category mode in StatisticsPerNeuron
     params.applyFDR         logical         = false % Apply FDR correction inside the statistics functions
     params.overwriteStats   logical         = false % Force recomputation of statistics
@@ -158,8 +158,9 @@ end
 % =========================================================================
 
 % --- SpatialGridMode override ---
-% In SpatialGridMode the analysis window is fixed at 200 ms.  Apply the
-% override here so that every downstream call sees the corrected value.
+% In SpatialGridMode the grid analysis window is fixed at 300 ms
+% (GridAnalysisWindow in StatisticsPerNeuron). Match the other stimuli's
+% baseline window to it here so every downstream call sees the same value.
 if params.SpatialGridMode
     params.BaseRespWindow = 300;    % override user-supplied value
 end
@@ -226,11 +227,15 @@ nStim            = numel(stimsNeeded);                                    % numb
 catLevelsPerStim = normalizeFocusSpec(params.CategoryLevels, nStim, "all");  % separate-factor lists
 lockPerStim      = normalizeFocusSpec(params.Lock,           nStim, {});     % lock specs
 
-% Focus is incompatible with the spatial-grid path (no catTable/t-test there).
+% The spatial-grid path defines its own categories (cells x directions), so a
+% CategoryLevels subset is incompatible with it; a trial Lock is supported.
 for si = 1:nStim
-    assert(~(params.SpatialGridMode && isFocusActive(catLevelsPerStim{si}, lockPerStim{si})), ...
-        'CategoryLevels/Lock are not supported with SpatialGridMode=true.');
+    assert(~(params.SpatialGridMode && isFocusActive(catLevelsPerStim{si}, {})), ...
+        'CategoryLevels is not supported with SpatialGridMode=true (Lock is).');
 end
+% The grid result carries permutation p-values only (no pValTTest field).
+assert(~(params.SpatialGridMode && params.useTtest), ...
+    'useTtest=true is not supported with SpatialGridMode=true: the grid test has no t-test p-values.');
 
 % Map each shared object key to its focus spec (first stimulus wins for shared SDG object).
 specByKey = containers.Map();                                             % key -> struct(catLevels, lock)

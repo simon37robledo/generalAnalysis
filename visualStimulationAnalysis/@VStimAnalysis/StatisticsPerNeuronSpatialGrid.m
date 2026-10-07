@@ -25,22 +25,13 @@ arguments (Input)
     params.GridSize           = 9       % 9×9 = 81 grid cells
     params.GridAnalysisWindow = 200     % ms analysis window starting at ball crossing
     params.MinTrialsPerCell   = 3       % minimum trials per cell×direction×factor level
-    params.ApplyFDR           = false   % Benjamini-Hochberg FDR correction reduces the number of false positives. 
-    params.overwrite          = false   % recompute even if cached results exist
+    params.ApplyFDR           = false   % Benjamini-Hochberg FDR correction reduces the number of false positives.
+    params.Lock               = {}      % {name,value,...} keep only trials with these factor values; {} = all trials
 end
 
-% -------------------------------------------------------------------------
-% Load cached results if available
-% -------------------------------------------------------------------------
-if isfile(obj.getAnalysisFileName) && ~params.overwrite
-    if nargout == 1
-        fprintf('Loading saved results from file.\n');
-        results = load(obj.getAnalysisFileName);
-    else
-        fprintf('Analysis already exists (use overwrite option to recalculate).\n');
-    end
-    return
-end
+% No caching here: the only caller, StatisticsPerNeuron, checks its params
+% against the cache and saves this result, so a stale file can never be
+% returned without that check.
 
 % -------------------------------------------------------------------------
 % Fix random seed for reproducible permutation results
@@ -113,6 +104,35 @@ for s = 1:nSpeeds
     % -------------------------------------------------------------------------
     [crossingFrame, dwellFrames, validGridPerDir, nTrialsPerCellDir] = ...
         computeBallGridCrossings(obj, s, params);
+
+    % -------------------------------------------------------------------------
+    % Lock filter: keep only trials matching the locked factor values, using the
+    % same helper as StatisticsPerNeuron so both tests select identical trials
+    % -------------------------------------------------------------------------
+    if ~isempty(params.Lock)
+        assert(size(crossingFrame, 1) == size(C, 1), ...
+            'Grid crossings (%d rows) and C (%d rows) are not row-aligned.', ...
+            size(crossingFrame, 1), size(C, 1));                    % alignment invariant before subsetting
+        keepMask = applyCategoryFocus(C, responseParams.colNames{1}(5:end), "all", params.Lock);  % locked trials
+        C                  = C(keepMask, :);                         % conditions of kept trials
+        trialTimes         = trialTimes(keepMask);                   % onsets of kept trials
+        crossingFrame      = crossingFrame(keepMask, :);             % crossings of kept trials
+        dwellFrames        = dwellFrames(keepMask, :);               % dwell frames of kept trials
+        msPerFramePerTrial = msPerFramePerTrial(keepMask);           % frame duration of kept trials
+        nTrials            = size(C, 1);                             % kept trial count
+
+        % Validity and counts recomputed from kept trials only, as in
+        % computeBallGridCrossings (directions ordered by unique(C(:,2)))
+        uDirsKept         = unique(C(:, 2));                         % directions present after the lock
+        validGridPerDir   = false(size(crossingFrame, 2), numel(uDirsKept));  % [nCells x nDirs]
+        nTrialsPerCellDir = zeros(size(crossingFrame, 2), numel(uDirsKept));  % [nCells x nDirs]
+        for d = 1:numel(uDirsKept)
+            inDir = C(:, 2) == uDirsKept(d);                         % kept trials of this direction
+            validGridPerDir(:, d)   = any(~isnan(crossingFrame(inDir, :)), 1)';  % cell crossed at least once
+            nTrialsPerCellDir(:, d) = sum(~isnan(crossingFrame(inDir, :)), 1)';  % crossings per cell
+        end
+        fprintf('Lock kept %d trials for %s.\n', nTrials, fieldName);  % report the lock effect
+    end
 
     % Dwell time in ms per trial per cell (per-trial frame rate)
     dwellTimeMs = dwellFrames .* msPerFramePerTrial;   % broadcast [nTrials × 1] across cells
@@ -374,9 +394,7 @@ for s = 1:nSpeeds
 
 end % end speed loop
 
-% --- Save and return ---
-fprintf('Saving results to file.\n');
-save([fileparts(obj.getAnalysisFileName) filesep 'StatisticsPerNeuron.mat'], '-struct', 'S');
+% --- Return (StatisticsPerNeuron tags and saves the result) ---
 results = S;
 
 end % end main function

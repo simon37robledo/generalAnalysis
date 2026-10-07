@@ -18,8 +18,8 @@ function [T, summary] = AllExpResponsiveUnion(expList, params)
 %
 %   HOW STATS ARE READ (do not change without reading this):
 %     Cached results are fetched with a BARE call, obj.StatisticsPerNeuron.
-%     StatisticsPerNeuron returns the saved struct verbatim only when
-%     nargin==1; passing any name-value pair triggers computationParamsMatch,
+%     StatisticsPerNeuron returns the saved struct verbatim only when every
+%     param is at its default; passing a non-default name-value pair triggers computationParamsMatch,
 %     which — against the focused cache AllExpAnalysis wrote — fails, then
 %     RECOMPUTES with different parameters and OVERWRITES the cache on disk.
 %     That was the findFalseNegAndPos Stage-2 bug.  The only call here that
@@ -321,8 +321,8 @@ if runLoop
             Stats = [];                                      % stats struct for this family
             src   = '';                                      % provenance string for the audit
             if isfile(statFile)
-                % BARE call: returns the saved struct verbatim (nargin==1
-                % passthrough).  Passing parameters here would recompute and
+                % BARE call: returns the saved struct verbatim (all-default
+                % params passthrough).  Passing parameters here would recompute and
                 % overwrite the cache the published figures were built from.
                 try
                     Stats = obj.StatisticsPerNeuron;         % load cache exactly as written
@@ -331,6 +331,9 @@ if runLoop
                         templateParams(sn) = Stats.params;   % first cache of this family becomes the template
                     end
                 catch ME
+                    if strcmp(ME.identifier, 'StatisticsPerNeuron:staleCacheVersion')
+                        rethrow(ME);                         % outdated statistics: fail loudly, never skip silently
+                    end
                     warning('AllExpResponsiveUnion:statsLoadFailed', ...
                         'Exp %d [%s]: could not load cached stats (%s) — family skipped.', ex, sn, ME.message);
                     continue
@@ -801,7 +804,8 @@ function args = paramsToArgs(p)
 %   'inputParams'/'analysisTime' are not computation parameters (the same
 %   exclusions computationParamsMatch applies).
 
-    skip   = {'overwrite', 'inputParams', 'analysisTime'};   % non-computational bookkeeping fields
+    skip   = {'overwrite', 'inputParams', 'analysisTime', ...
+              'statsVersion', 'returnDefaults'};             % bookkeeping / internally-set fields, not arguments
     fn     = fieldnames(p);                                  % every stored parameter
     fn     = fn(~ismember(fn, skip));                        % keep the computational ones
     args   = cell(1, 2*numel(fn));                           % preallocate the name-value list

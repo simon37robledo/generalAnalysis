@@ -480,7 +480,10 @@ if forloop
                     else
                         StatsU = objU.ShufflingAnalysis;
                     end
-                catch
+                catch ME
+                    if strcmp(ME.identifier, 'StatisticsPerNeuron:staleCacheVersion')
+                        rethrow(ME);                                      % outdated statistics: fail loudly, never skip silently
+                    end
                     eNeuronsPerStim{su} = [];
                     continue
                 end
@@ -602,6 +605,9 @@ if forloop
                         Stats = obj.ShufflingAnalysis;
                     end
                 catch ME
+                    if strcmp(ME.identifier, 'StatisticsPerNeuron:staleCacheVersion')
+                        rethrow(ME);                                       % outdated statistics: fail loudly, never skip silently
+                    end
                     warning('  [%s] Statistics failed for exp %d: %s — skipping.', ...
                         stimType, ex, ME.message);
                     continue

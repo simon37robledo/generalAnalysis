@@ -449,7 +449,7 @@ if forloop
             else
                 % Bare call: loads the last saved StatisticsPerNeuron result
                 % as-is. This deliberately does NOT pass computation params.
-                % StatisticsPerNeuron's nargin==1 guard treats a bare call as
+                % StatisticsPerNeuron's bare-call guard (all params at default) treats it as
                 % "return whatever was last computed", so it will NOT recompute
                 % (or overwrite) even when the cache was built with non-default
                 % params (e.g. AllExpAnalysis run with a focused

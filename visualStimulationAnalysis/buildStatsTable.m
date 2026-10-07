@@ -370,7 +370,8 @@ end
 
 % --- Response window ---
 winTxt = sprintf('Response window: base %g ms', p.BaseRespWindow);
-if isfield(p,'durationWindow') && ~isempty(p.durationWindow)
+isGrid = isfield(p,'SpatialGridMode') && p.SpatialGridMode;     % grid mode ignores durationWindow
+if ~isGrid && isfield(p,'durationWindow') && ~isempty(p.durationWindow)
     winTxt = sprintf('%s, sliding %g ms', winTxt, p.durationWindow);
 end
 parts{end+1} = winTxt;
@@ -381,8 +382,10 @@ if isfield(p,'maxCategory') && p.maxCategory
         'winner-take-max bias'];
 end
 
-if isfield(p,'SpatialGridMode') && p.SpatialGridMode
-    parts{end+1} = 'Spatial-grid mode: base window forced to 200 ms';
+if isGrid
+    parts{end+1} = ['Moving ball: spatial-grid test (9x9 cells; mean rate in a 300 ms ' ...
+        'window from each ball crossing minus a 300 ms pre-trial baseline; null maximised ' ...
+        'jointly over cells and directions). Other stimuli: 300 ms baseline window'];  % methods text for grid mode
 end
 
 % --- Trial focus (Lock) ---

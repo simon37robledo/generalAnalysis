@@ -83,6 +83,7 @@ arguments (Input)
     params.CategoryLevels = "all"   % factors kept separate (their crossing = response levels);
                                     % "all" -> every parameter separate (legacy). Unnamed factors pool.
     params.Lock           = {}      % {name,value,...} lock factors to fixed values (pre-filter); {} = none
+    params.returnDefaults = false   % internal: return the resolved default params (bare-call detection)
 
 end
 
@@ -100,18 +101,21 @@ params.statsVersion = 2;                                           % current sta
 % Prevents silently loading a result computed under a different focus / stat
 % configuration (CategoryLevels, Lock, maxCategory, nBoot, seed, ...).
 %
-% BUG FIX: a bare call (obj.StatisticsPerNeuron, no name-value pairs at all)
-% must always return whatever was last computed, not silently recompute
-% against internal defaults. Dozens of call sites across the codebase read
-% cached results this way (plotting/summary functions that just want "the
-% last run"); before this fix, any of them would silently trigger a stale
-% cache recompute (and overwrite) whenever the cache had been built with
-% non-default params (e.g. a focused CategoryLevels/Lock run), since the
-% bare call's all-default params would fail computationParamsMatch.
-% nargin==1 means only `obj` was passed — an explicit caller (nargin>1)
-% still goes through the normal params-match check below.
+% A bare call (obj.StatisticsPerNeuron, no name-value pairs) must return
+% whatever was last computed, not recompute against internal defaults: many
+% plotting/summary functions read the cache this way, and a recompute would
+% overwrite a focused (CategoryLevels/Lock) result.
+% A bare call is recognised by its params equalling the defaults. nargin
+% cannot be used: with an arguments block it does not count name-value
+% arguments, so it is 1 for every call. An explicit call whose values all
+% equal the defaults is therefore also served the cache as-is.
 % -------------------------------------------------------------------------
-calledBare = (nargin == 1);                                        % true iff caller passed zero name-value pairs
+if params.returnDefaults
+    results = params;                                              % resolved defaults (only flag differs)
+    return
+end
+defaults   = obj.StatisticsPerNeuron(returnDefaults=true);         % every param at its default value
+calledBare = computationParamsMatch(defaults, params);             % true iff no param differs from its default
 
 if isfile(obj.getAnalysisFileName) && ~params.overwrite
     cached = load(obj.getAnalysisFileName);                        % peek at the saved result
@@ -122,7 +126,8 @@ if isfile(obj.getAnalysisFileName) && ~params.overwrite
         cachedVersion = cached.params.statsVersion;                % version that wrote this cache
     end
     if calledBare && cachedVersion < params.statsVersion
-        error(['StatisticsPerNeuron: cache for %s was written by statistics v%d ', ...
+        error('StatisticsPerNeuron:staleCacheVersion', ...
+              ['StatisticsPerNeuron: cache for %s was written by statistics v%d ', ...
                '(current v%d). Recompute it with an explicit call ', ...
                '(e.g. AllExpAnalysis with overwriteStats=true) before reading it bare.'], ...
               obj.dataObj.recordingName, cachedVersion, params.statsVersion);  % fail loudly
@@ -143,9 +148,15 @@ end
 
 % -------------------------------------------------------------------------
 % Route to spatial grid analysis for moving ball when enabled
-% SpatialGridMode only applies to linearlyMovingBall — other stimuli ignore it
+% SpatialGridMode only applies to linearlyMovingBall — other stimuli ignore it.
+% Caching is handled HERE, not in the grid function: the result is tagged with
+% the full params (SpatialGridMode, Lock, statsVersion) and saved to this
+% method's cache file, so the params check above governs grid results too.
 % -------------------------------------------------------------------------
 if params.SpatialGridMode && isequal(obj.stimName, 'linearlyMovingBall')
+    gridAll = isempty(params.CategoryLevels) || ...                   % no factor subset requested, or
+        (isscalar(string(params.CategoryLevels)) && string(params.CategoryLevels) == "all");  % explicit "all"
+    assert(gridAll, 'CategoryLevels is not supported with SpatialGridMode=true (Lock is).');  % grid defines its own categories
     fprintf('Routing to StatisticsPerNeuronSpatialGrid for moving ball analysis.\n');
     results = StatisticsPerNeuronSpatialGrid(obj, ...
         nBoot              = params.nBoot, ...
@@ -154,8 +165,28 @@ if params.SpatialGridMode && isequal(obj.stimName, 'linearlyMovingBall')
         GridAnalysisWindow = 300, ...
         MinTrialsPerCell   = 3, ...
         ApplyFDR           = params.ApplyFDR, ...
-        overwrite          = params.overwrite);
+        Lock               = params.Lock);                          % same trial lock as the standard path
+    if isempty(results)                                             % recording without somatic units
+        results = buildEmptyStruct(obj, obj.ResponseWindow);        % consistent empty output struct
+    end
+    if isfield(results, 'params')
+        results.gridParams = results.params;                        % keep the grid function's own settings
+    end
+    results.params = params;                                        % full params for computationParamsMatch
+    save(obj.getAnalysisFileName, '-struct', 'results');            % one cache file per stimulus object
     return
+end
+
+% -------------------------------------------------------------------------
+% The moving-ball sliding-window test takes each trial's best response window
+% (~2,000 positions) minus a single baseline window BEFORE the sign flip, so the
+% per-trial difference is positive under H0. Null simulation
+% (checkMovingWindowNullFPR) gives a ~100% false-positive rate. Refuse it.
+% -------------------------------------------------------------------------
+if isequal(obj.stimName, 'linearlyMovingBall') && params.MovingWindowPVal && ~isempty(params.durationWindow)
+    error(['StatisticsPerNeuron: the moving-ball sliding-window test (durationWindow set) ', ...
+           'is invalid (~100% false positives under H0). Use SpatialGridMode=true, ', ...
+           'or durationWindow=[] for the full-duration mean.']);   % fail loudly instead of producing invalid p-values
 end
 
 
@@ -956,7 +987,7 @@ function tf = computationParamsMatch(pSaved, pNew)
 %   Generic (compares all fields) so new params are covered automatically;
 %   only non-computational flags are ignored. isequaln handles NaN and the
 %   nested cells in CategoryLevels/Lock.
-    ignore = {'overwrite', 'inputParams'};                        % flags that don't affect the result
+    ignore = {'overwrite', 'inputParams', 'returnDefaults'};      % flags that don't affect the result
     fn = union(fieldnames(pSaved), fieldnames(pNew));             % all fields on either struct
     tf = true;                                                    % assume match until proven otherwise
     for i = 1:numel(fn)
