@@ -102,8 +102,10 @@ end
 %       to align MB rasters and PSTHs to the ball crossing (gridAlignedMR).
 %   v6: segmented statistics fixed (category x segment arrays were reshaped
 %       neuron-mixed); OffWindow option; prefCat/prefSeg in segmented mode.
+%   v7: baseline length capped by the inter-trial interval (it could overrun
+%       stimulus onset); static-grating baseline gets the same cap.
 % -------------------------------------------------------------------------
-params.statsVersion = 6;                                           % current statistics code version
+params.statsVersion = 7;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve
@@ -379,19 +381,35 @@ for s = 1:x
                 round(directimesSorted - obj.VST.static_time- params.BaseRespWindow), ...
                 round(params.BaseRespWindow));
             %Baseline before : 0.75 * obj.VST.interTrialDelay * 1000
+        elseif strcmpi(fieldName, 'Static')
+            % Static phase: baseline [onset - bl, onset) inside the inter-trial
+            % interval, so it never reaches back into the previous trial's grating.
+            bl = min([params.BaseRespWindow responseParams.stimInter-100]);   % baseline length (ms)
+            if bl < params.BaseRespWindow
+                warning('%s %s: baseline shortened to %d ms (inter-trial interval %d ms).', ...
+                    obj.dataObj.recordingName, fieldName, bl, responseParams.stimInter);  % explicit, not silent
+            end
+            Mb = BuildBurstMatrix(goodU, round(p.t), round(directimesSorted - bl), round(bl));
         else
-            % Mb: baseline window — always uses 75% of inter-trial interval
-            % Duration is independent of stimulus duration so no capping needed
+            % Moving phase (the 'moving' branch above never matches 'Moving'):
+            % baseline = the last BaseRespWindow ms before motion onset, i.e. the
+            % static-grating phase. SDGm is therefore tested against the static
+            % grating, not against the blank inter-trial period (open question).
             Mb = BuildBurstMatrix(goodU, ...
                 round(p.t), ...
                 round(directimesSorted -  params.BaseRespWindow), ...
                 round(params.BaseRespWindow));
         end
     else
-        Mb = BuildBurstMatrix(goodU, ...
-            round(p.t), ...
-            round(directimesSorted - min([params.BaseRespWindow responseParams.stimInter-100])), ...
-            round(params.BaseRespWindow));
+        % Baseline [onset - bl, onset): start AND length are capped by the
+        % inter-trial interval, so the window always ends at stimulus onset
+        % (previously the length stayed BaseRespWindow and could overrun onset).
+        bl = min([params.BaseRespWindow responseParams.stimInter-100]);       % baseline length (ms)
+        if bl < params.BaseRespWindow
+            warning('%s: baseline shortened to %d ms (inter-trial interval %d ms).', ...
+                obj.dataObj.recordingName, bl, responseParams.stimInter);      % explicit, not silent
+        end
+        Mb = BuildBurstMatrix(goodU, round(p.t), round(directimesSorted - bl), round(bl));
     end
 
     % -------------------------------------------------------------------------
