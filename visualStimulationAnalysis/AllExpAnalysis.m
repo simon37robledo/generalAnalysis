@@ -100,6 +100,9 @@ arguments
     params.overwriteStats   logical         = false % Force recomputation of statistics
     params.CategoryMaximized                = ''    %Category to be maximized along levels of category to comapre
     params.durationWindow   double          = []   %Window length for moving window pval mode for moving ball
+    params.offWindow        logical         = false % add an OFF window [offset, offset+BaseRespWindow) to the
+                                                    %   fixed-window test (max over categories x {ON, OFF});
+                                                    %   ignored by the MB spatial-grid test
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap
@@ -798,6 +801,7 @@ if runLoop
         'nBoot',            params.nBoot, ...           % bootstrap iterations (pairwise)
         'nBootCategory',    params.nBootCategory,...    % bootstrap iterations (category)
         'durationWindow',   params.durationWindow,...     % Window lenght for moving window
+        'offWindow',        params.offWindow, ...          % ON + OFF windows in the fixed-window test
         'CategoryLevels',   {params.CategoryLevels}, ...  % focus: separate factors per stimulus
         'Lock',             {params.Lock});            % focus: locked factor values per stimulus
 
@@ -1763,6 +1767,7 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec)   % + two focu
         'maxCategory',     params.maxCategory, ...
         'applyFDR',        params.applyFDR, ...
         'durationWindow',  params.durationWindow, ...       % sliding-window width for MovingWindowPVal (moving ball only)
+        'OffWindow',       params.offWindow, ...            % ON + OFF windows in the fixed-window test
         'CategoryLevels',  catLevels, ...                    % focus: factors kept separate
         'Lock',            lockSpec);                        % focus: locked factor values
 end

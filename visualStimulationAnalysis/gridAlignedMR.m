@@ -54,9 +54,7 @@ ons  = sub.trialOnsets(rows);                                      % trial onset
 cros = ons(:) + sub.crossingMs(rows, c);                           % crossing times (ms)
 nSel = numel(ons);                                                 % selected trials
 
-Mb = BuildBurstMatrix(spikeCol, round(tMs), round(ons(:)' - preBase), round(preBase));  % pre-trial baseline
-Mr = BuildBurstMatrix(spikeCol, round(tMs), round(cros(:)'), round(postLen));            % from the crossing
-MR = [reshape(Mb, nSel, []), reshape(Mr, nSel, [])];               % [nSel x (preBase + postLen)]
+MR = eventAlignedMR(spikeCol, tMs, ons, cros, preBase, postLen);  % [nSel x (preBase + postLen)] baseline | from the crossing
 
 allOns = sub.trialOnsets(:)';                                      % every trial of this speed
 Ball   = BuildBurstMatrix(spikeCol, round(tMs), round(allOns - preBase), round(preBase));  % all baselines

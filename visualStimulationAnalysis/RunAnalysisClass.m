@@ -32,12 +32,14 @@ markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54
 % CategoryLevels={["offsets","directions"],["position"]}
 
 % MB: spatial-grid test (300 ms window at each ball crossing, max over cells x
-% directions after the sign flip). RG: fixed 300 ms from onset. Both: 300 ms
-% baseline (BaseRespWindow is forced to 300 in grid mode). No durationWindow:
-% the MB sliding-window test is invalid (~100% FPR, checkMovingWindowNullFPR).
+% directions after the sign flip). RG: 300 ms ON window from onset and 300 ms
+% OFF window from each recording's offset (offWindow), max over positions x
+% {ON, OFF} after the sign flip. Both: 300 ms baseline (BaseRespWindow is
+% forced to 300 in grid mode). No durationWindow: the MB sliding-window test
+% is invalid (~100% FPR, checkMovingWindowNullFPR).
 [tempTableMW, summaryStats] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true, markUnits = markUnits, useTtest=false,...
-    Lock={{"luminosities",255},{"luminosities",255}});
+    offWindow=true, Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
 % Struct written by the Figure 1 call above (statsVersion >= 4). The copy in
@@ -62,8 +64,16 @@ markUnits = { 19, 'MB', 'PV132', 7 ;   % -> X in the MB column [1, 8, 40:43,49:5
 plotPSTH_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
 
 %%
+% RG panel: ON period only (-0.2 to 0.5 s; the shortest RG stimulus is ~492 ms).
+% OFF responses are shown in the supplementary offset-aligned figure below.
 plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
-    speed= "best",useCompleteWindow=true,MarkFPnFN = false, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
+    speed= "best",useCompleteWindow=false,MarkFPnFN = false, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
+
+%% Supplementary: RG OFF responses (aligned to each recording's stimulus offset)
+% RG-responsive units (ON/OFF test); pre-trial baseline before t = 0.
+plotPSTH_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"RG"},unionResponsive=true, requireAllStims=true, alignTo="offset");
+plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes="RG",unionUnits=false, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
+    useCompleteWindow=false,MarkFPnFN = false, useTtest=false, sortBy="meanZScore", alignTo="offset");
 
 %%
 D = findFalseNegAndPos('W:\Large_scale_mapping_NP\lizards\Combined_lizard_analysis\Ex_1-97_n44_Raster_MB-RG_union.mat');

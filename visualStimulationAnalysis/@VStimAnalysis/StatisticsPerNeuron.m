@@ -84,6 +84,8 @@ arguments (Input)
                                     % "all" -> every parameter separate (legacy). Unnamed factors pool.
     params.Lock           = {}      % {name,value,...} lock factors to fixed values (pre-filter); {} = none
     params.returnDefaults = false   % internal: return the resolved default params (bare-call detection)
+    params.OffWindow      = false   % add an OFF window [offset, offset+BaseRespWindow) as a second segment;
+                                    % the max-statistic then runs over categories x {ON, OFF}
 
 end
 
@@ -98,8 +100,10 @@ end
 %   v4: adds DeltaRateCV (split-half cross-validated peak delta rate).
 %   v5: grid results also store trialOnsets/trialDirections/crossingMs, used
 %       to align MB rasters and PSTHs to the ball crossing (gridAlignedMR).
+%   v6: segmented statistics fixed (category x segment arrays were reshaped
+%       neuron-mixed); OffWindow option; prefCat/prefSeg in segmented mode.
 % -------------------------------------------------------------------------
-params.statsVersion = 5;                                           % current statistics code version
+params.statsVersion = 6;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve
@@ -109,6 +113,11 @@ params.statsVersion = 5;                                           % current sta
 % -------------------------------------------------------------------------
 if isempty(params.durationWindow)
     params.MovingWindowPVal = false;                               % fixed-window mode
+end
+if params.OffWindow
+    assert(~params.MovingWindowPVal, ...
+        'OffWindow requires the fixed-window mode (durationWindow=[]).');   % ON/OFF windows are fixed windows
+    assert(~params.useSegments, 'OffWindow and useSegments are mutually exclusive.');  % one segment scheme at a time
 end
 
 % -------------------------------------------------------------------------
@@ -405,6 +414,8 @@ for s = 1:x
 
     % Flag: use segmented approach for moving ball when sliding window disabled
     %useSegments = ~params.MovingWindowPVal && isfield(responseParams, "Speed1");
+    segMode = params.useSegments || params.OffWindow;   % segmented statistics (equal epochs, or ON/OFF windows)
+    prefSeg = [];                                       % preferred segment; set only in segmented mode
 
     if params.MovingWindowPVal && isequal(obj.stimName, 'linearlyMovingBall')
         % --- Sliding window approach ---
@@ -422,6 +433,26 @@ for s = 1:x
         responsesMW = max(mrMov, [], 3);   % [nTrials × nNeurons] per-trial max window response
         baselinesMW = max(mbMov, [], 3);   % [nTrials × nNeurons] per-trial max window baseline
         DiffPVal    = responsesMW - baselinesMW;  % [nTrials × nNeurons]
+
+    elseif params.OffWindow
+        % --- ON and OFF windows as two segments ---
+        % ON  = the fixed response window already in Diff: [onset, onset + W)
+        % OFF = [offset, offset + W), offset = onset + this recording's measured
+        %       stimulus duration. Both against the same pre-trial baseline; the
+        %       segmented permutation test below maximises over categories x {ON, OFF}
+        %       after the sign flip, so the second window is paid for in the null.
+        W = params.BaseRespWindow;                                       % window length (ms), same for ON and OFF
+        assert(size(Mr,3) == W, 'ON window (%d ms) must equal BaseRespWindow (%d ms).', size(Mr,3), W);  % fixed-window mode
+        assert(W + params.BaseRespWindow <= responseParams.stimInter, ...
+            ['OFF window (%d ms) plus the next trial''s baseline (%d ms) exceed the ', ...
+             'inter-trial interval (%d ms).'], W, params.BaseRespWindow, responseParams.stimInter);  % no overlap with next trial
+        nSegs   = 2;                                                     % ON, OFF
+        MrOff   = BuildBurstMatrix(goodU, round(p.t), ...
+            round(directimesSorted + stimDur), round(W));                % [nTrials × nNeurons × W] after offset
+        DiffSeg = cat(3, Diff, mean(MrOff, 3) - baselines);             % [nTrials × nNeurons × 2] (ON, OFF)
+        DiffPVal = [];                                                   % handled by the segmented permutation block
+        fprintf('ON/OFF windows of %d ms (offset at %.0f ms) for %s permutation test.\n', ...
+            W, stimDur, obj.stimName);
 
     elseif params.useSegments
         % --- Segmented approach for moving ball ---
@@ -546,7 +577,7 @@ for s = 1:x
     signs  = 2 * randi(2, size(Diff,1), params.nBoot) - 3;
     signsR = reshape(signs, trialsCat, nCats, params.nBoot);  % [trialsCat × nCats × nBoot]
 
-    if params.useSegments
+    if segMode
         % --- Segmented permutation test ---
         % ObsStat: max mean DiffSeg across valid categories AND segments [1 × nNeurons]
         % DiffSeg: [nTrials × nNeurons × nSegs]
@@ -559,8 +590,13 @@ for s = 1:x
         validCatsSeg                = repmat(validCats, 1, 1, nSegs);  % [nCats × nNeurons × nSegs]
         catSegMeans(~validCatsSeg)  = -Inf;
 
-        % Max across both categories and segments: [1 × nNeurons]
-        ObsStat = max(reshape(catSegMeans, nCats*nSegs, nNeurons), [], 1);
+        % Max across both categories and segments: [1 × nNeurons]. Permute to
+        % [nCats × nSegs × nNeurons] first so each column holds ONE neuron
+        % (row index = cat + (seg-1)*nCats); reshaping [nCats × nNeurons × nSegs]
+        % directly would mix neurons within a column.
+        [ObsStat, prefIdx] = max(reshape(permute(catSegMeans, [1 3 2]), nCats*nSegs, nNeurons), [], 1);
+        prefSeg = ceil(prefIdx / nCats);                 % preferred segment (ON = 1, OFF = 2 in OffWindow mode)
+        prefCat = prefIdx - (prefSeg - 1) * nCats;       % preferred category within that segment
 
         % Null distribution: loop over segments, accumulate running max
         % Each segment uses pagemtimes for efficient vectorisation over nBoot.
@@ -695,7 +731,7 @@ for s = 1:x
         % -------------------------------------------------------------------------
      
 
-        if params.useSegments
+        if segMode                                         % equal epochs or ON/OFF windows
 
             if params.UseLOO
                 % -------------------------------------------------------------------------
@@ -727,7 +763,7 @@ for s = 1:x
                     end
 
                     % Flatten to [nCats*nSegs × nNeurons] for joint max across cats and segs
-                    looMeanFlat               = reshape(looMean, nCats*nSegs, nNeurons);
+                    looMeanFlat               = reshape(permute(looMean, [1 3 2]), nCats*nSegs, nNeurons);  % one neuron per column (row = cat + (seg-1)*nCats)
                     validCatsSegs             = repmat(validCats, nSegs, 1);    % [nCats*nSegs × nNeurons]
                     looMeanFlat(~validCatsSegs) = -Inf;                          % exclude invalid categories
 
@@ -764,7 +800,7 @@ for s = 1:x
                 % Use for exploration only — LOO recommended for publication.
 
                 % Category means per segment: [nCats*nSegs × nNeurons]
-                catSegMeansFlat             = reshape(catSegMeans, nCats*nSegs, nNeurons);
+                catSegMeansFlat             = reshape(permute(catSegMeans, [1 3 2]), nCats*nSegs, nNeurons);  % one neuron per column (row = cat + (seg-1)*nCats)
                 validCatsSegs               = repmat(validCats, nSegs, 1);  % [nCats*nSegs × nNeurons]
                 catSegMeansFlat(~validCatsSegs) = -Inf;
 
@@ -919,8 +955,13 @@ for s = 1:x
     if trialsCat >= 2
         grpCat  = repelem((1:nCats)', trialsCat);                  % category of each Diff row (contiguous blocks)
         halfCat = repmat(2 - mod((1:trialsCat)', 2), nCats, 1);    % 1 = odd repetition, 2 = even repetition
-        DiffCV  = Diff;                                            % copy used only for the split-half estimate
-        DiffCV(~repelem(validCats, trialsCat, 1)) = NaN;           % exclude invalid (category, neuron) pairs
+        if segMode
+            DiffCV = DiffSeg;                                      % [nTrials × nNeurons × nSegs]: choose category x segment
+        else
+            DiffCV = Diff;                                         % [nTrials × nNeurons]: choose category
+        end
+        invalidRows = repmat(~repelem(validCats, trialsCat, 1), 1, 1, size(DiffCV, 3));  % invalid (category, neuron), every segment
+        DiffCV(invalidRows) = NaN;                                 % exclude invalid (category, neuron) pairs
         DeltaRateCV = splitHalfDelta(DiffCV, grpCat, halfCat);     % [1 × nNeurons] spikes/s
     else
         warning('%s: %d trial per category, split-half delta rate undefined (NaN).', ...
@@ -943,7 +984,7 @@ for s = 1:x
         S.(fieldName).MaxMovWinResponse  = max(MW,[],1); % [1 × nNeurons] peak MW response across cats
         S.(fieldName).pValTTest          = pValTTest;    % [1 × nNeurons] t-test p-values
         S.(fieldName).tStat              = tStat;        % [1 × nNeurons] t-statistics
-        %S.(fieldName).prefSeg            = prefSeg;   % [1 × nNeurons] preferred segment (empty if not segmented)
+        S.(fieldName).prefSeg            = prefSeg;      % [1 × nNeurons] preferred segment (ON=1, OFF=2 with OffWindow; empty if not segmented)
         S.(fieldName).z_mean             = z_mean.*1000;   % [1 × nNeurons] mean spikes/sec difference (resp-base) of preferred segment (empty if not segmented)
         S.(fieldName).DeltaRateCV        = DeltaRateCV;  % [1 × nNeurons] split-half peak delta rate, spikes/s
         S.(fieldName).catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
@@ -957,6 +998,7 @@ for s = 1:x
         S.ObsResponse       = responses;
         S.ObsBaseline       = baselines;
         S.prefCat           = prefCat;
+        S.prefSeg           = prefSeg;     % preferred segment (ON=1, OFF=2 with OffWindow; empty if not segmented)
         S.validCats         = validCats;
         S.MaxMovWinResponse = max(MW,[],1);
         S.pValTTest         = pValTTest;

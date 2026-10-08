@@ -14,6 +14,8 @@ function [fprTable, deltaTable, info] = checkMovingWindowNullFPR(expNum, params)
 %     MB_grid      spatial-grid MB test                         (StatisticsPerNeuronSpatialGrid)
 %     RG           fixed-window RG test, per-neuron null        (StatisticsPerNeuron v3)
 %     RG_v1        same, null pooled across neurons            (pre-fix v1 behaviour)
+%     RG_onoff     RG ON [onset, +W) and OFF [offset, +W) windows, max over
+%                  positions x {ON, OFF} after the sign flip   (StatisticsPerNeuron v6, OffWindow)
 %
 %   Each simulated recording ("chunk") mixes neurons at every firing rate, so a
 %   null pooled across neurons is exposed rather than hidden.
@@ -114,9 +116,9 @@ baseLen   = max(params.slideWin, params.gridWin);                  % simulated p
 rateOfU   = repelem(params.ratesHz, params.perRateInChunk);        % firing rate of each neuron in a chunk (Hz)
 pLam      = reshape(rateOfU / 1000, 1, nU);                        % spike probability per 1 ms bin
 
-tests     = ["MB_slide", "MB_slide_v1", "MB_grid", "RG", "RG_v1"]; % test labels
+tests     = ["MB_slide", "MB_slide_v1", "MB_grid", "RG", "RG_v1", "RG_onoff"]; % test labels
 P         = nan(numel(tests), nChunks * nU);                       % p-values [test x simulated neuron]
-layouts   = ["MB_slide", "MB_grid", "RG"];                         % split-half layouts
+layouts   = ["MB_slide", "MB_grid", "RG", "RG_onoff"];             % split-half layouts
 Dlt       = nan(numel(layouts), nChunks * nU);                     % split-half delta (spikes/s)
 rateAll   = repmat(rateOfU, 1, nChunks);                           % rate label of every simulated neuron
 
@@ -164,7 +166,13 @@ for k = 1:nChunks                                                  % one simulat
     MbR = single(rand(nTrRG, nU, params.rgWin, 'single') < pLam);  % RG baseline spikes, same length
     [P(4, cols), P(5, cols)] = maxCatSignFlip(double(mean(MrR, 3) - mean(MbR, 3)), tcRG, nCatRG, params.nBoot);  % v2 and v1
     Dlt(3, cols) = splitHalfDelta(mean(MrR, 3) - mean(MbR, 3), catRGs, halfRG);  % split-half over positions (one fixed window)
-    clear MrR MbR                                                  % free RG arrays
+
+    % ---- (d) RG ON + OFF windows (StatisticsPerNeuron OffWindow, segmented null) ----
+    MoR  = single(rand(nTrRG, nU, params.rgWin, 'single') < pLam); % spikes in [offset, offset + W): no response under H0
+    DSeg = cat(3, mean(MrR, 3) - mean(MbR, 3), mean(MoR, 3) - mean(MbR, 3));  % [trials x neurons x {ON, OFF}], shared baseline
+    P(6, cols)   = segSignFlip(double(DSeg), tcRG, nCatRG, params.nBoot);      % max over positions x windows after the flip
+    Dlt(4, cols) = splitHalfDelta(DSeg, catRGs, halfRG);           % split-half over position x window
+    clear MrR MbR MoR DSeg                                         % free RG arrays
 
     fprintf('  simulated recording %d/%d done\n', k, nChunks);     % progress
 end
@@ -203,6 +211,27 @@ end
 % =========================================================================
 % Local functions
 % =========================================================================
+function p = segSignFlip(DSeg, tc, nCats, nBoot)
+% Segmented max-statistic sign-flip test of StatisticsPerNeuron (segMode branch,
+% v6): observed = max over categories x segments of the category means; null =
+% the same max after flipping each TRIAL's sign (shared across segments), with
+% a running max over segments. DSeg: [nTrials x nNeurons x nSegs], rows in
+% contiguous category blocks.
+[nTr, nU, nSegs] = size(DSeg);                                     % dimensions
+signs   = 2 * randi(2, nTr, nBoot) - 3;                            % one sign per trial and permutation
+signsR  = reshape(signs, tc, nCats, nBoot);                        % [trialsCat x nCats x nBoot]
+R       = reshape(DSeg, tc, nCats, nU, nSegs);                     % [trialsCat x nCats x nNeurons x nSegs]
+cm      = reshape(mean(R, 1), nCats, nU, nSegs);                   % observed category means per segment
+obs     = max(reshape(permute(cm, [1 3 2]), nCats*nSegs, nU), [], 1);  % max over cats x segs, one neuron per column
+nullMax = -Inf(nBoot, nU);                                         % running max over segments
+for seg = 1:nSegs
+    cmP = pagemtimes(permute(R(:,:,:,seg), [3 1 2]), permute(signsR, [1 3 2])) / tc;  % [nNeurons x nBoot x nCats]
+    mx  = max(permute(cmP, [3 1 2]), [], 1);                       % max over categories [1 x nNeurons x nBoot]
+    nullMax = max(nullMax, reshape(mx, nU, nBoot).');              % fixed (per-neuron) reshape, then running max
+end
+p = mean(nullMax >= obs, 1);                                       % right-tailed p per neuron
+end
+
 function [pV2, pV1] = maxCatSignFlip(D, tc, nCats, nBoot)
 % Max-category sign-flip test of StatisticsPerNeuron:503-589 (maxCategory=true,
 % FilterEmptyResponses=false so every category is valid). D: [nTrials x nNeurons],

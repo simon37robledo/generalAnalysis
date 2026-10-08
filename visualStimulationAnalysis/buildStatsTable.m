@@ -429,6 +429,10 @@ if isGrid
         'jointly over cells and directions). Other stimuli without a sliding window: ' ...
         'mean rate in the first 300 ms after onset minus a 300 ms pre-stimulus baseline'];  % methods text for grid mode
 end
+if isfield(p,'offWindow') && p.offWindow
+    parts{end+1} = ['ON/OFF: fixed-window stimuli also tested in a 300 ms window from stimulus ' ...
+        'offset; null maximised jointly over categories and {ON, OFF}'];  % methods text for the OFF window
+end
 
 % --- Trial focus (Lock) ---
 if isfield(p,'Lock') && ~isempty(p.Lock)

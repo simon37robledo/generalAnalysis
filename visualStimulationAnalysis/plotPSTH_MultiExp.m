@@ -59,6 +59,8 @@ arguments
     params.shadeSTD        logical       = true                           % shade ±SEM around the mean PSTH line
     params.postStim        double        = 500                            % duration after stimulus onset to include (ms)
     params.preBase         double        = 200                            % pre-stimulus baseline duration (ms)
+    params.alignTo         string        = "onset"                        % "onset" | "offset": align onset-tested stimuli to each
+                                                                          %   recording's stimulus offset (pre-trial baseline before t=0)
     params.overwrite       logical       = false                          % if true, recompute PSTHs even when a saved file exists
     params.overwriteResponse logical     = false                          % if true, force recompute of ResponseWindow
     params.overwriteStats  logical       = false                          % if true, force recompute of per-neuron statistics
@@ -167,6 +169,10 @@ end
 
 allStimSuffix = '';
 if params.requireAllStims; allStimSuffix = '_allStims'; end               % tag the cache file so it is distinct from the unfiltered version
+assert(ismember(params.alignTo, ["onset","offset"]), 'alignTo must be "onset" or "offset".');  % valid alignment
+if params.alignTo == "offset"
+    allStimSuffix = [allStimSuffix '_offset'];                             % offset alignment never overwrites the onset files
+end
 
 nameOfFile = sprintf('Ex_%d-%d_Combined_PSTHs_%s%s%s%s.mat', ...
     exList(1), exList(end), stimLabel, splitSuffix, depthSuffix, allStimSuffix);
@@ -646,6 +652,14 @@ if forloop
             end
             assert(gridAlignedStim(s) == isGridMB, ...
                 'Grid-tested and onset-tested MB recordings cannot share one PSTH line.');  % mixed alignment guard
+            assert(params.alignTo == "onset" || ~isGridMB, ...
+                'alignTo="offset" applies to onset-tested stimuli, not grid-tested MB.');   % grid MB is crossing-aligned
+            stimDurRec = NaN;                                              % this recording's stimulus duration (ms)
+            if params.alignTo == "offset"
+                NRd = obj.ResponseWindow;                                  % response-window struct (cached)
+                try,   stimDurRec = NRd.(fieldName).stimDur;               % sub-field stimulus duration
+                catch, stimDurRec = NRd.stimDur; end                       % flat struct (RG, FFF, ...)
+            end
             if isGridMB
                 assert(isempty(params.TakeTopPercentTrials) || params.TakeTopPercentTrials >= 1, ...
                     'TakeTopPercentTrials is not supported for grid-tested MB.');  % no trial trimming on the aligned path
@@ -823,12 +837,18 @@ if forloop
                     end
 
                     % Build binary spike matrix: rows = trials, columns = ms within window
-                    MRhist = BuildBurstMatrix( ...
-                        goodU(:, u), ...                                   % spike times for this unit
-                        round(p_sort.t), ...                               % all sample times (rounded to ms)
-                        round(catOnsets - lockedPreBase), ...              % trial start = onset minus baseline
-                        round(windowTotal));                               % window length in ms
-                    MRhist = squeeze(MRhist);                              % remove the singleton neuron dimension
+                    if params.alignTo == "offset"
+                        % Pre-trial baseline | from this recording's stimulus offset
+                        MRhist = eventAlignedMR(goodU(:, u), p_sort.t, catOnsets, ...
+                            catOnsets + stimDurRec, lockedPreBase, windowTotal - lockedPreBase);
+                    else
+                        MRhist = BuildBurstMatrix( ...
+                            goodU(:, u), ...                               % spike times for this unit
+                            round(p_sort.t), ...                           % all sample times (rounded to ms)
+                            round(catOnsets - lockedPreBase), ...          % trial start = onset minus baseline
+                            round(windowTotal));                           % window length in ms
+                        MRhist = squeeze(MRhist);                          % remove the singleton neuron dimension
+                    end
 
                     % FIX: guard the single-trial case.  squeeze() of a
                     % [1 × 1 × W] array yields a [W × 1] column vector, which
@@ -1271,7 +1291,7 @@ else
     yLabel = 'Firing rate [spk/s]';                                       % default: spikes per second
 end
 
-xlabel(ax, 'Time re. stim onset [ms]', 'FontName', 'Helvetica', 'FontSize', 8);
+xlabel(ax, sprintf('Time re. stim %s [ms]', params.alignTo), 'FontName', 'Helvetica', 'FontSize', 8);
 ylabel(ax, yLabel,                      'FontName', 'Helvetica', 'FontSize', 8);
 xlim(ax, [tAxisPlot(1), tAxisPlot(end)]);                                 % set x range to match the locked window
 ylim(ax, yLims);                                                          % apply the globally computed y limits

@@ -61,6 +61,8 @@ arguments
     params.postStim        double        = 0                             % post-stimulus window in ms
     params.preBase         double        = 200                           % pre-stimulus baseline in ms
     params.gridPostMs      double        = 500                           % MB with spatial-grid stats: ms shown after the ball crossing
+    params.alignTo         string        = "onset"                       % "onset" | "offset": align onset-tested stimuli to each
+                                                                         %   recording's stimulus offset (pre-trial baseline before t=0)
     params.overwrite       logical       = false                         % if true, recompute even if cache exists
     params.TakeTopPercentTrials double   = 0                             % fraction (0,1] of trials to keep; [] or 0 = keep all
     params.zScore          logical       = true                          % z-score each neuron using its baseline
@@ -224,8 +226,13 @@ end
 
 % FIX D: include numel(exList) to reduce cache key collisions when
 % experiment lists share the same first/last ID but differ in between.
-nameOfFile = sprintf('\\Ex_%d-%d_n%d_Raster_%s%s%s.mat', ...
-    exList(1), exList(end), numel(exList), stimLabel, catSuffix, unionSuffix); % cache filename
+assert(ismember(params.alignTo, ["onset","offset"]), 'alignTo must be "onset" or "offset".');  % valid alignment
+assert(params.alignTo == "onset" || ~params.useCompleteWindow, ...
+    'alignTo="offset" needs useCompleteWindow=false (the window after the offset is postStim).');  % fixed post-offset window
+alignSuffix = '';                                                        % onset alignment: legacy file names
+if params.alignTo == "offset", alignSuffix = '_offset'; end              % offset alignment never overwrites the onset files
+nameOfFile = sprintf('\\Ex_%d-%d_n%d_Raster_%s%s%s%s.mat', ...
+    exList(1), exList(end), numel(exList), stimLabel, catSuffix, unionSuffix, alignSuffix); % cache filename
 
 % -------------------------------------------------------------------------
 % Decide whether to recompute or reload from cache
@@ -400,6 +407,7 @@ if forloop
         expGoodPhyIDs  = cell(1, nStim);                                 % Phy cluster IDs for good units
         expFieldNames  = strings(1, nStim);                              % resolved sub-field names
         expStartStim   = zeros(1, nStim);                                % ms offset for stim onset
+        expStimDur     = nan(1, nStim);                                  % measured stimulus duration (ms), for alignTo="offset"
         expStats       = cell(1, nStim);                                 % statistics structs
         expPvals       = cell(1, nStim);                                 % p-value vectors
         expC           = cell(1, nStim);                                 % condition matrices
@@ -539,6 +547,10 @@ if forloop
             expPvals{s} = pvals;                                         % store p-value vector
             expC{s} = C;                                                 % store representative condition matrix
             expDirectimes{s} = C(:, 1)' + startStim;                    % representative onsets (best speed applied per-neuron in PSTH loop)
+            if params.alignTo == "offset"
+                try,   expStimDur(s) = NeuronResp.(fieldName).stimDur;  % sub-field stimulus duration (ms)
+                catch, expStimDur(s) = NeuronResp.stimDur; end         % flat struct (RG, FFF, ...)
+            end
 
             % --- Find responsive neurons (general filter) ---
             expResponsive{s} = find(pvals < params.alpha);               % indices of responsive units
@@ -847,6 +859,8 @@ if forloop
                 isfield(expStats{s}.Speed1, 'prefGridCell');              % grid results carry prefGridCell
             assert(~(isGridMB && isCatMode), ...
                 'Category split / preferredCategory sorting is not supported for grid-tested MB.');  % no trial categories there
+            assert(params.alignTo == "onset" || (~isGridMB && ~isCatMode), ...
+                'alignTo="offset" applies to onset-tested stimuli without category mode.');      % offset path is the standard path only
 
             if isGridMB
                 rawStimDur_ms = expStats{s}.gridParams.GridAnalysisWindow; % test window (ms): drawn as the offset line
@@ -1075,13 +1089,19 @@ if forloop
                         onsetsU = Cu(:, 1)' + startStimMs;               % all best-speed trials (grid MB or no decode)
                     end
 
-                    % Binary spike matrix: trials x time at 1 ms resolution.
-                    MRhist = BuildBurstMatrix( ...
-                        goodU(:, u), ...                                 % spike identity for this unit
-                        round(p_sort.t), ...                             % rounded sample timestamps
-                        round(onsetsU - lockedPreBase), ...              % trial start = onset - baseline
-                        round(windowTotal));                             % window length (ms, integer)
-                    MRhist = squeeze(MRhist);                            % remove singleton dims
+                    if params.alignTo == "offset"
+                        % Pre-trial baseline | from this recording's stimulus offset
+                        MRhist = eventAlignedMR(goodU(:, u), p_sort.t, onsetsU, ...
+                            onsetsU + expStimDur(s), lockedPreBase, windowTotal - lockedPreBase);
+                    else
+                        % Binary spike matrix: trials x time at 1 ms resolution.
+                        MRhist = BuildBurstMatrix( ...
+                            goodU(:, u), ...                             % spike identity for this unit
+                            round(p_sort.t), ...                         % rounded sample timestamps
+                            round(onsetsU - lockedPreBase), ...          % trial start = onset - baseline
+                            round(windowTotal));                         % window length (ms, integer)
+                        MRhist = squeeze(MRhist);                        % remove singleton dims
+                    end
                   end                                                    % end grid-MB / onset-aligned branch
                 end
 
@@ -2011,7 +2031,7 @@ for s = 1:nStim
 
     titleTxt = sprintf('%s  (n=%d)', shortName, size(data,1));           % tile title with neuron count
     if gridAlignedAll(s)
-        titleTxt = {titleTxt, 'baseline | from RF crossing'};            % this panel's t = 0 is the ball crossing
+        titleTxt = {titleTxt, 't = 0: RF crossing'};                     % short enough not to overrun the group labels
     end
     title(ax, titleTxt, 'FontName', 'helvetica', 'FontSize', 8);
 
@@ -2026,7 +2046,7 @@ end
 % ------------------------------------------------------------------
 % Shared x-label
 % ------------------------------------------------------------------
-xlabel(tl, 'Time relative to stimulus onset (s)', ...
+xlabel(tl, sprintf('Time relative to stimulus %s (s)', params.alignTo), ...
     'FontName', 'helvetica', 'FontSize', 8);
 
 % ------------------------------------------------------------------
@@ -2089,7 +2109,7 @@ if params.PaperFig
     if params.unionUnits
         catStr = [catStr '_union'];                                      % mark union mode in filename
     end
-    vs_first.printFig(fig, sprintf('Raster-%s-%s', stimLabel, catStr), PaperFig=params.PaperFig);
+    vs_first.printFig(fig, sprintf('Raster-%s-%s%s', stimLabel, catStr, alignSuffix), PaperFig=params.PaperFig);
 end
 
 end
