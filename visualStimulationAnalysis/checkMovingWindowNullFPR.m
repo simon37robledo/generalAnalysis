@@ -170,7 +170,7 @@ for k = 1:nChunks                                                  % one simulat
     % ---- (d) RG ON + OFF windows (StatisticsPerNeuron OffWindow, segmented null) ----
     MoR  = single(rand(nTrRG, nU, params.rgWin, 'single') < pLam); % spikes in [offset, offset + W): no response under H0
     DSeg = cat(3, mean(MrR, 3) - mean(MbR, 3), mean(MoR, 3) - mean(MbR, 3));  % [trials x neurons x {ON, OFF}], shared baseline
-    P(6, cols)   = segSignFlip(double(DSeg), tcRG, nCatRG, params.nBoot);      % max over positions x windows after the flip
+    P(6, cols)   = segSignFlipNull(double(DSeg), tcRG, nCatRG, params.nBoot);      % max over positions x windows after the flip
     Dlt(4, cols) = splitHalfDelta(DSeg, catRGs, halfRG);           % split-half over position x window
     clear MrR MbR MoR DSeg                                         % free RG arrays
 
@@ -211,27 +211,6 @@ end
 % =========================================================================
 % Local functions
 % =========================================================================
-function p = segSignFlip(DSeg, tc, nCats, nBoot)
-% Segmented max-statistic sign-flip test of StatisticsPerNeuron (segMode branch,
-% v6): observed = max over categories x segments of the category means; null =
-% the same max after flipping each TRIAL's sign (shared across segments), with
-% a running max over segments. DSeg: [nTrials x nNeurons x nSegs], rows in
-% contiguous category blocks.
-[nTr, nU, nSegs] = size(DSeg);                                     % dimensions
-signs   = 2 * randi(2, nTr, nBoot) - 3;                            % one sign per trial and permutation
-signsR  = reshape(signs, tc, nCats, nBoot);                        % [trialsCat x nCats x nBoot]
-R       = reshape(DSeg, tc, nCats, nU, nSegs);                     % [trialsCat x nCats x nNeurons x nSegs]
-cm      = reshape(mean(R, 1), nCats, nU, nSegs);                   % observed category means per segment
-obs     = max(reshape(permute(cm, [1 3 2]), nCats*nSegs, nU), [], 1);  % max over cats x segs, one neuron per column
-nullMax = -Inf(nBoot, nU);                                         % running max over segments
-for seg = 1:nSegs
-    cmP = pagemtimes(permute(R(:,:,:,seg), [3 1 2]), permute(signsR, [1 3 2])) / tc;  % [nNeurons x nBoot x nCats]
-    mx  = max(permute(cmP, [3 1 2]), [], 1);                       % max over categories [1 x nNeurons x nBoot]
-    nullMax = max(nullMax, reshape(mx, nU, nBoot).');              % fixed (per-neuron) reshape, then running max
-end
-p = mean(nullMax >= obs, 1);                                       % right-tailed p per neuron
-end
-
 function [pV2, pV1] = maxCatSignFlip(D, tc, nCats, nBoot)
 % Max-category sign-flip test of StatisticsPerNeuron:503-589 (maxCategory=true,
 % FilterEmptyResponses=false so every category is valid). D: [nTrials x nNeurons],

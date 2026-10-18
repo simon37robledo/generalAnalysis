@@ -84,6 +84,7 @@ arguments (Input)
                                     % "all" -> every parameter separate (legacy). Unnamed factors pool.
     params.Lock           = {}      % {name,value,...} lock factors to fixed values (pre-filter); {} = none
     params.returnDefaults = false   % internal: return the resolved default params (bare-call detection)
+    params.SegmentMs      = []      % useSegments: fixed segment length (ms); [] = nSegments equal epochs
     params.OffWindow      = false   % add an OFF window [offset, offset+BaseRespWindow) as a second segment;
                                     % the max-statistic then runs over categories x {ON, OFF}
 
@@ -104,8 +105,10 @@ end
 %       neuron-mixed); OffWindow option; prefCat/prefSeg in segmented mode.
 %   v7: baseline length capped by the inter-trial interval (it could overrun
 %       stimulus onset); static-grating baseline gets the same cap.
+%   v8: drifting-grating (Moving) baseline is the blank pre-trial window, not
+%       the static-grating phase; SegmentMs option for fixed-length segments.
 % -------------------------------------------------------------------------
-params.statsVersion = 7;                                           % current statistics code version
+params.statsVersion = 8;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve
@@ -374,32 +377,20 @@ for s = 1:x
         round(effectiveStimDur));  % capped or full duration
 
     if isequal(obj.stimName, 'StaticDriftingGrating')
-        if isequal(fieldName,'moving')
-
-            Mb = BuildBurstMatrix(goodU, ...
-                round(p.t), ...
-                round(directimesSorted - obj.VST.static_time- params.BaseRespWindow), ...
-                round(params.BaseRespWindow));
-            %Baseline before : 0.75 * obj.VST.interTrialDelay * 1000
-        elseif strcmpi(fieldName, 'Static')
-            % Static phase: baseline [onset - bl, onset) inside the inter-trial
-            % interval, so it never reaches back into the previous trial's grating.
-            bl = min([params.BaseRespWindow responseParams.stimInter-100]);   % baseline length (ms)
-            if bl < params.BaseRespWindow
-                warning('%s %s: baseline shortened to %d ms (inter-trial interval %d ms).', ...
-                    obj.dataObj.recordingName, fieldName, bl, responseParams.stimInter);  % explicit, not silent
-            end
-            Mb = BuildBurstMatrix(goodU, round(p.t), round(directimesSorted - bl), round(bl));
-        else
-            % Moving phase (the 'moving' branch above never matches 'Moving'):
-            % baseline = the last BaseRespWindow ms before motion onset, i.e. the
-            % static-grating phase. SDGm is therefore tested against the static
-            % grating, not against the blank inter-trial period (open question).
-            Mb = BuildBurstMatrix(goodU, ...
-                round(p.t), ...
-                round(directimesSorted -  params.BaseRespWindow), ...
-                round(params.BaseRespWindow));
+        % Both phases use the blank pre-trial baseline [staticOnset - bl, staticOnset),
+        % inside the inter-trial interval. For the moving phase the trial starts
+        % static_time before motion onset, so SDGm is tested against the blank
+        % screen (like every other stimulus), not against the static grating.
+        staticOnsets = directimesSorted;                                   % static phase: trial onset = response onset
+        if strcmpi(fieldName, 'Moving')
+            staticOnsets = directimesSorted - obj.VST.static_time * 1000;  % moving phase: back to trial onset (s -> ms)
         end
+        bl = min([params.BaseRespWindow responseParams.stimInter-100]);   % baseline length (ms), capped by the ITI
+        if bl < params.BaseRespWindow
+            warning('%s %s: baseline shortened to %d ms (inter-trial interval %d ms).', ...
+                obj.dataObj.recordingName, fieldName, bl, responseParams.stimInter);  % explicit, not silent
+        end
+        Mb = BuildBurstMatrix(goodU, round(p.t), round(staticOnsets - bl), round(bl));  % pre-trial blank baseline
     else
         % Baseline [onset - bl, onset): start AND length are capped by the
         % inter-trial interval, so the window always ends at stimulus onset
@@ -480,8 +471,14 @@ for s = 1:x
         % Baseline is shared across all segments (same pre-trial window per trial).
         % Max-statistic permutation test will take max across both categories and
         % segments simultaneously, controlling FWER across both dimensions.
-        segDur  = stimDur / params.nSegments;  % duration of each segment in ms
-        nSegs   = params.nSegments;            % number of segments (e.g. 5)
+        if isempty(params.SegmentMs)
+            segDur  = stimDur / params.nSegments;  % legacy: nSegments equal epochs of the stimulus
+            nSegs   = params.nSegments;            % number of segments (e.g. 5)
+        else
+            segDur  = params.SegmentMs;            % fixed segment length (ms), same in every recording
+            nSegs   = floor(stimDur / segDur);     % whole segments that fit in this recording's stimulus
+            assert(nSegs >= 1, 'Stimulus (%.0f ms) shorter than SegmentMs (%d ms).', stimDur, segDur);  % at least one segment
+        end
 
         fprintf('Using %d segments of %.1f ms for %s permutation test.\n', ...
             nSegs, segDur, obj.stimName);

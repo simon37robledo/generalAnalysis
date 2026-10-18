@@ -100,9 +100,12 @@ arguments
     params.overwriteStats   logical         = false % Force recomputation of statistics
     params.CategoryMaximized                = ''    %Category to be maximized along levels of category to comapre
     params.durationWindow   double          = []   %Window length for moving window pval mode for moving ball
-    params.offWindow        logical         = false % add an OFF window [offset, offset+BaseRespWindow) to the
-                                                    %   fixed-window test (max over categories x {ON, OFF});
-                                                    %   ignored by the MB spatial-grid test
+    params.offWindowStims   cell            = {}    % stimuli whose fixed-window test adds an OFF window
+                                                    %   [offset, offset+BaseRespWindow) (max over categories x {ON, OFF})
+    params.segmentStims     cell            = {}    % stimuli tested in fixed-length segments across the stimulus
+                                                    %   (max over categories x segments); listed stimuli absent
+                                                    %   from ComparePairs are ignored, so one list serves all calls
+    params.segmentMs        double          = 300   % segment length (ms) for segmentStims
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap
@@ -239,6 +242,10 @@ end
 % The grid result carries permutation p-values only (no pValTTest field).
 assert(~(params.SpatialGridMode && params.useTtest), ...
     'useTtest=true is not supported with SpatialGridMode=true: the grid test has no t-test p-values.');
+
+% A stimulus cannot be tested both with an OFF window and in segments.
+assert(isempty(intersect(params.offWindowStims, params.segmentStims)), ...
+    'A stimulus cannot be in both offWindowStims and segmentStims.');
 
 % Map each shared object key to its focus spec (first stimulus wins for shared SDG object).
 specByKey = containers.Map();                                             % key -> struct(catLevels, lock)
@@ -519,7 +526,7 @@ if runLoop
             % used to re-derive stats via a bare vsObj.StatisticsPerNeuron()
             % call (all defaults), which silently discarded CategoryLevels/Lock
             % (and any other non-default param) via a mismatched recompute.
-            stats = runStimStats(vsObj, params, sp.catLevels, sp.lock);  % general per-neuron statistics, with focus
+            stats = runStimStats(vsObj, params, sp.catLevels, sp.lock, key);  % general per-neuron statistics, with focus
             vsObjs(key) = vsObj;                        % store back (handle class — redundant but safe)
 
             % Extract general p-values (for optional useGeneralFilter)
@@ -579,7 +586,7 @@ if runLoop
                 % letting extractStimData re-derive stats via a bare
                 % vsObj.StatisticsPerNeuron() call (all defaults), which
                 % silently discarded CategoryLevels/Lock via a mismatched recompute.
-                stats = runStimStats(vsObj, params, catLevelsPerStim{si}, lockPerStim{si});  % single call, with focus
+                stats = runStimStats(vsObj, params, catLevelsPerStim{si}, lockPerStim{si}, key);  % single call, with focus
                 vsObjs(key) = vsObj;
 
                 if isempty(cat)
@@ -676,7 +683,7 @@ if runLoop
                 key   = objKeys{k};
                 vsObj = vsObjs(key);
                 sp    = specByKey(key);
-                statsByKey(key) = runStimStats(vsObj, params, sp.catLevels, sp.lock);
+                statsByKey(key) = runStimStats(vsObj, params, sp.catLevels, sp.lock, key);
                 vsObjs(key) = vsObj;
             end
 
@@ -801,7 +808,9 @@ if runLoop
         'nBoot',            params.nBoot, ...           % bootstrap iterations (pairwise)
         'nBootCategory',    params.nBootCategory,...    % bootstrap iterations (category)
         'durationWindow',   params.durationWindow,...     % Window lenght for moving window
-        'offWindow',        params.offWindow, ...          % ON + OFF windows in the fixed-window test
+        'offWindowStims',   {params.offWindowStims}, ...   % stimuli with ON + OFF windows
+        'segmentStims',     {params.segmentStims}, ...     % stimuli tested in segments
+        'segmentMs',        params.segmentMs, ...          % segment length (ms)
         'CategoryLevels',   {params.CategoryLevels}, ...  % focus: separate factors per stimulus
         'Lock',             {params.Lock});            % focus: locked factor values per stimulus
 
@@ -1740,9 +1749,17 @@ function fName = levelToFieldName(catName, value)
 end
 
 
-function stats = runStimStats(vsObj, params, catLevels, lockSpec)   % + two focus args
+function stats = runStimStats(vsObj, params, catLevels, lockSpec, objKey)   % + focus args + object key
     assert(isa(vsObj, 'handle'), 'runStimStats:notHandle', ...
         'Analysis object must be a handle class for in-place mutation.');
+
+    % Per-stimulus test design, keyed by analysis object (SDGm/SDGs share one)
+    offKeys = cellfun(@getObjKey, params.offWindowStims, 'UniformOutput', false);  % objects with an OFF window
+    segKeys = cellfun(@getObjKey, params.segmentStims,   'UniformOutput', false);  % objects tested in segments
+    useOff  = ismember(objKey, offKeys);                     % ON + OFF windows for this object
+    useSeg  = ismember(objKey, segKeys);                     % fixed-length segments for this object
+    segMs   = [];                                            % StatisticsPerNeuron default (no segments)
+    if useSeg, segMs = params.segmentMs; end                 % segment length only when segmenting
 
     vsObj.ResponseWindow( ...                                % Step 1: response traces + condition matrix
         'overwrite',      params.overwriteResponse, ...
@@ -1767,7 +1784,9 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec)   % + two focu
         'maxCategory',     params.maxCategory, ...
         'applyFDR',        params.applyFDR, ...
         'durationWindow',  params.durationWindow, ...       % sliding-window width for MovingWindowPVal (moving ball only)
-        'OffWindow',       params.offWindow, ...            % ON + OFF windows in the fixed-window test
+        'OffWindow',       useOff, ...                       % ON + OFF windows (offWindowStims)
+        'useSegments',     useSeg, ...                       % fixed-length segments (segmentStims)
+        'SegmentMs',       segMs, ...                        % segment length (ms) when segmenting
         'CategoryLevels',  catLevels, ...                    % focus: factors kept separate
         'Lock',            lockSpec);                        % focus: locked factor values
 end

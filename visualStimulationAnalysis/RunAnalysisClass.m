@@ -33,13 +33,14 @@ markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54
 
 % MB: spatial-grid test (300 ms window at each ball crossing, max over cells x
 % directions after the sign flip). RG: 300 ms ON window from onset and 300 ms
-% OFF window from each recording's offset (offWindow), max over positions x
+% OFF window from each recording's offset (offWindowStims), max over positions x
 % {ON, OFF} after the sign flip. Both: 300 ms baseline (BaseRespWindow is
 % forced to 300 in grid mode). No durationWindow: the MB sliding-window test
 % is invalid (~100% FPR, checkMovingWindowNullFPR).
 [tempTableMW, summaryStats] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true, markUnits = markUnits, useTtest=false,...
-    offWindow=true, Lock={{"luminosities",255},{"luminosities",255}});
+    offWindowStims={'RG'}, segmentStims={'MBR','NV'}, segmentMs=300, ...   % same design lists in every call
+    Lock={{"luminosities",255},{"luminosities",255}});
 
 %% 
 % Struct written by the Figure 1 call above (statsVersion >= 4). The copy in
