@@ -17,123 +17,9 @@ data = readtable(excelFile);
 %solve MBR
 %bootsrapRespBase
 
-%% FIGURE 1 MOVING BALL VS STATIC BALL
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-
-%% Compare MB vs RG, use gridmode true, selects maximum spatial category across directions
-markUnits = { 1, 'MB', 'PV233', 6 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
-              14, 'RG', 'PV140', 9 };
-% CategoryLevels={["offsets","directions"],["position"]}
-
-% MB: spatial-grid test (300 ms window at each ball crossing, max over cells x
-% directions after the sign flip). RG: 300 ms ON window from onset and 300 ms
-% OFF window from each recording's offset (offWindowStims), max over positions x
-% {ON, OFF} after the sign flip. Both: 300 ms baseline (BaseRespWindow is
-% forced to 300 in grid mode). No durationWindow: the MB sliding-window test
-% is invalid (~100% FPR, checkMovingWindowNullFPR).
-[tempTableMW, summaryStats] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=true,maxCategory=true, markUnits = markUnits, useTtest=false,...
-    offWindowStims={'RG'}, segmentStims={'MBR','NV'}, segmentMs=300, ...   % same design lists in every call
-    Lock={{"luminosities",255},{"luminosities",255}});
-
-%% 
-% Struct written by the Figure 1 call above (statsVersion >= 4). The copy in
-% "Figure 1 No FDR _general result\" predates the permutation-null fix.
-T = extractExampleNeurons("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat",plot=true,nPer =15,PaperFig=true);
-
-%% Leave-one-animal-out sensitivity of the Figure 1 comparison
-Tloao = leaveOneAnimalOut("W:\Large_scale_mapping_NP\Paper_figs\Ex_1-97_Combined_MB-RG_analysisStruct.mat");
-
-%% Titled CSV tables for the supplement (Paper_figs\Stats summary tables\)
-statsTablePaths = makeStatsSummaryTables();   % needs the Figure 1 struct and the LOAO .xlsx above
-
-
-%% Analysis of just entry to screen
-markUnits = { 19, 'MB', 'PV132', 7 ;   % -> X in the MB column [1, 8, 40:43,49:54,64:66,68:85 87:97
-              14, 'RG', 'PV140', 9 };
-
-[tempTableMW] = AllExpAnalysis([1, 8, 40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','RG'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,SpatialGridMode=false,maxCategory=true,BaseRespWindow=300, markUnits = markUnits);
-
-%%
-plotPSTH_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"MB","RG"},unionResponsive=true, requireAllStims=true); 
-
-%%
-% RG panel: ON period only (-0.2 to 0.5 s; the shortest RG stimulus is ~492 ms).
-% OFF responses are shown in the supplementary offset-aligned figure below.
-plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes=["MB","RG"],unionUnits=true, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
-    speed= "best",useCompleteWindow=false,MarkFPnFN = false, useTtest=false, sortBy="meanZScore")%splitCategory=["direction", "position"])
-
-%% Supplementary: RG OFF responses (aligned to each recording's stimulus offset)
-% RG-responsive units (ON/OFF test); pre-trial baseline before t = 0.
-plotPSTH_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97], overwrite=false, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false,binWidth=50, postStim= 500, stimTypes={"RG"},unionResponsive=true, requireAllStims=true, alignTo="offset");
-plotRaster_MultiExp([1, 8,40:43,49:54,64:66,68:85 87:97],overwrite=false,TakeTopPercentTrials=[],PaperFig=true,zScore = true, postStim=500,stimTypes="RG",unionUnits=false, prefCatPSTH = false,statPrefCatPSTH=true,sdFloorPrctile   = 25,...
-    useCompleteWindow=false,MarkFPnFN = false, useTtest=false, sortBy="meanZScore", alignTo="offset");
-
-%%
-D = findFalseNegAndPos('W:\Large_scale_mapping_NP\lizards\Combined_lizard_analysis\Ex_1-97_n44_Raster_MB-RG_union.mat');
-
-Dfn = sortrows(D(D.FN_for~="",:), 'Severity', 'descend');   % strongest missed responses first
-plotFalseNegPosNeurons(Dfn(1:15,:));     % test batch — check the MB call and the filenames
-% plotFalseNegPosNeurons(D);          % full run once the test looks right
-
-%% Plot examples neurons MB and SB
-%%% Rect Grid
-
-for ex = [74] %84:9    81  14
-    NP = loadNPclassFromTable(ex); %73 81
-    vsRe = rectGridAnalysis(NP);
-    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [], exNeurons= [111], selectedLum=255,oneTrial = true,PaperFig = true) 
-    [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=111,allStimParamsCombined=false,PaperFig=true,overwrite=true);
-end
-
-for ex = [97] %84:91
-    NP = loadNPclassFromTable(ex); %73 81
-    vsRe = rectGridAnalysis(NP);
-    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [], exNeurons= [1], selectedLum=255,oneTrial = true,PaperFig = true) 
-  
-end
-
-
-%%% Moving ball
-
-for ex =[97]%
-    NP = loadNPclassFromTable(ex); %73 81
-    vs = linearlyMovingBallAnalysis(NP);
-    vs.plotRaster('exNeuronsPhyID',357,'overwrite',true,'MergeNtrials',1,'PaperFig',true,OneLuminosity= 'white',OneDirection='up',bin=20)
-    colorbarLims=vs.PlotReceptiveFields('exNeurons',1,'overwrite',true,'OneDirection','up','OneLuminosity','white','PaperFig',true);
-end
-
-for ex =[74]%
-    NP = loadNPclassFromTable(ex); %73 81
-    vs = linearlyMovingBallAnalysis(NP);
-    vs.plotRaster('exNeuronsPhyID',[],'exNeurons',1111,'overwrite',true,'MergeNtrials',1,'PaperFig',true,OneLuminosity= 'white',OneDirection='up',bin=20)
-end
-
-
-%% DATASET SUMMARY: units responsive to at least one stimulus
-% Cross-stimulus, so it belongs to no single stimulus section. Each family's
-% p-values come from the StatisticsPerNeuron cache the sections above already
-% wrote — MB/SB keep BaseRespWindow=250 + Lock{luminosities,255}, MG/SG keep
-% 1000 ms, MBR keeps 500 ms — read with a bare call, so nothing is recomputed
-% or overwritten.
-[Tresp, Sresp] = AllExpResponsiveUnion([1, 8, 40:43,49:54,64:66,68:85 87:97], ...
-    Stimuli        = {'MB','RG','MBR','SDGm','SDGs','FFF'}, ...
-    threshold      = 0.05, ...      % same cutoff as the MB/RG swarm above
-    useTtest       = false, ...     % permutation p, matching the Figure-1 call
-    computeMissing = false, ...     % cache-only: never writes stats
-    overwrite      = false, ...     % reuse the pooled cache; true forces a rerun
-    plotFig        = true, ...
-    PaperFig       = true);
-
-fprintf('%d / %d somatic units respond to >=1 stimulus | %.2f somatic per responsive\n', ...
-    Sresp.totalUnion, Sresp.totalSomatic, Sresp.somaticPerResponsive);
+%% FIGURE 1 (MB vs SB) and the dataset summary (responsive union) now live in
+% paperFigures/Fig1_MBvsRG.m and paperFigures/DatasetSummary_ResponsiveUnion.m;
+% every figure takes its statistics design from paperFigures/figureDesign.m.
 
 %% FIGURE 2: SPATIAL TUNING ANS STRIPE ANALYSIS
 %%%%%%%%
@@ -190,34 +76,24 @@ end
 %%%%%%%%
 %%%%%%%%
 
-%% %% Compare SDGm vs SDGs
-[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'SDGm','SDGs'},PaperFig=true,...
-    overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=true,BaseRespWindow=1000);
+%% Figure 3 main comparison (SDGm vs SDGs), PSTH and raster: see
+% paperFigures/Fig3_MovingVsStatic.m. Category cells below are pending revalidation.
+% DO NOT RUN them before the category round: their BaseRespWindow / maxCategory
+% differ from figureDesign.m, so they would overwrite the SDG and MB statistics
+% caches that Figures 1, 3 and 4 and the union are built from.
 
 %% %% Compare SDGm vs SDGs, across directions
 [tempTableMW] = AllExpAnalysis([40:43 49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm','SDGs'},CompareCategory={"angles","angles"},CompareLevels={[0,90,180,270],[0,90,180,270]},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
 
-%% Plot PSTH of MG and SG
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=100, postStim= 1000, stimTypes={"SDGm","SDGs"},unionResponsive=true); 
-
-%% Raster for MG and SG
-plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=500,stimTypes=["SDG"],unionUnits=true,preBase=500)
 
 %% SDGm spatial frequency
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGm'},CompareCategory={"tempFrequency"},PaperFig=true,...
     overwriteResponse=false,overwriteStats=true, BaseRespWindow = 1000);
 
 
-%% %% Compare NI vs NV, 
-[tempTableMW] = AllExpAnalysis([40:43 49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'NV','NI'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
-%% %% Compare NI vs NV, 
-[tempTableMW] = AllExpAnalysis([92:97], overwrite=false,ComparePairs={'NI','NV'},CompareCategory={"imgeOrder",""},CompareLevels={[1,9],[]},PaperFig=true,...
-    overwriteResponse=true,overwriteStats=true,useFDR=false,maxCategory=false,BaseRespWindow=1000);
-
-%% Raster for NI and NV
-plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["NI","NV"],unionUnits=false )
+%% NI / NV: NV is not in the paper; the NI lizard-posture comparison (imgeOrder) is
+% rerun in the category round (StatisticsPerNeuronPerCategory fixes pending).
 
 %% FIGURE 4 SIZES AND LOCALITY COMPARISON
 %%%%%%%%
@@ -236,41 +112,9 @@ plotRaster_MultiExp([49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrial
 % %% Compares MB and SDGm across different categories, z-scores are computed with a moving window and responsive units are selected on the per category p value.
 % [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'MB','SDGm'},CompareCategory={"directions","angles"},CompareLevels={[0,1.57,3.14, 4.71],[0,90,180,270]},PaperFig=true,...
 %     overwriteResponse=false,overwriteStats=true, BaseRespWindow = 1000,useGeneralFilter=true,SpatialGridMode = false,maxCategory = true);
-%% Compares MB and MG, across all categories
-[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','SDGm'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = true);
+%% Figure 4 main comparisons (RG-SDGs-FFF, MB-MBR, MB-SDGm, MBR-SDGm in PV97), their
+% PSTHs and rasters: see paperFigures/Fig4_Locality.m (shared design: figureDesign.m).
 
-%% %% Compares MB and MG, across all categories
-[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'MB','MBR'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 500, maxCategory = true, SpatialGridMode = false);
-
-%% %% PSTH for MB v sMG
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=100, postStim= 1000,stimTypes={"MB","SDGm"},requireAllStims=true, unionResponsive=true); %stimTypes=["linearlyMovingBall"]
-
-%% %% PSTH for MB vs MBR
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth =50, postStim= 1000, stimTypes={"MB","MBR"},unionResponsive=true,requireAllStims = true); 
-
-
-%% Raster for MB vs MG
-
-plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","SDGm"],unionUnits=true )
-
-%% Raster for MB vs MBR
-plotRaster_MultiExp([40:43,49:54,64:66,68:85 87:97],overwrite=true,TakeTopPercentTrials=[],PaperFig=true,postStim=1000,stimTypes=["MB","MBR"],unionUnits=true )
-
-%% %% Compares SB, SG  across all categories
-[tempTableMW] = AllExpAnalysis([40:43, 49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','SDGs'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 300, maxCategory = true, SpatialGridMode = false);
-
-%% %% Compares SB, FFF, across all categories
-[tempTableMW] = AllExpAnalysis([40:43,49:54,64:66,68:85 87:97], overwrite=true,ComparePairs={'RG','FFF'},PaperFig=true,...
-    overwriteResponse=false,overwriteStats=true, BaseRespWindow = 300, maxCategory = true, SpatialGridMode = false);
-
-%% PSTH for all static experiments
-plotPSTH_MultiExp([40:43,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, binWidth=50, smooth=250, postStim= 500, stimTypes={"RG","SDGs"}); %stimTypes=["linearlyMovingBall"]
-
-%% Plot changes in size for MB
-plotPSTH_MultiExp([40:43,20,49:54,64:66,68:85 87:97], overwrite=true, zScore=true,TakeTopPercentTrials=[], PaperFig=true, byDepth=false, smooth=250,binWidth=50, postStim= 500, stimTypes={"RG","FFF"}); %stimTypes=["linearlyMovingBall"]
 
 %% SDGm spatial frequency
 [tempTableMW] = AllExpAnalysis([49:54,64:66,68:85 87:97], overwrite=false,ComparePairs={'SDGs'},CompareCategory="spatFrequency",PaperFig=true,...

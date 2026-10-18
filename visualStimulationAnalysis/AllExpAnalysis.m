@@ -105,7 +105,8 @@ arguments
     params.segmentStims     cell            = {}    % stimuli tested in fixed-length segments across the stimulus
                                                     %   (max over categories x segments); listed stimuli absent
                                                     %   from ComparePairs are ignored, so one list serves all calls
-    params.segmentMs        double          = 300   % segment length (ms) for segmentStims
+    params.nSegments        double          = 9     % equal segments per stimulus for segmentStims
+                                                    %   (9 = the columns/rows of the 9x9 grid used for MB/RG)
     % --- Bootstrap parameters ---
     params.nBoot            double          = 10000 % Iterations for pairwise hierarchical bootstrap
     params.nBootCategory    double          = 10000 % Iterations for per-category bootstrap
@@ -330,8 +331,10 @@ TableStimComp = table( ...
 % neurons and total somatic neurons for fraction-responsive analysis.
 TableRespNeurs = table( ...
     categorical.empty(0,1), categorical.empty(0,1), categorical.empty(0,1), ...
-    double.empty(0,1), double.empty(0,1), ...
-    'VariableNames', {'animal','insertion','stimulus','respNeur','totalSomaticN'});
+    double.empty(0,1), double.empty(0,1), double.empty(0,1), ...
+    'VariableNames', {'animal','insertion','stimulus','respNeur','totalSomaticN','recordedSomaticN'});
+% totalSomaticN = good units present during every compared block (analysable);
+% recordedSomaticN = all good units of the recording.
 
 % In mode 2, level labels are determined from the first valid recording.
 % In mode 3, comparison labels are fixed by parameters from the start.
@@ -510,6 +513,7 @@ if runLoop
         nUnits         = [];            % total somatic neuron count (set once)
         compLabels     = {};            % labels for items being compared
         generalPbyStim = struct();      % general per-neuron p-values (for useGeneralFilter)
+        presentByStim  = struct();      % per-stimulus unit presence during its block (unitPresence)
 
         if isCategoryMode
             % ---- Mode 2: single stimulus, all levels of one category ----
@@ -530,7 +534,8 @@ if runLoop
             vsObjs(key) = vsObj;                        % store back (handle class — redundant but safe)
 
             % Extract general p-values (for optional useGeneralFilter)
-            [~, generalP, ~, ~] = extractStimData(stats, vsObj, stimName, params.useZmean, params.useTtest);
+            [~, generalP, ~, ~, ~, presU] = extractStimData(stats, vsObj, stimName, params.useZmean, params.useTtest);
+            presentByStim.(stimName) = presU;          % units present during this stimulus block
             generalPbyStim.(stimName) = generalP;
 
             % Auto-detect GratingType from stimulus abbreviation
@@ -596,7 +601,8 @@ if runLoop
                     % extractStimData references useTTest unconditionally
                     % (line ~1547/1588) — this call would have thrown
                     % "Not enough input arguments" the moment this branch ran.
-                    [z, p, spkR, ~, dRate] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                    [z, p, spkR, ~, dRate, presU] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                    presentByStim.(sn) = presU;                 % units present during this stimulus block
                     generalPbyStim.(sn) = p;
                     stimData.(sn).z    = z(:);
                     stimData.(sn).p    = p(:);
@@ -610,7 +616,8 @@ if runLoop
                 vsObjs(key) = vsObj;
 
                 % Extract general p-values (for optional useGeneralFilter)
-                [~, generalP, ~, ~] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                [~, generalP, ~, ~, ~, presU] = extractStimData(stats, vsObj, sn, params.useZmean, params.useTtest);
+                presentByStim.(sn) = presU;            % units present during this stimulus block
                 generalPbyStim.(sn) = generalP;
 
                 % Auto-detect GratingType from stimulus abbreviation
@@ -691,7 +698,8 @@ if runLoop
             for si = 1:numel(stimsNeeded)
                 sn  = stimsNeeded{si};
                 key = getObjKey(sn);
-                [z, p, spkR, ~, dRate] = extractStimData(statsByKey(key), vsObjs(key), sn, params.useZmean, params.useTtest);
+                [z, p, spkR, ~, dRate, presU] = extractStimData(statsByKey(key), vsObjs(key), sn, params.useZmean, params.useTtest);
+                presentByStim.(sn) = presU;             % units present during this stimulus block
                 stimData.(sn).z    = z(:);
                 stimData.(sn).p    = p(:);
                 stimData.(sn).spkR = spkR(:);
@@ -713,9 +721,23 @@ if runLoop
             end
         end
 
+        % ---- 4e2: Units present during EVERY compared stimulus block ----
+        % A unit absent during one stimulus (drift) would score "no response"
+        % there; only units present throughout all compared blocks are analysed.
+        presAll   = true(nUnits, 1);                    % start: every good unit
+        presNames = fieldnames(presentByStim);          % stimuli of this comparison
+        assert(~isempty(presNames), 'No presence information collected for exp %d.', ex);  % must exist
+        for si = 1:numel(presNames)
+            pr = presentByStim.(presNames{si});         % presence during this stimulus block
+            assert(numel(pr) == nUnits, ...
+                'Presence vector length (%d) differs from unit count (%d) for %s in exp %d.', ...
+                numel(pr), nUnits, presNames{si}, ex);  % alignment invariant
+            presAll = presAll & pr(:);                  % present in all blocks so far
+        end
+
         % ---- 4f: Significance mask ----
         % Build a logical OR mask: a neuron passes if it is significant for
-        % at least one comparison item.
+        % at least one comparison item (and is present in all compared blocks).
 
         if params.useGeneralFilter && (isCategoryMode || isSpecificLevelMode)
             % Use general per-stimulus p-values (StatisticsPerNeuron), OR'd
@@ -737,6 +759,7 @@ if runLoop
             end
         end
 
+        orMask  = orMask & presAll; % only units present during every compared block
         unitIDs = find(orMask);     % indices of neurons passing the filter
         nSig    = numel(unitIDs);   % count of significant neurons
 
@@ -764,17 +787,18 @@ if runLoop
         % neuron count and total somatic neuron count.
         for ci = 1:numel(compLabels)
             cl    = compLabels{ci};
-            nResp = sum(stimData.(cl).p < params.threshold);  % neurons below threshold
+            nResp = sum(stimData.(cl).p < params.threshold & presAll);  % responsive among analysable units
             newRow = table( ...
                 categorical(cellstr(animalID)), ...             % animal
                 categorical(insertionCount), ...                % insertion
                 categorical(cellstr(cl)), ...                   % stimulus/item
-                nResp, nUnits, ...                              % responsive count, total count
+                nResp, sum(presAll), nUnits, ...                % responsive, analysable (present), recorded
                 'VariableNames', TableRespNeurs.Properties.VariableNames);
             TableRespNeurs = [TableRespNeurs; newRow];          %#ok<AGROW>
         end
 
-        fprintf('  -> %d / %d units pass filter.\n', nSig, nUnits);
+        fprintf('  -> %d / %d analysable units pass filter (%d recorded; %d absent during a compared block).\n', ...
+            nSig, sum(presAll), nUnits, nUnits - sum(presAll));
 
     end  % end for ex
 
@@ -810,7 +834,7 @@ if runLoop
         'durationWindow',   params.durationWindow,...     % Window lenght for moving window
         'offWindowStims',   {params.offWindowStims}, ...   % stimuli with ON + OFF windows
         'segmentStims',     {params.segmentStims}, ...     % stimuli tested in segments
-        'segmentMs',        params.segmentMs, ...          % segment length (ms)
+        'nSegments',        params.nSegments, ...          % equal segments per stimulus (segmentStims)
         'CategoryLevels',   {params.CategoryLevels}, ...  % focus: separate factors per stimulus
         'Lock',             {params.Lock});            % focus: locked factor values per stimulus
 
@@ -1757,9 +1781,7 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec, objKey)   % + 
     offKeys = cellfun(@getObjKey, params.offWindowStims, 'UniformOutput', false);  % objects with an OFF window
     segKeys = cellfun(@getObjKey, params.segmentStims,   'UniformOutput', false);  % objects tested in segments
     useOff  = ismember(objKey, offKeys);                     % ON + OFF windows for this object
-    useSeg  = ismember(objKey, segKeys);                     % fixed-length segments for this object
-    segMs   = [];                                            % StatisticsPerNeuron default (no segments)
-    if useSeg, segMs = params.segmentMs; end                 % segment length only when segmenting
+    useSeg  = ismember(objKey, segKeys);                     % equal segments for this object
 
     vsObj.ResponseWindow( ...                                % Step 1: response traces + condition matrix
         'overwrite',      params.overwriteResponse, ...
@@ -1785,14 +1807,14 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec, objKey)   % + 
         'applyFDR',        params.applyFDR, ...
         'durationWindow',  params.durationWindow, ...       % sliding-window width for MovingWindowPVal (moving ball only)
         'OffWindow',       useOff, ...                       % ON + OFF windows (offWindowStims)
-        'useSegments',     useSeg, ...                       % fixed-length segments (segmentStims)
-        'SegmentMs',       segMs, ...                        % segment length (ms) when segmenting
+        'useSegments',     useSeg, ...                       % equal segments (segmentStims)
+        'nSegments',       params.nSegments, ...             % passed for every object so cached params stay identical
         'CategoryLevels',  catLevels, ...                    % focus: factors kept separate
         'Lock',            lockSpec);                        % focus: locked factor values
 end
 
 
-function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, useZmean, useTTest)
+function [z, p, spkR, spkDiff, dRate, present] = extractStimData(stats, vsObj, stimName, useZmean, useTTest)
 % extractStimData  Pull z-scores, p-values, and spike rate from the
 %   StatisticsPerNeuron results.
 %
@@ -1814,10 +1836,14 @@ function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, 
 %     spkR     (N,1) double   Spike rate (or z_mean) per neuron
 %     spkDiff  (N,1) double   Response minus baseline difference
 %     dRate    (N,1) double   Split-half cross-validated peak delta rate (spikes/s)
+%     present  (N,1) logical  Unit present throughout this stimulus block (all MB speeds)
 
     rw = vsObj.ResponseWindow;   % safe: no params-match cache logic, just reloads the file runStimStats already wrote
     needDR = @(s) assert(isfield(s, 'DeltaRateCV'), ...
         'AllExpAnalysis:noDeltaRate', ['Stats for %s lack DeltaRateCV (cache from older ', ...
+        'statistics code); rerun with overwriteStats=true.'], stimName);  % fail loudly on an outdated cache
+    needPr = @(s) assert(isfield(s, 'present'), ...
+        'AllExpAnalysis:noPresence', ['Stats for %s lack unit presence (cache from older ', ...
         'statistics code); rerun with overwriteStats=true.'], stimName);  % fail loudly on an outdated cache
 
     switch stimName
@@ -1833,6 +1859,7 @@ function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, 
             allR  = [];     % (nNeurons x nSpeeds) spike rate matrix
             allDf = [];     % (nNeurons x nSpeeds) difference matrix
             allDR = [];     % (nNeurons x nSpeeds) split-half delta rate matrix
+            present = [];   % (nNeurons x 1) present during every speed's block
 
             for iS = 1:nSpeeds
                 sName  = speedFields{iS};           % e.g. 'Speed1', 'Speed2'
@@ -1857,6 +1884,9 @@ function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, 
                 allDf(:,iS) = max(rwTmp.NeuronVals(:,:,5), [], 2);         %#ok<AGROW>
                 needDR(subTmp);                                             % DeltaRateCV must exist
                 allDR(:,iS) = subTmp.DeltaRateCV(:);                        %#ok<AGROW>
+                needPr(subTmp);                                             % presence must exist
+                if isempty(present), present = true(numel(subTmp.present), 1); end  % start: all units
+                present = present & subTmp.present(:);                      % present in this speed's block too
             end
 
             % Select the speed with the lowest p-value for each neuron.
@@ -1902,6 +1932,8 @@ function [z, p, spkR, spkDiff, dRate] = extractStimData(stats, vsObj, stimName, 
     spkDiff = max(rwSub.NeuronVals(:,:,5), [], 2);     % peak response - baseline
     needDR(sub);                                        % DeltaRateCV must exist
     dRate   = sub.DeltaRateCV(:);                       % split-half peak delta rate, spikes/s
+    needPr(sub);                                        % presence must exist
+    present = sub.present(:);                           % present throughout this stimulus block
 end
 
 

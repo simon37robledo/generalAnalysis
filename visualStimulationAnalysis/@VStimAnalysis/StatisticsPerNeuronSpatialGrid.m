@@ -416,6 +416,9 @@ for s = 1:nSpeeds
     S.(fieldName).trialOnsets           = trialTimes(:);         % [nTrials × 1] onset (ms) of each analysed (locked) trial
     S.(fieldName).trialDirections       = directions(:);         % [nTrials × 1] direction of each analysed trial
     S.(fieldName).crossingMs            = crossingMsInTrial;     % [nTrials × nCells] crossing time from onset (ms), NaN = not crossed
+    [presentU, presenceRatioU] = unitPresence(p.t, goodU, min(trialTimes), max(trialTimes) + stimDur);  % per-block presence
+    S.(fieldName).present               = presentU;              % [1 × nNeurons] present throughout this block
+    S.(fieldName).presenceRatio         = presenceRatioU;        % [1 × nNeurons] per-block presence ratio
 
     S.params = params;   % store parameters for reproducibility
 

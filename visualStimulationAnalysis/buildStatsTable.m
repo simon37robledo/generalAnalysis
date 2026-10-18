@@ -435,10 +435,12 @@ if isfield(p,'offWindowStims') && ~isempty(p.offWindowStims)
         strjoin(p.offWindowStims, ', '), p.BaseRespWindow);       % methods text for the OFF window
 end
 if isfield(p,'segmentStims') && ~isempty(p.segmentStims)
-    parts{end+1} = sprintf(['Segments (%s): consecutive %g ms windows across the stimulus; ' ...
+    parts{end+1} = sprintf(['Segments (%s): %g equal consecutive windows across the stimulus; ' ...
         'null maximised jointly over categories and segments'], ...
-        strjoin(p.segmentStims, ', '), p.segmentMs);              % methods text for segmented tests
+        strjoin(p.segmentStims, ', '), p.nSegments);              % methods text for segmented tests
 end
+parts{end+1} = ['Units present throughout every compared stimulus block only (per-block ' ...
+    'presence ratio >= 0.7 over 10 bins, as BombCell''s presence ratio within the block)'];  % unit inclusion
 
 % --- Trial focus (Lock) ---
 if isfield(p,'Lock') && ~isempty(p.Lock)

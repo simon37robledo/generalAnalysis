@@ -414,6 +414,7 @@ if forloop
         expDirectimes  = cell(1, nStim);                                 % onset times (ms)
         expResponsive  = cell(1, nStim);                                 % responsive-unit index vectors
         expBestSpeed   = cell(1, nStim);                                 % per-neuron winning-speed index (MB/MBR)
+        expPresent     = cell(1, nStim);                                 % per-unit presence during each stimulus block
         expSpeedC      = cell(1, nStim);                                 % per-speed condition matrices    (MB/MBR)
 
         skipExperiment = false;                                          % flag: skip if any stim fails (union mode)
@@ -552,8 +553,12 @@ if forloop
                 catch, expStimDur(s) = NeuronResp.stimDur; end         % flat struct (RG, FFF, ...)
             end
 
-            % --- Find responsive neurons (general filter) ---
-            expResponsive{s} = find(pvals < params.alpha);               % indices of responsive units
+            % --- Find responsive neurons (general filter), present units only ---
+            expPresent{s}    = statPresence(Stats, stimType, fieldName); % present throughout this stimulus block
+            assert(numel(expPresent{s}) == numel(pvals), ...
+                'Presence (%d) and p-values (%d) differ in length for %s, exp %d.', ...
+                numel(expPresent{s}), numel(pvals), stimType, ex);       % alignment invariant
+            expResponsive{s} = find(pvals(:) < params.alpha & expPresent{s}(:));  % responsive AND present
 
         end % stim pre-scan loop
 
@@ -619,7 +624,7 @@ if forloop
 
                 staticResp = staticPvals(:) < params.alpha;              % logical: responsive to static phase
                 movingResp = movingPvals(:) < params.alpha;              % logical: responsive to moving phase
-                unionMask  = staticResp | movingResp;                    % union: responsive to either phase
+                unionMask  = (staticResp | movingResp) & expPresent{1}(:); % union: responsive to either phase, present
                 unionIdx   = find(unionMask);                            % indices of union neurons
 
                 % Classify each good unit (indexed by position in goodU)
@@ -641,7 +646,8 @@ if forloop
                     respMatrix(expResponsive{s}, s) = true;              % mark responsive units per stim
                 end
 
-                unionMask = any(respMatrix, 2);                          % responsive to at least one stim
+                presentAll = all(cell2mat(cellfun(@(x) x(:), expPresent, 'UniformOutput', false)), 2);  % present in every displayed block
+                unionMask = any(respMatrix, 2) & presentAll;             % responsive to >= 1 stim, present in all
                 unionIdx  = find(unionMask);                             % indices of union neurons
 
                 % Classify each unit

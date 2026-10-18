@@ -84,7 +84,6 @@ arguments (Input)
                                     % "all" -> every parameter separate (legacy). Unnamed factors pool.
     params.Lock           = {}      % {name,value,...} lock factors to fixed values (pre-filter); {} = none
     params.returnDefaults = false   % internal: return the resolved default params (bare-call detection)
-    params.SegmentMs      = []      % useSegments: fixed segment length (ms); [] = nSegments equal epochs
     params.OffWindow      = false   % add an OFF window [offset, offset+BaseRespWindow) as a second segment;
                                     % the max-statistic then runs over categories x {ON, OFF}
 
@@ -106,9 +105,11 @@ end
 %   v7: baseline length capped by the inter-trial interval (it could overrun
 %       stimulus onset); static-grating baseline gets the same cap.
 %   v8: drifting-grating (Moving) baseline is the blank pre-trial window, not
-%       the static-grating phase; SegmentMs option for fixed-length segments.
+%       the static-grating phase.
+%   v9: per-block unit presence (present, presenceRatio) stored per condition;
+%       segmented tests use a baseline of the same length as each segment.
 % -------------------------------------------------------------------------
-params.statsVersion = 8;                                           % current statistics code version
+params.statsVersion = 9;                                           % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve
@@ -368,6 +369,13 @@ for s = 1:x
        
     end
 
+    % --- Unit presence during this stimulus block ---
+    % Units drift in and out within a session; a unit counts for this stimulus
+    % only if present throughout its block (per-block presence ratio, unitPresence).
+    blockStart = min(directimesSorted);                                % first trial onset (ms)
+    blockEnd   = max(directimesSorted) + stimDur;                      % last trial offset (ms)
+    [presentU, presenceRatioU] = unitPresence(p.t, goodU, blockStart, blockEnd);  % [1 × nNeurons] each
+
     % --- Build spike count matrices ---
     % Mr: response window — capped at effectiveStimDur if CapStimDuration=true
     % Capping takes first MaxStimDuration ms of each trial, starting at stimulus onset
@@ -471,14 +479,8 @@ for s = 1:x
         % Baseline is shared across all segments (same pre-trial window per trial).
         % Max-statistic permutation test will take max across both categories and
         % segments simultaneously, controlling FWER across both dimensions.
-        if isempty(params.SegmentMs)
-            segDur  = stimDur / params.nSegments;  % legacy: nSegments equal epochs of the stimulus
-            nSegs   = params.nSegments;            % number of segments (e.g. 5)
-        else
-            segDur  = params.SegmentMs;            % fixed segment length (ms), same in every recording
-            nSegs   = floor(stimDur / segDur);     % whole segments that fit in this recording's stimulus
-            assert(nSegs >= 1, 'Stimulus (%.0f ms) shorter than SegmentMs (%d ms).', stimDur, segDur);  % at least one segment
-        end
+        segDur  = stimDur / params.nSegments;  % duration of each segment in ms
+        nSegs   = params.nSegments;            % number of segments (e.g. 9)
 
         fprintf('Using %d segments of %.1f ms for %s permutation test.\n', ...
             nSegs, segDur, obj.stimName);
@@ -493,9 +495,18 @@ for s = 1:x
             MrSegs(:,:,seg) = mean(MrSeg, 3);  % mean over time bins: [nTrials × nNeurons]
         end
 
-        % DiffSeg: response minus baseline per segment [nTrials × nNeurons × nSegs]
-        % baselines is [nTrials × nNeurons] — broadcast across segment dimension
-        DiffSeg  = MrSegs - baselines;  % [nTrials × nNeurons × nSegs]
+        % Baseline of the SAME length as a segment: the last segDur ms before
+        % onset. With unequal lengths one spike moves the segment rate and the
+        % baseline rate by different amounts, so the per-trial difference is not
+        % sign-symmetric under H0 and the sign-flip test turns liberal for sparse
+        % units (null simulation: 9-10% FPR at 0.5-1 Hz, ~5% once matched).
+        segLen = round(segDur);                                          % segment length in whole ms
+        assert(segLen <= size(Mb, 3), ['Segment (%d ms) longer than the baseline (%d ms): ' ...
+            'use more segments or a longer BaseRespWindow.'], segLen, size(Mb, 3));  % cannot match lengths
+        baselinesSeg = mean(Mb(:, :, end-segLen+1:end), 3);              % [nTrials × nNeurons] matched-length baseline
+
+        % DiffSeg: response minus matched baseline per segment [nTrials × nNeurons × nSegs]
+        DiffSeg  = MrSegs - baselinesSeg;  % baseline broadcast across the segment dimension
         DiffPVal = [];  % not used as flat matrix — handled separately in permutation block
 
     else
@@ -1002,6 +1013,8 @@ for s = 1:x
         S.(fieldName).prefSeg            = prefSeg;      % [1 × nNeurons] preferred segment (ON=1, OFF=2 with OffWindow; empty if not segmented)
         S.(fieldName).z_mean             = z_mean.*1000;   % [1 × nNeurons] mean spikes/sec difference (resp-base) of preferred segment (empty if not segmented)
         S.(fieldName).DeltaRateCV        = DeltaRateCV;  % [1 × nNeurons] split-half peak delta rate, spikes/s
+        S.(fieldName).present            = presentU;     % [1 × nNeurons] present throughout this block
+        S.(fieldName).presenceRatio      = presenceRatioU; % [1 × nNeurons] per-block presence ratio
         S.(fieldName).catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
         S.(fieldName).catColNames = sepNames;    % [1 × nSep] separating-factor names
         S.(fieldName).focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});
@@ -1020,6 +1033,8 @@ for s = 1:x
         S.tStat             = tStat;
         S.z_mean            = z_mean.*1000;
         S.DeltaRateCV       = DeltaRateCV;   % [1 × nNeurons] split-half peak delta rate, spikes/s
+        S.present           = presentU;      % [1 × nNeurons] present throughout this block
+        S.presenceRatio     = presenceRatioU; % [1 × nNeurons] per-block presence ratio
         S.catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
         S.catColNames = sepNames;    % [1 × nSep] separating-factor names
         S.focusSpec   = struct('CategoryLevels', {params.CategoryLevels}, 'Lock', {params.Lock});
@@ -1046,7 +1061,8 @@ function S = buildEmptyStruct(obj, responseParams)
 
 emptyFields = {'pvalsResponse','ZScoreU','ZScorePermutation','ObsDiff', ...
                'ObsResponse','ObsBaseline','prefCat','prefSeg','validCats', ...
-               'MaxMovWinResponse','pValTTest','tStat'};
+               'MaxMovWinResponse','pValTTest','tStat', ...
+               'z_mean','DeltaRateCV','present','presenceRatio'};      % fields consumers read (empty: no units)
 
 if isequal(obj.stimName, 'linearlyMovingBall') || isequal(obj.stimName, 'linearlyMovingBar')
     for f = emptyFields

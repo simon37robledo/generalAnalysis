@@ -1,6 +1,6 @@
 function [fprTable, deltaTable, layouts] = checkLayoutNullFPR(params)
 % checkLayoutNullFPR  Null calibration of the fixed-window and segmented tests on
-%   the trial layouts of the other stimulus families (FFF, SDG, MBR, NI, NV).
+%   the trial layouts of the other stimulus families (FFF, SDG, MBR, NI).
 %
 %   [fprTable, deltaTable, layouts] = checkLayoutNullFPR()
 %
@@ -22,7 +22,8 @@ arguments
     params.nPerRate double = 240                % simulated neurons per rate
     params.nBoot double = 2000                  % sign-flip permutations
     params.alpha double = 0.05                  % responsiveness threshold
-    params.winMs double = 300                   % response window / segment length (ms)
+    params.winMs double = 300                   % fixed response window length (ms)
+    params.nSegments double = 9                 % equal segments per stimulus for segmented layouts (MBR)
     params.baseMs double = 300                  % baseline length (ms)
     params.chunk double = 40                    % neurons simulated at once (memory)
     params.seed double = 1                      % RNG seed
@@ -37,11 +38,9 @@ rng(params.seed);                                                  % reproducibl
 spec = {'FFF fixed',        52, @fullFieldFlashAnalysis,        '',       false, false; ...
         'SDGs fixed',       52, @StaticDriftingGratingAnalysis, 'Static', false, false; ...
         'SDGm fixed',       52, @StaticDriftingGratingAnalysis, 'Moving', false, false; ...
-        'MBR segments',     70, @linearlyMovingBarAnalysis,     'Speed1', true,  false; ...
-        'NI fixed (lizards)', 92, @imageAnalysis,               '',       false, true;  ...
-        'NV segments (8 s)',  92, @movieAnalysis,               '',       true,  false; ...
-        'NV segments (16 s)', 89, @movieAnalysis,               '',       true,  false};
-layouts = struct('name', {}, 'nCats', {}, 'tc', {}, 'nWin', {});   % filled below
+        'MBR 9 segments',   70, @linearlyMovingBarAnalysis,     'Speed1', true,  false; ...
+        'NI fixed (lizards)', 92, @imageAnalysis,               '',       false, true};
+layouts = struct('name', {}, 'nCats', {}, 'tc', {}, 'nWin', {}, 'winLen', {}, 'baseLen', {});   % filled below
 for k = 1:size(spec, 1)
     evalc('NP = loadNPclassFromTable(spec{k,2}); o = spec{k,3}(NP); rw = o.ResponseWindow;');  % cached, read-only
     if isempty(spec{k,4}), sub = rw; else, sub = rw.(spec{k,4}); end   % condition matrix holder
@@ -53,10 +52,10 @@ for k = 1:size(spec, 1)
         nKeep = 30;                                                  % 2 images x 15 repetitions
         nCats = round(nKeep / tc);                                   % conditions after the subset
     end
-    nWin = 1;                                                        % fixed window
-    if spec{k,5}, nWin = floor(stimDur / params.winMs); end          % segments that fit, as with SegmentMs
-    layouts(k) = struct('name', spec{k,1}, 'nCats', nCats, 'tc', tc, 'nWin', nWin);  % this family's layout
-    fprintf('%-20s exp %d: %d conditions x %d trials, %d window(s)\n', spec{k,1}, spec{k,2}, nCats, tc, nWin);
+    nWin = 1; winLen = params.winMs; baseLen = params.baseMs;        % fixed window vs full baseline
+    if spec{k,5}, nWin = params.nSegments; winLen = round(stimDur / nWin); baseLen = winLen; end  % equal segments, matched-length baseline (StatisticsPerNeuron)
+    layouts(k) = struct('name', spec{k,1}, 'nCats', nCats, 'tc', tc, 'nWin', nWin, 'winLen', winLen, 'baseLen', baseLen);  % this family's layout
+    fprintf('%-20s exp %d: %d conditions x %d trials, %d window(s) of %d ms\n', spec{k,1}, spec{k,2}, nCats, tc, nWin, winLen);
 end
 
 % =========================================================================
@@ -73,10 +72,10 @@ for k = 1:numel(layouts)
         p = []; d = [];                                            % p-values and split-half deltas
         for c = 1:ceil(params.nPerRate / params.chunk)
             nU = min(params.chunk, params.nPerRate - (c-1)*params.chunk);  % neurons in this chunk
-            base = mean(rand(nTr, nU, params.baseMs, 'single') < lam, 3);   % baseline mean rate per trial
+            base = mean(rand(nTr, nU, L.baseLen, 'single') < lam, 3);   % baseline mean rate per trial
             D = zeros(nTr, nU, L.nWin, 'single');                  % window mean minus baseline
             for w = 1:L.nWin
-                D(:,:,w) = mean(rand(nTr, nU, params.winMs, 'single') < lam, 3) - base;  % independent window, shared baseline
+                D(:,:,w) = mean(rand(nTr, nU, L.winLen, 'single') < lam, 3) - base;  % independent window, shared baseline
             end
             p = [p, segSignFlipNull(double(D), L.tc, L.nCats, params.nBoot)];  %#ok<AGROW> max over conditions x windows
             d = [d, splitHalfDelta(D, grp, half)];                 %#ok<AGROW> cross-validated delta rate

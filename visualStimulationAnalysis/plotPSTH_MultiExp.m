@@ -438,6 +438,7 @@ if forloop
         % =================================================================
         if params.unionResponsive
             eNeuronsPerStim = cell(1, nStim);                              % one responsive-neuron index vector per stim type
+            presentPerStim  = cell(1, nStim);                              % per-stim unit presence during its block
 
             for su = 1:nStim
                 stimTypeU = params.stimTypes(su);                          % stimulus abbreviation for this union pass
@@ -509,13 +510,23 @@ if forloop
                     end
                 end
 
-                eNeuronsPerStim{su} = find(pvalsU < params.alpha);         % indices of neurons passing the significance threshold
+                presU = statPresence(StatsU, stimTypeU, fieldNameU);       % present throughout this stimulus block
+                assert(numel(presU) == numel(pvalsU), ...
+                    'Presence (%d) and p-values (%d) differ in length for %s, exp %d.', ...
+                    numel(presU), numel(pvalsU), stimTypeU, ex);           % alignment invariant
+                presentPerStim{su}  = presU(:);                            % keep for the all-blocks mask
+                eNeuronsPerStim{su} = find(pvalsU(:) < params.alpha & presU(:));  % responsive AND present
             end
 
             % ---- Take the OR-union across all stim types ----------------
             unionENeurons = [];                                            % will hold sorted unique neuron indices
             for su = 1:nStim
                 unionENeurons = union(unionENeurons, eNeuronsPerStim{su}); % union() returns sorted, unique indices
+            end
+            presKnown = presentPerStim(~cellfun(@isempty, presentPerStim)); % stimuli with presence information
+            if ~isempty(presKnown)
+                presentAll    = all(cell2mat(presKnown), 2);               % present during every displayed block
+                unionENeurons = intersect(unionENeurons, find(presentAll)); % same unit set as the statistics
             end
 
             fprintf('  Union-responsive: %d neuron(s) responsive to ≥1 of [%s] in exp %d.\n', ...
@@ -733,7 +744,8 @@ if forloop
                 catch
                     pvals = Stats.pvalsResponse;                           % flat struct fallback
                 end
-                eNeurons = find(pvals < params.alpha);                     % indices of neurons below the significance threshold
+                presS    = statPresence(Stats, stimType, fieldName);       % present throughout this stimulus block
+                eNeurons = find(pvals(:) < params.alpha & presS(:));       % responsive AND present
             end
 
             if isempty(eNeurons)

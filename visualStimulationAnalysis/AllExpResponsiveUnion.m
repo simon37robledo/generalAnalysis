@@ -302,6 +302,7 @@ if runLoop
 
         % ---- 3e: Per-family p-values ----
         P       = nan(nSomatic, nStim);                      % p-value per (neuron, family); NaN = family absent
+        Pres    = false(nSomatic, nStim);                    % unit present during the family's block
         present = false(1, nStim);                           % did this recording yield usable stats for the family?
 
         for si = 1:nStim
@@ -418,10 +419,21 @@ if runLoop
                     ex, sn, nNaN, nSomatic);
             end
 
+            % Unit presence during this family's block: an absent unit was not
+            % tested by this family (NaN), rather than "not responsive".
+            presField = '';                                  % flat stats struct by default
+            if strcmp(sn, 'SDGs'), presField = 'Static'; end % static grating block
+            if strcmp(sn, 'SDGm'), presField = 'Moving'; end % drifting grating block
+            presU = statPresence(Stats, string(sn), presField);   % [nSomatic x 1] present during the block
+            assert(numel(presU) == nSomatic, 'Exp %d [%s]: presence length %d vs %d somatic units.', ...
+                ex, sn, numel(presU), nSomatic);             % alignment invariant
+            pv(~presU) = NaN;                                % absent units: family not tested for them
+
             P(:, si)    = pv(:);                             % store this family's p-values
+            Pres(:, si) = presU(:);                          % store presence for the denominators
             present(si) = true;                              % family contributed
-            fprintf('  [%s] %d/%d responsive (p<%.3g, %s).\n', ...
-                sn, sum(pv < params.threshold), nSomatic, params.threshold, src);
+            fprintf('  [%s] %d/%d present units responsive (p<%.3g, %s).\n', ...
+                sn, sum(pv < params.threshold), sum(presU), params.threshold, src);
 
             % Audit entry: which parameters produced the numbers just used
             if isfield(Stats, 'params')                      % every save writes S.params
@@ -462,7 +474,8 @@ if runLoop
         r.insertion       = insertionIdx;                    % running insertion index (globally unique)
         r.realInsertion   = realInsertionID;                 % human-facing insertion number
         r.recordingName   = string(NP.recordingName);        % full recording name
-        r.nSomatic        = nSomatic;                        % somatic units in this recording
+        r.nSomatic        = nSomatic;                        % somatic units in this recording (recorded)
+        r.nTestable       = sum(any(Pres, 2));               % units present during >= 1 tested family block
         r.nUnion          = sum(maskUnion);                  % responsive to >=1 stimulus (uncorrected)
         r.nUnionFDR       = sum(maskFDR);                    % responsive to >=1 stimulus (BH across stimuli)
         r.nStimPresent    = sum(present);                    % how many families this recording contributed
@@ -470,11 +483,12 @@ if runLoop
             r.(['present_' stimVar{si}]) = present(si);      % family available?
             r.(['nResp_'   stimVar{si}]) = sum(sigMat(:, si));   % responsive to this family
             r.(['nUnique_' stimVar{si}]) = nUnique(si);          % responsive to ONLY this family
+            r.(['nPresent_' stimVar{si}]) = sum(Pres(:, si));    % units present during this family's block
         end
         rows{end+1} = r;                                     %#ok<AGROW>
 
-        fprintf('  -> union %d / %d somatic (%.1f%%), FDR-corrected %d.\n', ...
-            r.nUnion, nSomatic, 100*r.nUnion/nSomatic, r.nUnionFDR);
+        fprintf('  -> union %d / %d testable (%d recorded, %.1f%%), FDR-corrected %d.\n', ...
+            r.nUnion, r.nTestable, nSomatic, 100*r.nUnion/max(r.nTestable, 1), r.nUnionFDR);
     end
 
     assert(~isempty(rows), 'No experiment produced usable data — nothing to summarise.');
@@ -545,11 +559,12 @@ summary = struct();                                          % output summary
 summary.nRecordings   = height(T);                           % recordings contributing
 summary.nInsertions   = numel(unique(T.insertion));          % distinct insertions
 summary.nAnimals      = numel(unique(T.animal));             % distinct animals
-summary.totalSomatic  = sum(T.nSomatic);                     % pooled somatic units
+summary.totalSomatic  = sum(T.nSomatic);                     % pooled somatic units (recorded)
+summary.totalTestable = sum(T.nTestable);                    % pooled units present during >= 1 tested block
 summary.totalUnion    = sum(T.nUnion);                       % pooled units responsive to >=1 stimulus
 summary.totalUnionFDR = sum(T.nUnionFDR);                    % same, BH-corrected across stimuli
-summary.unionFraction = summary.totalUnion / summary.totalSomatic;              % pooled fraction
-summary.somaticPerResponsive = summary.totalSomatic / summary.totalUnion;       % somatic units per responsive unit
+summary.unionFraction = summary.totalUnion / summary.totalTestable;             % pooled fraction of testable units
+summary.somaticPerResponsive = summary.totalTestable / summary.totalUnion;      % testable units per responsive unit
 
 % Per-family totals, unique contributions, and how many recordings had them
 summary.perStimulus = table('Size', [nStim 4], ...
@@ -564,9 +579,16 @@ end
 
 % Hierarchical bootstrap CI on the union fraction: resample animals, then
 % insertions (never plain hierBoot, whose top level resamples observations).
-fracPerRec = T.nUnion ./ T.nSomatic;                         % per-recording union fraction
-animalIdxV = double(T.animalIdx);                            % animal level
-insIdxV    = double(T.insertion);                            % insertion level (globally unique)
+noTest = T.nTestable == 0;                                   % recordings whose units all drifted out of every block
+if any(noTest)
+    warning('AllExpResponsiveUnion:noTestableUnits', ...
+        ['%d recording(s) have no unit present during any tested block (exp %s) and are ', ...
+         'excluded from the union fraction and its bootstrap.'], sum(noTest), mat2str(T.exp(noTest)'));  % explicit, not silent
+end
+fracRows   = ~noTest;                                        % recordings with a defined fraction
+fracPerRec = T.nUnion(fracRows) ./ T.nTestable(fracRows);    % per-recording union fraction of testable units
+animalIdxV = double(T.animalIdx(fracRows));                  % animal level (recordings with a defined fraction)
+insIdxV    = double(T.insertion(fracRows));                  % insertion level (globally unique)
 bootFrac   = hierBootMatchFreq(fracPerRec, params.nBoot, animalIdxV, insIdxV);   % bootstrap distribution of the mean
 summary.unionFractionMean = mean(fracPerRec);                % unweighted mean across recordings
 summary.ciUnionFraction   = prctile(bootFrac, [2.5 97.5]);   % 95% percentile CI
@@ -576,12 +598,13 @@ summary.audit             = audit;                           % carry the audit w
 fprintf('\n--- Responsive-unit union (%s) ---\n', strjoin(stims, ', '));
 fprintf('  Recordings / insertions / animals : %d / %d / %d\n', ...
     summary.nRecordings, summary.nInsertions, summary.nAnimals);
-fprintf('  Somatic units                     : %d\n', summary.totalSomatic);
-fprintf('  Responsive to >=1 stimulus        : %d (%.1f%% pooled)\n', ...
+fprintf('  Somatic units (recorded)          : %d\n', summary.totalSomatic);
+fprintf('  Testable (present in >=1 block)   : %d\n', summary.totalTestable);
+fprintf('  Responsive to >=1 stimulus        : %d (%.1f%% of testable)\n', ...
     summary.totalUnion, 100*summary.unionFraction);
-fprintf('  Same, BH-corrected across stimuli : %d (%.1f%% pooled)\n', ...
-    summary.totalUnionFDR, 100*summary.totalUnionFDR/summary.totalSomatic);
-fprintf('  Somatic units per responsive unit : %.2f\n', summary.somaticPerResponsive);
+fprintf('  Same, BH-corrected across stimuli : %d (%.1f%% of testable)\n', ...
+    summary.totalUnionFDR, 100*summary.totalUnionFDR/summary.totalTestable);
+fprintf('  Testable units per responsive unit: %.2f\n', summary.somaticPerResponsive);
 fprintf('  Mean per-recording fraction       : %.3f  [95%% CI %.3f - %.3f]\n', ...
     summary.unionFractionMean, summary.ciUnionFraction(1), summary.ciUnionFraction(2));
 fprintf('  Per stimulus (recordings | responsive | unique):\n');
@@ -594,7 +617,8 @@ end
 % ---- Sanity invariants (cheap, catch extraction bugs immediately) ----
 respCols = T{:, cellfun(@(s) ['nResp_' s], stimVar, 'UniformOutput', false)};   % per-family counts
 assert(all(T.nUnion >= max(respCols, [], 2)), 'Union count is below a single-stimulus count — extraction bug.');
-assert(all(T.nUnion <= T.nSomatic),          'Union count exceeds the somatic unit count — alignment bug.');
+assert(all(T.nUnion <= T.nTestable),         'Union count exceeds the testable unit count — alignment bug.');
+assert(all(T.nTestable <= T.nSomatic),       'Testable units exceed recorded units — presence bug.');
 assert(all(T.nUnionFDR <= T.nUnion),         'FDR-corrected count exceeds the uncorrected count — BH bug.');
 
 % =========================================================================
@@ -615,12 +639,14 @@ if params.plotFig
     % and the rows are sorted by it, which puts Union in the first column.
     longRows = {};                                           % accumulator
     for r = 1:height(T)
+        if T.nTestable(r) == 0, continue; end                             % no unit present in any block (warned above)
         longRows{end+1} = {T.animal(r), T.insertion(r), 'Union', ...      %#ok<AGROW>
-            T.nUnion(r), T.nSomatic(r), 0};                               % union column, sort key 0
+            T.nUnion(r), T.nTestable(r), 0};                              % union over testable units, sort key 0
         for si = 1:nStim
             if ~T.(['present_' stimVar{si}])(r), continue; end            % stimulus absent in this recording
+            if T.(['nPresent_' stimVar{si}])(r) == 0, continue; end       % no unit present during this block
             longRows{end+1} = {T.animal(r), T.insertion(r), stims{si}, ...  %#ok<AGROW>
-                T.(['nResp_' stimVar{si}])(r), T.nSomatic(r), si};         % sort key = position in Stimuli
+                T.(['nResp_' stimVar{si}])(r), T.(['nPresent_' stimVar{si}])(r), si};  % fraction of units present in the block
         end
     end
     L = vertcat(longRows{:});                                % cell matrix [nRows x 6]
@@ -662,8 +688,8 @@ if params.plotFig
 
     % Bottom annotation with the pooled counts behind the figure
     annotation('textbox', [0.1, 0.01, 0.8, 0.04], ...
-        'String', sprintf('TS=%d - TR=%d - ratio=%.2f', ...
-            summary.totalSomatic, summary.totalUnion, summary.somaticPerResponsive), ...
+        'String', sprintf('Recorded=%d - Testable=%d - Responsive=%d - ratio=%.2f', ...
+            summary.totalSomatic, summary.totalTestable, summary.totalUnion, summary.somaticPerResponsive), ...
         'EdgeColor', 'none', 'FontSize', 5, 'FontWeight', 'bold', ...
         'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
         'FitBoxToText', false);
