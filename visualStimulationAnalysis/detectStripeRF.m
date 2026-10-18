@@ -16,6 +16,12 @@ function result = detectStripeRF(rfImage, options)
 %
 %   Stripeness metric:  S = max(var) / min(var)   (anisotropy)
 %
+%   rfImage may be a stack [Y, X, nMaps] (e.g. one map per MB direction):
+%   S is then the maximum over maps, the null takes the same maximum over
+%   independently permuted maps, and filters (ii)-(iv) use the best map.
+%   Pixel permutation assumes independent pixels: pass maps at the stimulus
+%   grid resolution (e.g. 9x9), not upsampled or smoothed maps.
+%
 %   Angle convention (stripeAngle ∈ [0, 180)):
 %       0°   = horizontal
 %       45°  = bottom-left → top-right  (BL→TR)
@@ -59,7 +65,7 @@ function result = detectStripeRF(rfImage, options)
 %                            a smoothed image is close to a no-op filter.
 
 arguments
-    rfImage       (:,:) double
+    rfImage       (:,:,:) double    % one map, or a stack of maps (3rd dim = directions)
     options.angleStep          (1,1) double  = 5
     options.nSurrogates        (1,1) double  = 1000
     options.alpha              (1,1) double  = 0.05
@@ -97,13 +103,25 @@ end
 angles = 0 : options.angleStep : (180 - options.angleStep);
 
 % -------------------------------------------------------------------------
-% 2.  Stripeness on the real RF
+% 2.  Stripeness on the real RF. A 3-D input is a stack of maps (one per
+%     motion direction): the observed score is the maximum over maps, and
+%     the filters below are applied to the map that gives it.
 % -------------------------------------------------------------------------
+nMaps     = size(rfImage, 3);                                    % 1 for a single 2-D map
+dirScores = zeros(nMaps, 1);                                     % stripe score per map
+for d = 1:nMaps
+    dirScores(d) = computeStripeness(rfImage(:, :, d), angles);  % anisotropy of map d
+end
+[~, bestDir] = max(dirScores);                                   % map with the strongest stripe
+stack   = rfImage;                                               % keep every map for the null
+rfImage = rfImage(:, :, bestDir);                                % best map: filters and outputs
 [stripeScore, bestProjAngle, varProfile, bestProj] = ...
     computeStripeness(rfImage, angles);
 
 % -------------------------------------------------------------------------
-% 3.  Pixel-permutation null
+% 3.  Pixel-permutation null. With several maps each surrogate permutes every
+%     map independently and keeps the maximum score, matching the observed
+%     maximum (max-statistic: no advantage from testing several maps).
 % -------------------------------------------------------------------------
 nPix       = numel(rfImage);
 imgSize    = size(rfImage);
@@ -111,9 +129,13 @@ nSurr      = options.nSurrogates;
 nullScores = zeros(nSurr, 1);
 
 for si = 1:nSurr
-    surrogate      = rfImage(randperm(nPix));
-    surrogate      = reshape(surrogate, imgSize);
-    nullScores(si) = computeStripeness(surrogate, angles);
+    best = -Inf;                                                 % running maximum over maps
+    for d = 1:nMaps
+        img       = stack(:, :, d);                              % this map
+        surrogate = reshape(img(randperm(nPix)), imgSize);       % pixel permutation of this map
+        best      = max(best, computeStripeness(surrogate, angles));   % keep the largest score
+    end
+    nullScores(si) = best;                                       % surrogate max-statistic
 end
 
 % -------------------------------------------------------------------------
@@ -200,6 +222,8 @@ result.peakSign        = peakSign;
 result.varProfile      = varProfile;
 result.angles          = angles;
 result.nullScores      = nullScores;
+result.bestDir         = bestDir;      % map (direction) giving the maximum score; 1 for a 2-D input
+result.dirScores       = dirScores;    % stripe score of every map
 
 end
 

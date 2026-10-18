@@ -21,51 +21,8 @@ data = readtable(excelFile);
 % paperFigures/Fig1_MBvsRG.m and paperFigures/DatasetSummary_ResponsiveUnion.m;
 % every figure takes its statistics design from paperFigures/figureDesign.m.
 
-%% FIGURE 2: SPATIAL TUNING ANS STRIPE ANALYSIS
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-%%%%%%%%
-
-%%  Calculate spatial tuning
-for tp = 5
-results = SpatialTuningIndex([40:43,49:54,64:66, 68:85 87:97], indexType =  "L_amplitude_diff" ,overwrite=true...
-    , topPercent = tp,useRF=true,onOff=1,unionResponsive = false,allResponsive=true, PaperFig=true, plotRFs=false, plotRFunion=false, detectStripe = true, testStripeDetection= true);
-
-end
-
-%%
-results = analyzeStripeNeurons([40:43,49:54,64:66, 68:85 87:97], ...
-    indexType   = "L_amplitude_diff", ...
-    onOff       = 1, ...
-    sizeIdx     = 1, ...
-    lumIdx      = 1, ...
-    useRF       = true, ...
-    prefDir     = true, ...
-    unionResponsive = false,...
-    allResponsive=true, PaperFig=true);   % match what you used in SpatialTuningIndex
-
-%% Plot examples neurons MB and SB
-%%% Rect Grid
-
-for ex = [81] %84:91
-    NP = loadNPclassFromTable(ex); %73 81
-    vsRe = rectGridAnalysis(NP);
-    vsRe.plotRaster(MergeNtrials=1,overwrite=true,AllResponsiveNeurons=false,exNeuronsPhyID = [288], exNeurons= [], selectedLum=255,oneTrial = true,PaperFig = true) 
-    [colorbarLimsRG] = vsRe.PlotReceptiveFields(exNeurons=14,allStimParamsCombined=false,PaperFig=true,overwrite=true);
-end
-
-%%% Moving ball
-
-for ex =[70]%
-    NP = loadNPclassFromTable(ex); %73 81
-    vs = linearlyMovingBallAnalysis(NP);
-    vs.plotRaster('exNeuronsPhyID',[180],'overwrite',true,'MergeNtrials',2,'PaperFig',true,OneLuminosity= 'white',OneDirection='down',bin=20)
-    colorbarLims=vs.PlotReceptiveFields('exNeurons',19,'overwrite',true,'OneDirection','down','OneLuminosity','white','PaperFig',true);
-end
+%% FIGURE 2 (spatial tuning index, stripe RFs, example RFs) now lives in
+% paperFigures/Fig2_SpatialTuning.m (split-half index, 9x9 stripe test, Figure-1 unit selection).
 
 %% FIGURE 3 MOVING VS STATIC COMPARISON
 %%%%%%%%

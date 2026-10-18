@@ -25,6 +25,7 @@ arguments
     params.winMs double = 300                   % fixed response window length (ms)
     params.nSegments double = 9                 % equal segments per stimulus for segmented layouts (MBR)
     params.baseMs double = 300                  % baseline length (ms)
+    params.sdgWinMs double = [1000 1923]        % [static drifting] grating windows (ms), as figureDesign sdgWindows; [] = winMs
     params.chunk double = 40                    % neurons simulated at once (memory)
     params.seed double = 1                      % RNG seed
 end
@@ -53,6 +54,10 @@ for k = 1:size(spec, 1)
         nCats = round(nKeep / tc);                                   % conditions after the subset
     end
     nWin = 1; winLen = params.winMs; baseLen = params.baseMs;        % fixed window vs full baseline
+    if startsWith(spec{k,1}, 'SDG') && ~isempty(params.sdgWinMs)    % gratings: per-phase window (StatisticsPerNeuron SDGWindows)
+        winLen  = min(params.sdgWinMs(1 + strcmp(spec{k,4}, 'Moving')), floor(stimDur));   % capped at the phase duration
+        baseLen = min(winLen, rw.stimInter - 100);                   % same-length blank baseline, capped by the ITI
+    end
     if spec{k,5}, nWin = params.nSegments; winLen = round(stimDur / nWin); baseLen = winLen; end  % equal segments, matched-length baseline (StatisticsPerNeuron)
     layouts(k) = struct('name', spec{k,1}, 'nCats', nCats, 'tc', tc, 'nWin', nWin, 'winLen', winLen, 'baseLen', baseLen);  % this family's layout
     fprintf('%-20s exp %d: %d conditions x %d trials, %d window(s) of %d ms\n', spec{k,1}, spec{k,2}, nCats, tc, nWin, winLen);

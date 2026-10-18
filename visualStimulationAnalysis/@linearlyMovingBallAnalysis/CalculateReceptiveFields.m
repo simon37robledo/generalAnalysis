@@ -18,6 +18,7 @@ arguments (Input)
     params.reduceFactor = 20 %reduce factor for screen resolution
     params.statType string = "maxPermutationTest"
     params.nGrid = 9
+    params.trialHalf string {mustBeMember(params.trialHalf, ["all","odd","even"])} = "all"  % repetitions used: all, or odd/even within each condition (split-half analyses)
 end
 
 if params.inputParams,disp(params),return,end
@@ -27,10 +28,13 @@ filename = obj.getAnalysisFileName;
 filename = fullfile(filepath, name);
 
 
-if isfile(sprintf('%s-Speed-%d.mat',filename,params.speed)) && ~params.overwrite
+halfTag = "";                                               % cache-name suffix: none for all repetitions
+if params.trialHalf ~= "all", halfTag = "-" + params.trialHalf; end   % "-odd" / "-even" for a split half
+cacheFile = char(sprintf("%s-Speed-%d%s.mat", filename, params.speed, halfTag));   % one cache per speed and half
+if isfile(cacheFile) && ~params.overwrite
     if nargout==1
         fprintf('Loading saved results from file.\n');
-        results=load(sprintf('%s-Speed-%d.mat',filename,params.speed));
+        results=load(cacheFile);                                 % cached result for this speed and half
     else
         fprintf('Analysis already exists (use overwrite option to recalculate).\n');
     end
@@ -315,6 +319,17 @@ else %%%%%%%%%%% Eye moves: %%%%%%%%%%%%%%%%%%%%%%
 
 
 end %%%%%%%%%%%%%%%%%%%%%%%%%%%%% end eyeMovement initialization
+
+% Split-half selection: repetitions alternate within each condition block of
+% trialDivision rows (C is sorted by condition, repetitions keep their time order).
+posInGroup = mod((0:nT-1)', trialDivision) + 1;                    % repetition index within its condition (1..trialDivision)
+switch params.trialHalf
+    case "all",  inHalf = true(nT, 1);                            % every repetition
+    case "odd",  inHalf = mod(posInGroup, 2) == 1;                % 1st, 3rd, ... repetition
+    case "even", inHalf = mod(posInGroup, 2) == 0;                % 2nd, 4th, ... repetition
+end
+assert(mod(nT, trialDivision) == 0, 'Trials (%d) are not a multiple of the repetitions per condition (%d).', nT, trialDivision);  % balanced design
+assert(params.trialHalf == "all" || trialDivision >= 2, 'A split half needs >= 2 repetitions per condition (have %d).', trialDivision);  % both halves non-empty
 %
 
 offsetN = length(unique(C(:,3)));
@@ -444,8 +459,10 @@ for t = 1:numel(IndexDiv)
                 videoTrialsi = squeeze(videoTrials(p,:,:,:));
             end
             % OPTIMIZATION 3: Vectorized spike mean calculation
-            spikeMean = mean(spikeSum(i:i+trialDivision-1,:,:), 'omitnan');
-            spikeMeanShuff = mean(shuffledData(i:i+trialDivision-1,:,:,:), 'omitnan');
+            grpRows = i:i+trialDivision-1;                                  % repetitions of this condition
+            grpRows = grpRows(inHalf(grpRows));                             % keep only the requested half
+            spikeMean = mean(spikeSum(grpRows,:,:), 'omitnan');             % mean over the kept repetitions
+            spikeMeanShuff = mean(shuffledData(grpRows,:,:,:), 'omitnan');  % shuffle mean over the same rows
 
             % OPTIMIZATION 4: Process all neurons at once using matrix operations
             needsRotation = (C(i,2) == Udir(1)) || (C(i,2) == Udir(3));
@@ -509,6 +526,7 @@ for t = 1:numel(IndexDiv)
         trialCount = zeros(nGrid, nGrid, length(Usize), length(Ulum));
 
         for i = 1:nT
+            if ~inHalf(i), continue; end                                    % trial outside the requested half
             xPos = mean(ChangePosX(i,:));
             yPos = mean(ChangePosY(i,:));
 
@@ -620,7 +638,7 @@ for t = 1:numel(IndexDiv)
             S.RFuShuffST = RFuShuffST;
             S.gridSpikeRate = gridSpikeRate;
             S.gridSpikeRateShuff = gridSpikeRateShuff;
-            save(sprintf('%s-Speed-%d.mat',filename,params.speed),'-struct','S');
+            save(cacheFile,'-struct','S');                       % cache for this speed and half
             results =  S;
         end
     end

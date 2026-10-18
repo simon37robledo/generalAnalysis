@@ -86,6 +86,9 @@ arguments (Input)
     params.returnDefaults = false   % internal: return the resolved default params (bare-call detection)
     params.OffWindow      = false   % add an OFF window [offset, offset+BaseRespWindow) as a second segment;
                                     % the max-statistic then runs over categories x {ON, OFF}
+    params.SDGWindows     = []      % [static moving] response windows (ms) for StaticDriftingGrating;
+                                    % [] = BaseRespWindow for both phases. Each window is capped at its
+                                    % phase duration; the blank baseline is min(window, ITI-100).
 
 end
 
@@ -366,7 +369,19 @@ for s = 1:x
         effectiveStimDur = stimDur;  % full duration — no capping needed
     else
         effectiveStimDur = params.BaseRespWindow;
-       
+        if isequal(obj.stimName, 'StaticDriftingGrating') && ~isempty(params.SDGWindows)
+            assert(numel(params.SDGWindows) == 2, 'SDGWindows must be [static moving] in ms.');   % one window per phase
+            W = params.SDGWindows(1 + strcmpi(fieldName, 'Moving'));       % this phase's window (ms)
+            effectiveStimDur = min(W, floor(stimDur));                     % never past the end of this phase
+            if effectiveStimDur < 0.99 * W
+                warning('%s %s: response window capped at the phase duration (%d of %d ms).', ...
+                    obj.dataObj.recordingName, fieldName, effectiveStimDur, W);   % explicit, not silent
+            end
+            if strcmpi(fieldName, 'Moving') && effectiveStimDur < floor(1000 / min(obj.VST.tfSequence))
+                warning('%s: drifting window %d ms is shorter than one period of the slowest grating (%.0f ms).', ...
+                    obj.dataObj.recordingName, effectiveStimDur, 1000 / min(obj.VST.tfSequence));   % design check
+            end
+        end
     end
 
     % --- Unit presence during this stimulus block ---
@@ -393,8 +408,10 @@ for s = 1:x
         if strcmpi(fieldName, 'Moving')
             staticOnsets = directimesSorted - obj.VST.static_time * 1000;  % moving phase: back to trial onset (s -> ms)
         end
-        bl = min([params.BaseRespWindow responseParams.stimInter-100]);   % baseline length (ms), capped by the ITI
-        if bl < params.BaseRespWindow
+        baseLen = params.BaseRespWindow;                                   % default baseline length (ms)
+        if ~isempty(params.SDGWindows), baseLen = effectiveStimDur; end    % per-phase window: baseline of the same length
+        bl = min([baseLen responseParams.stimInter-100]);                  % baseline length (ms), capped by the ITI
+        if bl < baseLen
             warning('%s %s: baseline shortened to %d ms (inter-trial interval %d ms).', ...
                 obj.dataObj.recordingName, fieldName, bl, responseParams.stimInter);  % explicit, not silent
         end

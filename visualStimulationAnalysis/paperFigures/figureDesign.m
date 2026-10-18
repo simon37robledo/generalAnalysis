@@ -16,8 +16,12 @@ function d = figureDesign()
 %     - MB: spatial-grid test (9 x 9 cells, window from each ball crossing).
 %     - RG: ON window plus OFF window from each recording's offset.
 %     - MBR: 9 equal segments across the sweep, matched-length baseline.
-%     - Others (SDGs, SDGm, FFF, NI): single fixed window from onset;
-%       SDGm against the blank pre-trial baseline.
+%     - Others (FFF, NI): single 300 ms window from onset.
+%     - Gratings: SDGs 1000 ms from static onset, SDGm 1923 ms from motion
+%       onset (one period of the slowest temporal frequency: 300 ms missed
+%       the slow, sustained drifting responses), both vs a blank pre-trial
+%       baseline of the same length capped by the ITI (900 ms; 400 ms in
+%       recordings 40-43). The per-category round must use the same windows.
 %     - Responsiveness = best condition (maxCategory), permutation p < 0.05,
 %       no FDR; units present throughout every compared block only.
 %     - Luminosity locked to 255 for MB and RG (the only stimuli with levels).
@@ -45,7 +49,10 @@ d.statsArgs = { ...
     'useTtest',           false, ...                              % permutation p-values (primary criterion)
     'offWindowStims',     {'RG'}, ...                             % ON + OFF windows
     'segmentStims',       {'MBR'}, ...                            % segmented test
-    'nSegments',          9};                                     % 9 segments (as the 9 x 9 grid)
+    'nSegments',          9, ...                                  % 9 segments (as the 9 x 9 grid)
+    'sdgWindows',         [1000 1923]};                           % gratings [static drifting] (ms): drifting = one period
+                                                                  % of the slowest TF (1/0.52 Hz); static = the longest
+                                                                  % window inside every static phase (1000-1500 ms)
 
 d.lock       = @lockFor;                                          % per-stimulus Lock cell
 d.structPath = @(exps, stims) fullfile(d.paperFigs, ...

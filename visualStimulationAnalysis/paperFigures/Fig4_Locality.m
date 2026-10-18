@@ -1,23 +1,24 @@
 %% FIGURE 4 — Local vs global stimuli
 % Statistics design: figureDesign.m.
-% Static: 3-way SB (RG) vs static grating (SDGs) vs full-field flash (FFF); every
-%   FFF recording also has RG and SDG, so all three contrasts are paired within
-%   the same neurons (19 recordings / 4 animals).
+% Static: SB (RG) vs static grating (SDGs), paired within neurons in every
+%   recording holding both (24 recordings). FFF was dropped from this contrast:
+%   it exists in only 19 recordings and 3 units respond to it (chance level), so
+%   the 3-way design reduced the analysable set to 4 units.
 % Moving: MB vs moving bar (MBR) and MB vs drifting grating (SDGm) as the
 %   inferential tests (MBR and SDGm co-occur only in PV97). MBR vs SDGm is a
 %   descriptive within-PV97 panel only (one animal: no animal-level claim).
 
 d = figureDesign();                                               % shared design
 
-%% Static locality: RG vs SDGs vs FFF (statistics)
-stimsS = {'RG', 'SDGs', 'FFF'};
+%% Static locality: RG vs SDGs (statistics)
+stimsS = {'RG', 'SDGs'};                                          % pairwise: more units than the 3-way with FFF
 args = [d.statsArgs, {'ComparePairs', stimsS, 'Lock', d.lock(stimsS)}];
 AllExpAnalysis(d.exps, args{:});
-leaveOneAnimalOut(d.structPath(d.exps, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs-FFF');
+leaveOneAnimalOut(d.structPath(d.exps, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs');
 
 %% Static locality: PSTH and raster (RG ON period; interactive session for the raster)
-plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"RG","SDGs","FFF"}, unionResponsive=true, requireAllStims=true);
-plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["RG","SDGs","FFF"], unionUnits=true);
+plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
+plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);
 
 %% Moving locality: MB vs MBR (statistics)
 stimsB = {'MB', 'MBR'};

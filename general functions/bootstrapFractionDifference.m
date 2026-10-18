@@ -44,6 +44,12 @@ for ins = unique(tbl.insertion)'
     end
 
     total = tbl.totalSomaticN(idx1);            % somatic units recorded (shared denominator)
+    if total == 0                               % no analysable unit (none present in both blocks)
+        warning('bootstrapFractionDifference:noUnits', ...
+            'Insertion %s has no analysable units for %s vs %s - excluded (fraction undefined).', ...
+            string(ins), pair{1}, pair{2});     % explicit: a NaN here would bias both tails of the p-value
+        continue
+    end
     f1    = tbl.respNeur(idx1) / total;         % responsive fraction, stimulus 1
     f2    = tbl.respNeur(idx2) / total;         % responsive fraction, stimulus 2
 
@@ -60,6 +66,10 @@ if numel(diffs) < 2
     pVal = NaN;
     return
 end
+
+% A NaN resample mean counts as neither <= 0 nor >= 0, which shrinks both tails
+% and deflates the p-value: every difference must be finite.
+assert(all(isfinite(diffs)), 'bootstrapFractionDifference: non-finite fraction differences.');
 
 % Level-2 key must be unique ACROSS animals. hierBootMatchFreq selects its
 % level-2 pool with data(lvl2==id) -- keyed on lvl2 alone, not on the

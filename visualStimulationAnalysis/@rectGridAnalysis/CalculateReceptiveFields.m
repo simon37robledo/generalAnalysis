@@ -21,16 +21,20 @@ arguments (Input)
     params.TakeAllStimDur = true        % Use whole stim window for RF calculation
     params.statType string = "maxPermutationTest"
     params.nGrid = 9
+    params.trialHalf string {mustBeMember(params.trialHalf, ["all","odd","even"])} = "all"  % repetitions used: all, or odd/even within each position (split-half analyses)
 end
 
 if params.inputParams, disp(params), return, end
 
 filename = obj.getAnalysisFileName;
+if params.trialHalf ~= "all"                                       % split half: own cache file
+    filename = char(strrep(filename, ".mat", "-" + params.trialHalf + ".mat"));  % ...-odd.mat / ...-even.mat
+end
 
 % -------------------------------------------------------------------------
 % Load from file if it exists and overwrite is false
 % -------------------------------------------------------------------------
-if isfile(obj.getAnalysisFileName) && ~params.overwrite
+if isfile(filename) && ~params.overwrite                          % cache of this half (or of all repetitions)
     if nargout == 1
         fprintf('Loading saved results from file.\n');
         results = load(filename);
@@ -111,6 +115,18 @@ durationMin = min([params.duration params.durationOff]);
 
 [nT, nN, NB] = size(Mr);  % nT=trials, nN=neurons, NB=time bins
 
+% Split-half selection: repetitions alternate within each position block of
+% trialDiv rows (C is sorted by condition, repetitions keep their time order).
+assert(mod(nT, trialDiv) == 0, 'Trials (%d) are not a multiple of the repetitions per position (%d).', nT, trialDiv);  % balanced design
+assert(params.trialHalf == "all" || trialDiv >= 2, 'A split half needs >= 2 repetitions per position (have %d).', trialDiv);  % both halves non-empty
+posInGroup = mod((0:nT-1)', trialDiv) + 1;                    % repetition index within its position
+switch params.trialHalf
+    case "all",  inHalf = true(nT, 1);                          % every repetition
+    case "odd",  inHalf = mod(posInGroup, 2) == 1;              % 1st, 3rd, ... repetition
+    case "even", inHalf = mod(posInGroup, 2) == 0;              % 2nd, 4th, ... repetition
+end
+halfRows = @(i) i - 1 + find(inHalf(i:i+trialDiv-1))';          % kept rows of the position block starting at row i
+
 % -------------------------------------------------------------------------
 % Build shuffle distributions for both on and off responses
 % Each shuffle randomly permutes trial order (dim 1) and time bin order
@@ -163,7 +179,7 @@ else
             j = 1;
             for i = 1:trialDiv:nT
                 % Mean over trialDiv reps, convert to spikes/s
-                meanR = mean(squeeze(MRtotal(o, i:i+trialDiv-1, u, :))) .* (1000 / params.bin);
+                meanR = squeeze(mean(MRtotal(o, halfRows(i), u, :), 2)) .* (1000 / params.bin);  % mean over kept reps (dim 2), spikes/s
                 MrC(o, uLums == C(i,4), uSize == C(i,3), j, u, :) = meanR;
                 j = j + 1;
             end
@@ -252,15 +268,15 @@ for i = 1:trialDiv:nT
     trialCount(yBin, xBin, sizeIdx, lumIdx) = trialCount(yBin, xBin, sizeIdx, lumIdx) + 1;
 
     % Mean on/off rate over trialDiv reps, convert to spikes/s: [1,1,nN]
-    onRate  = reshape(mean(mean(Mr( i:i+trialDiv-1,:,:), 1), 3) .* (1000/params.bin), [1 1 nN]);
-    offRate = reshape(mean(mean(Mro(i:i+trialDiv-1,:,:), 1), 3) .* (1000/params.bin), [1 1 nN]);
+    onRate  = reshape(mean(mean(Mr( halfRows(i),:,:), 1), 3) .* (1000/params.bin), [1 1 nN]);
+    offRate = reshape(mean(mean(Mro(halfRows(i),:,:), 1), 3) .* (1000/params.bin), [1 1 nN]);
 
     gridSpikeRate(yBin, xBin, :, 1, sizeIdx, lumIdx) = gridSpikeRate(yBin, xBin, :, 1, sizeIdx, lumIdx) + onRate;
     gridSpikeRate(yBin, xBin, :, 2, sizeIdx, lumIdx) = gridSpikeRate(yBin, xBin, :, 2, sizeIdx, lumIdx) + offRate;
 
     % Accumulate shuffle spike rates (on response only, for grid)
     for s = 1:nShuffle
-        shuffRate = reshape(mean(mean(shuffledDataOn(i:i+trialDiv-1,:,:,s), 1), 3), [1 1 nN]);
+        shuffRate = reshape(mean(mean(shuffledDataOn(halfRows(i),:,:,s), 1), 3), [1 1 nN]);
         gridSpikeRateShuff(yBin, xBin, :, s, 1, sizeIdx, lumIdx) = ...
             gridSpikeRateShuff(yBin, xBin, :, s, 1, sizeIdx, lumIdx) + shuffRate;
     end
@@ -328,8 +344,8 @@ for sh = 1:nShuffle
         si = find(uSize == C(i,3));
 
         % Average over trialDiv reps for this position
-        MrMeanShuff_sh(1, li, si, j, :) = mean(shuffMeanRateOn( i:i+trialDiv-1, :, sh), 1);  % on
-        MrMeanShuff_sh(2, li, si, j, :) = mean(shuffMeanRateOff(i:i+trialDiv-1, :, sh), 1);  % off
+        MrMeanShuff_sh(1, li, si, j, :) = mean(shuffMeanRateOn( halfRows(i), :, sh), 1);  % on
+        MrMeanShuff_sh(2, li, si, j, :) = mean(shuffMeanRateOff(halfRows(i), :, sh), 1);  % off
         j = j + 1;
     end
 

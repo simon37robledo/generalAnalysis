@@ -105,6 +105,7 @@ arguments
     params.segmentStims     cell            = {}    % stimuli tested in fixed-length segments across the stimulus
                                                     %   (max over categories x segments); listed stimuli absent
                                                     %   from ComparePairs are ignored, so one list serves all calls
+    params.sdgWindows       double          = []    % [static moving] SDG response windows (ms); [] = BaseRespWindow
     params.nSegments        double          = 9     % equal segments per stimulus for segmentStims
                                                     %   (9 = the columns/rows of the 9x9 grid used for MB/RG)
     % --- Bootstrap parameters ---
@@ -835,6 +836,7 @@ if runLoop
         'offWindowStims',   {params.offWindowStims}, ...   % stimuli with ON + OFF windows
         'segmentStims',     {params.segmentStims}, ...     % stimuli tested in segments
         'nSegments',        params.nSegments, ...          % equal segments per stimulus (segmentStims)
+        'sdgWindows',       params.sdgWindows, ...         % SDG [static moving] windows (ms)
         'CategoryLevels',   {params.CategoryLevels}, ...  % focus: separate factors per stimulus
         'Lock',             {params.Lock});            % focus: locked factor values per stimulus
 
@@ -1809,6 +1811,7 @@ function stats = runStimStats(vsObj, params, catLevels, lockSpec, objKey)   % + 
         'OffWindow',       useOff, ...                       % ON + OFF windows (offWindowStims)
         'useSegments',     useSeg, ...                       % equal segments (segmentStims)
         'nSegments',       params.nSegments, ...             % passed for every object so cached params stay identical
+        'SDGWindows',      params.sdgWindows, ...            % SDG per-phase windows (ignored by other objects; passed to all)
         'CategoryLevels',  catLevels, ...                    % focus: factors kept separate
         'Lock',            lockSpec);                        % focus: locked factor values
 end

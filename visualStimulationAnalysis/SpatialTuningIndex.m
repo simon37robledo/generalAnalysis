@@ -6,7 +6,10 @@ arguments
     params.topPercent double        = 10
     params.overwrite  logical       = false
     params.statType   string        = "maxPermuteTest"
-    params.speed      double        = 1
+    params.speed      double        = 1     % unused for selection: MB speed is chosen per neuron as in Figure 1 (lowest p)
+    params.splitHalf  logical       = true  % tuning index by split half: MB preferred direction chosen on one half of the
+                                            % repetitions, index measured on the other half (and vice versa, averaged);
+                                            % RG index averaged over the same two halves so both stimuli carry equal noise
     params.plot       logical       = true
     params.indexType  string        = "L_amplitude_diff"  % L_amplitude_diff, L_amplitude_ratio, L_geometric, L_combined
     params.onOff      double        = 1             % 1=on, 2=off (rectGrid only; ignored for linearlyMovingBall)
@@ -82,6 +85,10 @@ end
 if params.prefDir && ~params.useRF
     error('prefDir=true requires useRF=true. The preferred direction RF is only available in the RF path.');
 end
+% the split-half index needs receptive fields computed on each half
+if params.splitHalf && ~params.useRF
+    error('splitHalf=true requires useRF=true (split-half receptive fields).');
+end
 
 % allResponsive is incompatible with diff plotting — neurons are unpaired
 if params.allResponsive
@@ -131,8 +138,9 @@ rfLabel      = '';   if params.useRF,        rfLabel      = '_RF';          end
 prefLabel    = '';   if params.prefDir,       prefLabel    = '_prefDir';     end
 allRespLabel = '';   if params.allResponsive, allRespLabel = '_allResp';     end
 unionLabel   = '';   if params.unionResponsive, unionLabel = '_union'; end
-nameOfFile   = sprintf('\\Ex_%d-%d_SpatialTuningIndex_%s%s%s%s%s.mat', ...
-    exList(1), exList(end), stimLabel, rfLabel, prefLabel, allRespLabel, unionLabel);
+splitLabel   = '';   if params.splitHalf,       splitLabel = '_splitHalf'; end   % split-half index
+nameOfFile   = sprintf('\\Ex_%d-%d_SpatialTuningIndex_%s%s%s%s%s%s_presence.mat', ...
+    exList(1), exList(end), stimLabel, rfLabel, prefLabel, allRespLabel, unionLabel, splitLabel);  % '_presence': units present in the block (statsVersion 9 selection)
 
 % -------------------------------------------------------------------------
 % Decide whether to compute or load from cache
@@ -208,6 +216,8 @@ if ~goto_plot
         % Stores responsive unit indices and phy IDs per stim type
         respPhyIDs_all = cell(1, nStim);
         respU_all      = cell(1, nStim);
+        presPhyIDs_all = cell(1, nStim);   % phy IDs of units present throughout each stimulus block
+        bestSpeed_all  = cell(1, nStim);   % MB: per good unit, the speed with the lowest p (Figure 1 rule)
 
         % ----------------------------------------------------------
         % Find responsive neurons for each stim type
@@ -231,30 +241,57 @@ if ~goto_plot
                     Stats = obj_s.ShufflingAnalysis;
                 end
 
-                % Extract p-values (linearlyMovingBall has per-speed fields)
-                try
-                    switch stimType
-                        case "linearlyMovingBall"
-                            fieldName = sprintf('Speed%d', params.speed);
-                            pvals = Stats.(fieldName).pvalsResponse;
-                        otherwise
-                            pvals = Stats.pvalsResponse;
-                    end
-                catch
-                    pvals = Stats.pvalsResponse;
+                % Same unit selection as Figure 1 (AllExpAnalysis/extractStimData):
+                % MB takes, per neuron, the speed with the lowest p; a unit counts
+                % only if present throughout the stimulus block (all MB speeds).
+                switch stimType
+                    case "linearlyMovingBall"
+                        assert(isfield(Stats, 'params') && Stats.params.SpatialGridMode, ...
+                            'Exp %d: MB statistics are not the spatial-grid design; rerun Figure 1 first.', ex);  % Figure 1 cache
+                        spF   = fieldnames(Stats); spF = spF(startsWith(string(spF), "Speed"));  % Speed1, Speed2, ...
+                        allP  = cell2mat(cellfun(@(f) Stats.(f).pvalsResponse(:), spF', 'UniformOutput', false));  % [nUnits x nSpeeds]
+                        [pvals, bestSpeed] = min(allP, [], 2);                % lowest p and its speed, per unit
+                        present = statPresence(Stats, "MB", "");              % present during every speed's block
+                    otherwise
+                        pvals     = Stats.pvalsResponse(:);                   % flat struct (RG)
+                        bestSpeed = ones(numel(pvals), 1);                    % no speeds
+                        present   = statPresence(Stats, "RG", "");            % present during the RG block
                 end
+                assert(numel(pvals) == numel(phy_IDg) && numel(present) == numel(phy_IDg), ...
+                    'Exp %d %s: statistics cover %d units, spike sorting has %d good units.', ...
+                    ex, stimType, numel(pvals), numel(phy_IDg));             % unit universes must match
 
-                % Indices of significantly responsive neurons (into phy_IDg)
-                respU             = find(pvals < 0.05);
+                % Indices of responsive AND present neurons (into phy_IDg)
+                respU             = find(pvals < 0.05 & present);
                 respU_all{s}      = respU;
                 respPhyIDs_all{s} = phy_IDg(respU);
-                fprintf('  [%s] %d responsive neuron(s).\n', stimType, numel(respU));
+                presPhyIDs_all{s} = phy_IDg(present);                         % present units (union mode)
+                bestSpeed_all{s}  = bestSpeed;                                % per good unit
+                fprintf('  [%s] %d responsive neuron(s) (%d present of %d).\n', stimType, numel(respU), sum(present), numel(present));
 
             catch ME
+                if strcmp(ME.identifier, 'StatisticsPerNeuron:staleCacheVersion')
+                    rethrow(ME);                                              % outdated statistics: never skip silently
+                end
                 warning('Could not get pvals for %s exp %d: %s', stimType, ex, ME.message);
                 respU_all{s}      = [];
                 respPhyIDs_all{s} = [];
             end
+        end
+
+        % Analysable units = present in EVERY compared stimulus block, as in
+        % Figure 1 (a recording lacking one stimulus therefore contributes none).
+        presentAll = presPhyIDs_all{1};                                   % present in the first block
+        for s = 2:nStim
+            presentAll = intersect(presentAll, presPhyIDs_all{s});        % ... and in every other block
+        end
+        if isempty(presentAll)
+            warning('SpatialTuningIndex:noAnalysableUnits', ...
+                'Exp %d: no unit present in every stimulus block (or a stimulus is missing) - skipped.', ex);  % explicit, not silent
+        end
+        for s = 1:nStim
+            respPhyIDs_all{s} = intersect(respPhyIDs_all{s}, presentAll); % responsive AND analysable
+            respU_all{s}      = find(ismember(phy_IDg, respPhyIDs_all{s}));   % matching good-unit indices
         end
 
         % ----------------------------------------------------------
@@ -350,8 +387,9 @@ if ~goto_plot
                 continue
             end
 
-            % Load pre-computed receptive field results from file
-            S_rf = obj.CalculateReceptiveFields;
+            % Receptive fields of ALL good units (all repetitions); for MB each
+            % unit's RF comes from its Figure-1 speed (lowest p).
+            S_rf = loadRF(obj, stimType, "all", bestSpeed_all{s}, numel(phy_IDg));
 
             % ----------------------------------------------------------
             % Build gridSpikeRateSelected and gridShuffMean
@@ -395,37 +433,19 @@ if ~goto_plot
                             % params.speed if only one speed was recorded —
                             % use S_rf.params.speed as ground truth.
                             % -------------------------------------------------
-                            rfSpeed    = S_rf.params.speed;
-                            rfField    = sprintf('Speed%d', rfSpeed);
+                            % Direction labels (radians) in the sorted order of the
+                            % RF direction dimension; identical for every speed.
                             NeuronResp = obj.ResponseWindow;
-                            NeuronVals = NeuronResp.(rfField).NeuronVals;
-                            % NeuronVals: [nGoodUnits, nConditions, nFeatures]
+                            uDirs = unique(NeuronResp.Speed1.NeuronVals(1,:,6));  % [1, nDir]
+                            assert(numel(uDirs) == size(S_rf.RFuSTDirSizeLum, 1), ...
+                                'Exp %d: %d direction labels but %d RF directions.', ex, numel(uDirs), size(S_rf.RFuSTDirSizeLum, 1));  % same direction axis
 
-                            dirLabels  = NeuronVals(:,:,6);  % direction in radians per condition
-                            spikeRates = NeuronVals(:,:,1);  % spike rate per condition
-
-                            % Unique directions — same across all neurons, read from row 1
-                            uDirs = unique(dirLabels(1,:));  % [1, nDir]
-
-                            % Max spike rate per direction per good unit.
-                            % Max (not mean) across conditions sharing a direction avoids
-                            % dilution from other conditions (size, lum) at that direction
-                            nGoodUnits    = size(NeuronVals, 1);
-                            maxRespPerDir = zeros(nGoodUnits, numel(uDirs));
-                            for d = 1:numel(uDirs)
-                                dirMask = dirLabels(1,:) == uDirs(d);
-                                maxRespPerDir(:,d) = max(spikeRates(:, dirMask), [], 2);
-                            end
-
-                            % Preferred direction index (1:nDir) for each good unit
-                            [~, prefDirIdxAllGood] = max(maxRespPerDir, [], 2);  % [nGoodUnits, 1]
-
-    
-
-                            % Map sharedPhyIDs (which are a subset of respU_all{s}'s phy IDs)
-                            % onto indices within the responsive set
+                            % Map sharedPhyIDs onto the good-unit dimension of the RFs
                             [~, neuronIdx] = ismember(sharedPhyIDs, phy_IDg);
-                            prefDirIdxShared = prefDirIdxAllGood(neuronIdx);  % [nShared, 1]
+                            % Full-data preferred direction (display and RF pages only):
+                            % the direction whose shuffle-subtracted grid map peaks highest,
+                            % the same rule the split-half index uses on independent halves.
+                            prefDirIdxShared = prefDirection(S_rf, neuronIdx, params.sizeIdx, params.lumIdx, nGrid);  % [nShared, 1]
                             nShared          = numel(neuronIdx);
 
                             fprintf('  [prefDir] Preferred directions for shared neurons: %s\n', ...
@@ -446,8 +466,8 @@ if ~goto_plot
                             end
                             % rfRaw: [nSize, nLum, rfY, rfX, nShared]
 
-                            % Shuffle: RFuShuffST is already responsive-only
-                            % just select shared neurons
+                            % Shuffle: RFuShuffST covers all good units (loadRF asserts it);
+                            % select the shared neurons
                             rfShuff = S_rf.RFuShuffST;          % [rfY, rfX, nRespUnits]
                             rfShuff = rfShuff(:,:, neuronIdx);  % [rfY, rfX, nShared]
 
@@ -558,6 +578,9 @@ if ~goto_plot
                 % Skipped for linearlyMovingBall+prefDir since neuronIdx
                 % was already applied per-neuron inside that branch.
                 if ~alreadyIndexed
+                    assert(size(gridSpikeRateSelected, 3) == numel(phy_IDg), ...
+                        'Exp %d %s: RF maps cover %d units, spike sorting has %d good units.', ...
+                        ex, stimType, size(gridSpikeRateSelected, 3), numel(phy_IDg));   % indexing below assumes all good units
                     [~, neuronIdx] = ismember(sharedPhyIDs, phy_IDg);
                     gridSpikeRateSelected = gridSpikeRateSelected(:,:,neuronIdx,:,:);
                     gridShuffMean         = gridShuffMean(:,:,neuronIdx,:,:);
@@ -619,8 +642,19 @@ if ~goto_plot
             gridSpikeRateSelected = reshape(gridSpikeRateSelected, [nGrid, nGrid, nN, nSize, nLum]);
             gridShuffMean         = reshape(gridShuffMean,         [nGrid, nGrid, nN, nSize, nLum]);
 
-            nCells  = nGrid * nGrid;
-            maxDist = sqrt(2) * (nGrid - 1);  % maximum possible distance between two grid cells
+            nCells  = nGrid * nGrid;          % maxDist now lives in tuningIndices
+
+            % Split-half maps for the tuning index (RF path only): half A is
+            % measured on even repetitions (MB direction chosen on odd), half B
+            % on odd repetitions (direction chosen on even). Same unit order as
+            % gridSpikeRateSelected.
+            if params.splitHalf
+                [~, uIdxHalf] = ismember(sharedPhyIDs, phy_IDg);          % units in the good-unit dimension
+                [mapsA, shufA, mapsB, shufB] = splitHalfMaps(obj, stimType, uIdxHalf, ...
+                    bestSpeed_all{s}, numel(phy_IDg), params, nGrid);     % [nGrid, nGrid, nN, nSize, nLum] each
+                assert(isequal(size(mapsA, 1:5), [nGrid, nGrid, nN, nSize, nLum]), ...
+                    'Exp %d %s: split-half maps do not match the full-data maps.', ex, stimType);  % same units and conditions
+            end
 
             %Capture preferred-direction info for the current stim×neuron set.
             % These vectors will be written into the table inside the si/li loop.
@@ -653,147 +687,73 @@ if ~goto_plot
 
                     case "linearlyMovingBall"
                         % -------------------------------------------------
-                        % MB: test each direction independently.
+                        % MB: all directions tested jointly on the 9x9 stimulus
+                        % grid. Observed score = max over directions; every
+                        % surrogate permutes each direction's map and takes the
+                        % same max, so MB is not favoured by having nDir tries
+                        % (max-statistic, as in the responsiveness tests).
                         % RFuSTDirSizeLum: [nDir, nSize, nLum, rfY, rfX, nN_rf]
                         % RFuShuffST:      [rfY, rfX, nN_rf]
                         % -------------------------------------------------
-
-                        % Number of directions available in the RF data
-                        nDirRF = size(S_rf.RFuSTDirSizeLum, 1);
+                        nDirRF = size(S_rf.RFuSTDirSizeLum, 1);                 % number of directions
 
                         for u = 1:nN
-
-                            % Index into the RF data's neuron dimension.
-                            % Use rfIdx if the indexing fix from the earlier
-                            % bug discussion has been applied; otherwise use
-                            % neuronIdx.  Adjust the variable name to match
-                            % your current code.
-                            uRF = neuronIdx(u);
-
-                            % Extract the shuffle-mean baseline for this neuron
-                            % RFuShuffST: [rfY, rfX, nN_rf] — already averaged over shuffles
-                            rfShuff = S_rf.RFuShuffST(:, :, uRF);
-
-                            % Per-direction results accumulator
-                            dirScores  = zeros(nDirRF, 1);  % stripe score per direction
-                            dirPvals   = ones(nDirRF, 1);   % p-value per direction
-                            dirAngles  = nan(nDirRF, 1);    % stripe angle per direction
-                            dirIsPass  = false(nDirRF, 1);  % pass/fail per direction
-
+                            uRF = neuronIdx(u);                                 % unit in the good-unit dimension
+                            stack = zeros(nGrid, nGrid, nDirRF);                % shuffle-subtracted grid map per direction
                             for d = 1:nDirRF
-
-                                % Extract the full-resolution RF for this direction,
-                                % at the requested size and luminance condition.
-                                % Squeeze removes the singleton dir/size/lum dims.
-                                rfSlice = squeeze( ...
-                                    S_rf.RFuSTDirSizeLum(d, params.sizeIdx, params.lumIdx, :, :, uRF));
-
-                                % Subtract the shuffle-mean to isolate signal above noise
-                                rfSub = rfSlice - rfShuff;
-
-                                % Run the stripe detector.
-                                % Each direction gets its own RNG seed offset so that
-                                % the surrogate sequences are independent but reproducible.
-                                res = detectStripeRF(rfSub, ...
-                                    'angleStep',      params.stripeAngleStep, ...
-                                    'nSurrogates',    params.stripeNSurr, ...
-                                    'alpha',          params.stripeAlpha, ...
-                                    'minStripeAngle', params.stripeMinAngle, ...
-                                    'maxStripeAngle', params.stripeMaxAngle, ...
-                                    'rngSeed',        42 + (u-1)*nDirRF + d);
-
-                                % Store per-direction results
-                                dirScores(d)  = res.stripeScore;
-                                dirPvals(d)   = res.stripePval;
-                                dirAngles(d)  = res.stripeAngle;    % NaN if not significant
-                                dirIsPass(d)  = res.isStripe;
-
-                                if  res.isStripe == 1 &&  (res.stripeAngle < 10 ||  res.stripeAngle > 60)
-
-                                    2+2
-
-                                end
-
-                            end  % direction loop
-
-                            % Aggregate across directions for this neuron
-                            stripeIsAny(u)     = any(dirIsPass);           % any direction passes?
-                            stripeNPassDirs(u) = sum(dirIsPass);           % how many pass?
-                            passingDirs        = find(dirIsPass);          % indices of passing dirs
-                            stripePassDirStr{u} = strjoin(string(passingDirs), ',');  % e.g. "1,3,5"
-
-                            % Best direction: among directions that PASSED all filters, pick the one
-                            % with the highest score.  This guarantees stripeBestAngle is the angle of
-                            % an accepted stripe — not a higher-scoring direction that the filters
-                            % rejected (e.g. horizontal/vertical/wrong-diagonal).
-                            % If no direction passed, fall back to the global best (for diagnostics).
-                            if stripeIsAny(u)
-                                scoresMasked = dirScores;
-                                scoresMasked(~dirIsPass) = -Inf;            % exclude non-passing dirs
-                                [stripeBestScore(u), bestDirIdx] = max(scoresMasked);
-                            else
-                                [stripeBestScore(u), bestDirIdx] = max(dirScores);
+                                rfSlice = squeeze(S_rf.RFuSTDirSizeLum(d, params.sizeIdx, params.lumIdx, :, :, uRF));  % [rfY, rfX]
+                                stack(:, :, d) = toGrid(rfSlice - S_rf.RFuShuffST(:, :, uRF), nGrid);  % signal above shuffle, 9x9
                             end
-                            stripeBestPval(u)  = dirPvals(bestDirIdx);
-                            stripeBestAngle(u) = dirAngles(bestDirIdx);
-                            stripeBestDir(u)   = bestDirIdx;
+                            res = detectStripeRF(stack, ...
+                                'angleStep',      params.stripeAngleStep, ...
+                                'nSurrogates',    params.stripeNSurr, ...
+                                'alpha',          params.stripeAlpha, ...
+                                'minStripeAngle', params.stripeMinAngle, ...
+                                'maxStripeAngle', params.stripeMaxAngle, ...
+                                'rngSeed',        42 + u);                      % reproducible surrogates per unit
 
-                            if mod(u, 10) == 0
-                                fprintf('    stripe detection: %d/%d neurons done.\n', u, nN);
+                            stripeIsAny(u)      = res.isStripe;                 % stripe at the best direction
+                            stripeNPassDirs(u)  = double(res.isStripe);         % one joint test per unit
+                            if res.isStripe
+                                stripePassDirStr{u} = num2str(res.bestDir);     % direction carrying the stripe
                             end
-
-                        end  % neuron loop
+                            stripeBestScore(u)  = res.stripeScore;              % max score over directions
+                            stripeBestPval(u)   = res.stripePval;               % p of the max (max-statistic null)
+                            stripeBestAngle(u)  = res.stripeAngle;              % orientation at the best direction
+                            stripeBestDir(u)    = res.bestDir;                  % best direction index
+                        end
 
                     case "rectGrid"
                         % -------------------------------------------------
-                        % RG: single RF per neuron, tested at NATIVE
-                        % (screenRed x screenRed) resolution — NOT the
-                        % downsampled 9x9 grid used for the spatial tuning
-                        % index below. The anisotropy ratio S=maxVar/minVar
-                        % in detectStripeRF is resolution-sensitive: testing
-                        % on a coarse 9x9 grid mechanically inflates S
-                        % relative to MB (which is tested on its native
-                        % RFuSTDirSizeLum resolution), making stripeBestScore
-                        % non-comparable across stim types. rfRaw/rfShuffRaw
-                        % are the pre-downsampling native maps computed above
-                        % for this stim type, [nLums, nSize, screenRed, screenRed, nN_rf].
+                        % RG: one map per unit on the same 9x9 stimulus grid
+                        % (one cell per stimulus position, so pixels are
+                        % independent and the pixel permutation is a valid
+                        % null). rfRaw/rfShuffRaw: [nLums, nSize, screenRed, screenRed, nN_rf]
                         % -------------------------------------------------
-
                         for u = 1:nN
+                            uRF = neuronIdx(u);                                 % unit in the good-unit dimension
+                            rfGrid      = squeeze(rfRaw(params.lumIdx, params.sizeIdx, :, :, uRF));       % [screenRed, screenRed]
+                            rfGridShuff = squeeze(rfShuffRaw(params.lumIdx, params.sizeIdx, :, :, uRF));  % shuffle map
+                            rfSub = toGrid(rfGrid - rfGridShuff, nGrid);        % signal above shuffle, 9x9
 
-                            % Map this shared/responsive-neuron loop index to
-                            % its position in the full good-unit list, i.e.
-                            % into rfRaw/rfShuffRaw's neuron dimension.
-                            uRF = neuronIdx(u);
-
-                            % Extract the native-resolution RF at the requested condition
-                            rfGrid = squeeze(rfRaw(params.lumIdx, params.sizeIdx, :, :, uRF));
-                            % Extract the native-resolution shuffle-mean at the same condition
-                            rfGridShuff = squeeze(rfShuffRaw(params.lumIdx, params.sizeIdx, :, :, uRF));
-                            % Subtract shuffle to isolate signal
-                            rfSub = rfGrid - rfGridShuff;
-
-                            % Run the stripe detector on the native-resolution image
                             res = detectStripeRF(rfSub, ...
                                 'angleStep',      params.stripeAngleStep, ...
                                 'nSurrogates',    params.stripeNSurr, ...
                                 'alpha',          params.stripeAlpha, ...
                                 'minStripeAngle', params.stripeMinAngle, ...
                                 'maxStripeAngle', params.stripeMaxAngle, ...
-                                'rngSeed',        42 + u);
+                                'rngSeed',        42 + u);                      % reproducible surrogates per unit
 
-                            % Store results (RG has no direction dimension)
-                            stripeIsAny(u)      = res.isStripe;
-                            stripeNPassDirs(u)  = double(res.isStripe);   % 0 or 1
+                            stripeIsAny(u)      = res.isStripe;                 % stripe classification
+                            stripeNPassDirs(u)  = double(res.isStripe);         % 0 or 1
                             if res.isStripe
-                                stripePassDirStr{u} = '1';                % single "direction"
+                                stripePassDirStr{u} = '1';                      % single "direction"
                             end
-                            stripeBestScore(u)  = res.stripeScore;
-                            stripeBestPval(u)   = res.stripePval;
-                            stripeBestAngle(u)  = res.stripeAngle;
-                            stripeBestDir(u)    = NaN;                    % no direction dim for RG
-
-                        end  % neuron loop
+                            stripeBestScore(u)  = res.stripeScore;              % anisotropy score
+                            stripeBestPval(u)   = res.stripePval;               % pixel-permutation p
+                            stripeBestAngle(u)  = res.stripeAngle;              % stripe orientation
+                            stripeBestDir(u)    = NaN;                          % no direction dimension for RG
+                        end
 
                 end  % switch stimType (stripe detection)
 
@@ -814,80 +774,24 @@ if ~goto_plot
                     rateFlat      = reshape(gridSpikeRateSelected(:,:,:,si,li), [nCells, nN]);
                     rateFlatShuff = reshape(gridShuffMean(:,:,:,si,li),          [nCells, nN]);
 
-                    L_amplitude_diff  = zeros(nN, 1);
-                    L_amplitude_ratio = zeros(nN, 1);
-                    L_geometric       = zeros(nN, 1);
-                    L_combined        = zeros(nN, 1);
+                    % Spatial tuning indices on the full data (same math as before,
+                    % now in the local function tuningIndices)
+                    [L_amplitude_diff, L_amplitude_ratio, L_geometric, L_combined] = ...
+                        tuningIndices(rateFlat, rateFlatShuff, params.topPercent, nGrid);
 
-                    for u = 1:nN
-
-                        rateVec      = rateFlat(:, u);
-                        rateVecShuff = rateFlatShuff(:, u);
-
-                        % Threshold for top-percent most active grid cells
-                        threshold      = prctile(rateVec,      100 - params.topPercent);
-                        thresholdShuff = prctile(rateVecShuff, 100 - params.topPercent);
-
-                        topIdx       = find(rateVec      >= threshold);
-                        topIdxShuff  = find(rateVecShuff >= thresholdShuff);
-                        restIdx      = setdiff(1:nCells, topIdx);
-                        restIdxShuff = setdiff(1:nCells, topIdxShuff);
-
-                        % Mean rates in top and rest regions.
-                        % Guard against empty restIdx (all cells above threshold
-                        % when topPercent is large) — set meanRest=0 in that case
-                        meanTop  = mean(rateVec(topIdx));
-                        meanAll  = mean(rateVec);
-                        if isempty(restIdx)
-                            meanRest = 0;
-                        else
-                            meanRest = mean(rateVec(restIdx));
-                        end
-
-                        meanTopShuff = mean(rateVecShuff(topIdxShuff));
-                        meanAllShuff = mean(rateVecShuff);
-                        if isempty(restIdxShuff)
-                            meanRestShuff = 0;
-                        else
-                            meanRestShuff = mean(rateVecShuff(restIdxShuff));
-                        end
-
-                        % Guard against division by zero in normalisation
-                        if meanAll      == 0, meanAll      = eps; end
-                        if meanAllShuff == 0, meanAllShuff = eps; end
-
-                        % L_amplitude_diff: normalised contrast, shuffle-subtracted
-                        L_amplitude_diff(u) = ...
-                            (meanTop - meanRest) / meanAll - ...
-                            (meanTopShuff - meanRestShuff) / meanAllShuff;
-
-                        % L_amplitude_ratio: real contrast divided by shuffle contrast
-                        shuffleNorm = (meanTopShuff - meanRestShuff) / meanAllShuff;
-                        if shuffleNorm == 0, shuffleNorm = eps; end
-                        L_amplitude_ratio(u) = ((meanTop - meanRest) / meanAll) / shuffleNorm;
-
-                        % L_geometric: clustering of top cells (low spread = high tuning)
-                        [rowIdx,      colIdx]      = ind2sub([nGrid nGrid], topIdx);
-                        [rowIdxShuff, colIdxShuff] = ind2sub([nGrid nGrid], topIdxShuff); %#ok<ASGLU>
-
-                        if size(rowIdx, 1) > 1
-                            D = mean(pdist([rowIdx, colIdx], 'euclidean')) / maxDist;
-                        else
-                            D = 0;
-                        end
-                        if size(rowIdxShuff, 1) > 1
-                            DShuff = mean(pdist([rowIdxShuff, colIdxShuff], 'euclidean')) / maxDist;
-                        else
-                            DShuff = 0;
-                        end
-
-                        % Shuffle-corrected geometric index
-                        L_geometric(u) = (1 - D) - (1 - DShuff);
-
-                        % L_combined: product of amplitude and geometric indices
-                        L_combined(u)  = L_amplitude_diff(u) * L_geometric(u);
-
-                    end % neuron loop
+                    % Split half: replace by the mean of the two cross-validated
+                    % halves (MB direction chosen on the other half), so the MB
+                    % index is not inflated by choosing and measuring on the same data
+                    if params.splitHalf
+                        [aD, aR, aG, aC] = tuningIndices(reshape(mapsA(:,:,:,si,li), [nCells, nN]), ...
+                            reshape(shufA(:,:,:,si,li), [nCells, nN]), params.topPercent, nGrid);   % measured on even reps
+                        [bD, bR, bG, bC] = tuningIndices(reshape(mapsB(:,:,:,si,li), [nCells, nN]), ...
+                            reshape(shufB(:,:,:,si,li), [nCells, nN]), params.topPercent, nGrid);   % measured on odd reps
+                        L_amplitude_diff  = (aD + bD) / 2;              % cross-validated amplitude contrast
+                        L_amplitude_ratio = (aR + bR) / 2;              % cross-validated amplitude ratio
+                        L_geometric       = (aG + bG) / 2;              % cross-validated clustering
+                        L_combined        = (aC + bC) / 2;              % cross-validated combined index
+                    end
 
                     % Check for NaN indices and report for debugging
                     nanMask = isnan(L_amplitude_diff) | isnan(L_amplitude_ratio) | ...
@@ -2185,3 +2089,185 @@ if params.plotRFs
 
 end  % plotRFs block
 
+
+
+% =========================================================================
+%  LOCAL FUNCTIONS (no closing 'end': the main function has none either)
+% =========================================================================
+
+function S = loadRF(obj, stimType, half, bestSpeed, nGood)
+% Receptive fields of ALL good units for one set of repetitions ("all",
+% "odd" or "even"). MB: each unit's maps come from its own speed (bestSpeed,
+% the Figure-1 rule); other speeds are computed and cached on first use.
+switch stimType
+    case "rectGrid"
+        S = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half);   % all good units
+        assert(size(S.RFu, 6) == nGood, 'RG RFs cover %d units, expected %d good units (%s).', ...
+            size(S.RFu, 6), nGood, half);                                % unit dimension = good units
+    case "linearlyMovingBall"
+        S = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half, speed=1);  % speed-1 base
+        if ~isfield(S, 'RFuSTDirSizeLum')                                % cache in an old format (pre-2026 code)
+            warning('SpatialTuningIndex:oldRFCache', 'MB speed-1 RF cache (%s) has an old format - recomputing.', half);  % explicit
+            S = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half, speed=1, overwrite=true);   % current format
+        end
+        assert(size(S.RFuSTDirSizeLum, 6) == nGood && size(S.RFuShuffST, 3) == nGood, ...
+            'MB RFs cover %d units, expected %d good units (%s).', size(S.RFuSTDirSizeLum, 6), nGood, half);  % unit dimension
+        for sp = setdiff(unique(bestSpeed(:))', 1)                       % other speeds some units need
+            S2 = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half, speed=sp);  % that speed's RFs
+            if ~isfield(S2, 'RFuSTDirSizeLum')                           % cache in an old format (pre-2026 code)
+                warning('SpatialTuningIndex:oldRFCache', ...
+                    'MB speed-%d RF cache (%s) has an old format - recomputing.', sp, half);   % explicit, not silent
+                S2 = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half, speed=sp, overwrite=true);  % current format
+            end
+            assert(isequal(size(S2.RFuSTDirSizeLum), size(S.RFuSTDirSizeLum)), ...
+                'MB RFs of speed %d and 1 differ in size (%s).', sp, half);  % same grid, directions, units
+            u = bestSpeed(:) == sp;                                      % units whose Figure-1 speed is sp
+            S.RFuSTDirSizeLum(:, :, :, :, :, u) = S2.RFuSTDirSizeLum(:, :, :, :, :, u);  % their RFs from speed sp
+            S.RFuShuffST(:, :, u) = S2.RFuShuffST(:, :, u);              % and their shuffle baselines
+        end
+        S.unitSpeed = bestSpeed(:);                                      % record which speed each unit uses
+end
+
+function G = toGrid(A, nGrid)
+% Block-average the first two (square) dimensions of A to nGrid x nGrid;
+% trailing dimensions are kept.
+sz = size(A);                                                        % [rfY, rfX, ...]
+bs = sz(1) / nGrid;                                                  % pixels per grid cell
+assert(sz(1) == sz(2) && bs == round(bs), 'toGrid: %dx%d map is not divisible into %dx%d cells.', sz(1), sz(2), nGrid, nGrid);
+rest = sz(3:end);                                                    % trailing dimensions
+G = reshape(A, [bs, nGrid, bs, nGrid, prod(rest)]);                 % split rows and columns into blocks
+G = mean(mean(G, 1), 3);                                             % average within each block
+G = reshape(G, [nGrid, nGrid, rest, 1]);                             % [nGrid, nGrid, ...]
+
+function prefIdx = prefDirection(S, uIdx, sizeIdx, lumIdx, nGrid)
+% MB preferred direction per unit: the direction whose shuffle-subtracted
+% grid map has the highest peak.
+nDir = size(S.RFuSTDirSizeLum, 1);                                   % number of directions
+peak = zeros(numel(uIdx), nDir);                                     % peak map value per unit x direction
+for k = 1:numel(uIdx)
+    for d = 1:nDir
+        m = squeeze(S.RFuSTDirSizeLum(d, sizeIdx, lumIdx, :, :, uIdx(k))) - S.RFuShuffST(:, :, uIdx(k));  % signal above shuffle
+        g = toGrid(m, nGrid);                                        % 9x9 map
+        peak(k, d) = max(g(:));                                      % strongest cell
+    end
+end
+[~, prefIdx] = max(peak, [], 2);                                     % [nU, 1]
+
+function [maps, shuff] = mbGridMaps(S, uIdx, dirIdx, nGrid)
+% MB grid maps at one direction per unit (dirIdx NaN = mean over directions):
+% maps and shuffle maps, both [nGrid, nGrid, nU, nSize, nLum].
+[~, nSize, nLum, rfY, rfX, ~] = size(S.RFuSTDirSizeLum);             % RF dimensions
+maps  = zeros(nGrid, nGrid, numel(uIdx), nSize, nLum);               % RF grid maps
+shuff = zeros(nGrid, nGrid, numel(uIdx), nSize, nLum);               % shuffle grid maps
+for k = 1:numel(uIdx)
+    if isnan(dirIdx(k))
+        rf = mean(S.RFuSTDirSizeLum(:, :, :, :, :, uIdx(k)), 1);     % average over directions
+    else
+        rf = S.RFuSTDirSizeLum(dirIdx(k), :, :, :, :, uIdx(k));      % chosen direction
+    end
+    rf = permute(reshape(rf, [nSize, nLum, rfY, rfX]), [3 4 1 2]);   % [rfY, rfX, nSize, nLum]
+    maps(:, :, k, :, :)  = reshape(toGrid(rf, nGrid), [nGrid, nGrid, 1, nSize, nLum]);   % 9x9 per size/lum
+    shuff(:, :, k, :, :) = repmat(toGrid(S.RFuShuffST(:, :, uIdx(k)), nGrid), [1, 1, 1, nSize, nLum]);  % shuffle has no size/lum
+end
+
+function [maps, shuff] = rgGridMaps(S, uIdx, onOff, nGrid)
+% RG grid maps (ON or OFF) and shuffle maps: [nGrid, nGrid, nU, nSize, nLum].
+rf = S.RFu(onOff, :, :, :, :, uIdx);                                 % [1, nLums, nSize, sr, sr, nU]
+sh = S.RFuShuffMean(onOff, :, :, :, :, uIdx);                        % same dimensions
+nLums = size(rf, 2); nSize = size(rf, 3); sr = size(rf, 4);          % dimensions
+nU = numel(uIdx);                                                    % units
+rf = permute(reshape(rf, [nLums, nSize, sr, sr, nU]), [3 4 5 2 1]);  % [sr, sr, nU, nSize, nLums]
+sh = permute(reshape(sh, [nLums, nSize, sr, sr, nU]), [3 4 5 2 1]);  % same
+maps  = reshape(toGrid(rf, nGrid), [nGrid, nGrid, nU, nSize, nLums]);   % 9x9 maps
+shuff = reshape(toGrid(sh, nGrid), [nGrid, nGrid, nU, nSize, nLums]);   % 9x9 shuffle maps
+
+function [mapsA, shufA, mapsB, shufB] = splitHalfMaps(obj, stimType, uIdx, bestSpeed, nGood, params, nGrid)
+% Cross-validated maps: A = measured on even repetitions (MB direction
+% chosen on odd), B = measured on odd (direction chosen on even).
+Sodd  = loadRF(obj, stimType, "odd",  bestSpeed, nGood);             % odd repetitions
+Seven = loadRF(obj, stimType, "even", bestSpeed, nGood);             % even repetitions
+switch stimType
+    case "linearlyMovingBall"
+        if params.prefDir
+            dirOdd  = prefDirection(Sodd,  uIdx, params.sizeIdx, params.lumIdx, nGrid);  % chosen on odd
+            dirEven = prefDirection(Seven, uIdx, params.sizeIdx, params.lumIdx, nGrid);  % chosen on even
+        else
+            dirOdd  = nan(numel(uIdx), 1);                           % direction-averaged maps
+            dirEven = nan(numel(uIdx), 1);
+        end
+        [mapsA, shufA] = mbGridMaps(Seven, uIdx, dirOdd,  nGrid);    % selected on odd, measured on even
+        [mapsB, shufB] = mbGridMaps(Sodd,  uIdx, dirEven, nGrid);    % selected on even, measured on odd
+    case "rectGrid"
+        [mapsA, shufA] = rgGridMaps(Seven, uIdx, params.onOff, nGrid);   % even repetitions
+        [mapsB, shufB] = rgGridMaps(Sodd,  uIdx, params.onOff, nGrid);   % odd repetitions
+end
+
+function [L_amplitude_diff, L_amplitude_ratio, L_geometric, L_combined] = tuningIndices(rateFlat, rateFlatShuff, topPercent, nGrid)
+% Spatial tuning indices per unit from flattened grid maps [nCells, nN]
+% (moved unchanged from the main loop so full-data and split-half use the same math).
+[nCells, nN] = size(rateFlat);                                       % grid cells, units
+maxDist = sqrt(2) * (nGrid - 1);                                     % maximum distance between two grid cells
+L_amplitude_diff  = zeros(nN, 1);
+L_amplitude_ratio = zeros(nN, 1);
+L_geometric       = zeros(nN, 1);
+L_combined        = zeros(nN, 1);
+for u = 1:nN
+    rateVec      = rateFlat(:, u);
+    rateVecShuff = rateFlatShuff(:, u);
+
+    % Threshold for top-percent most active grid cells
+    threshold      = prctile(rateVec,      100 - topPercent);
+    thresholdShuff = prctile(rateVecShuff, 100 - topPercent);
+
+    topIdx       = find(rateVec      >= threshold);
+    topIdxShuff  = find(rateVecShuff >= thresholdShuff);
+    restIdx      = setdiff(1:nCells, topIdx);
+    restIdxShuff = setdiff(1:nCells, topIdxShuff);
+
+    % Mean rates in top and rest regions (meanRest = 0 if every cell is "top")
+    meanTop  = mean(rateVec(topIdx));
+    meanAll  = mean(rateVec);
+    if isempty(restIdx)
+        meanRest = 0;
+    else
+        meanRest = mean(rateVec(restIdx));
+    end
+
+    meanTopShuff = mean(rateVecShuff(topIdxShuff));
+    meanAllShuff = mean(rateVecShuff);
+    if isempty(restIdxShuff)
+        meanRestShuff = 0;
+    else
+        meanRestShuff = mean(rateVecShuff(restIdxShuff));
+    end
+
+    % Guard against division by zero in normalisation
+    if meanAll      == 0, meanAll      = eps; end
+    if meanAllShuff == 0, meanAllShuff = eps; end
+
+    % L_amplitude_diff: normalised contrast, shuffle-subtracted
+    L_amplitude_diff(u) = (meanTop - meanRest) / meanAll - (meanTopShuff - meanRestShuff) / meanAllShuff;
+
+    % L_amplitude_ratio: real contrast divided by shuffle contrast
+    shuffleNorm = (meanTopShuff - meanRestShuff) / meanAllShuff;
+    if shuffleNorm == 0, shuffleNorm = eps; end
+    L_amplitude_ratio(u) = ((meanTop - meanRest) / meanAll) / shuffleNorm;
+
+    % L_geometric: clustering of top cells (low spread = high tuning)
+    [rowIdx,      colIdx]      = ind2sub([nGrid nGrid], topIdx);
+    [rowIdxShuff, colIdxShuff] = ind2sub([nGrid nGrid], topIdxShuff);
+    if size(rowIdx, 1) > 1
+        D = mean(pdist([rowIdx, colIdx], 'euclidean')) / maxDist;
+    else
+        D = 0;
+    end
+    if size(rowIdxShuff, 1) > 1
+        DShuff = mean(pdist([rowIdxShuff, colIdxShuff], 'euclidean')) / maxDist;
+    else
+        DShuff = 0;
+    end
+    L_geometric(u) = (1 - D) - (1 - DShuff);                       % shuffle-corrected geometric index
+
+    % L_combined: product of amplitude and geometric indices
+    L_combined(u)  = L_amplitude_diff(u) * L_geometric(u);
+end
