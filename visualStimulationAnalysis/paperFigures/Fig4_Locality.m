@@ -18,7 +18,7 @@ AllExpAnalysis(d.exps, args{:});
 leaveOneAnimalOut(d.structPath(d.exps, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs');
 
 %% Static locality: PSTH and raster (RG ON period; interactive session for the raster)
-plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
+plotPSTH_MultiExp(d.exps, d.psthArgsStatic{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);
 
 %% Moving locality: MB vs MBR (statistics)
@@ -38,8 +38,7 @@ leaveOneAnimalOut(d.structPath(d.exps, stimsG), figLabel='Figure 4 MB-SDGm', out
 % crosses each RF at a different time, so the MBR population PSTH is smeared;
 % the per-unit raster over the whole sweep (useCompleteWindow) shows it better.
 plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
-pa = d.psthArgs; pa{find(strcmp(pa, 'postStim')) + 1} = 2500;   % show the whole 1923 ms drifting window
-plotPSTH_MultiExp(d.exps, pa{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
+plotPSTH_MultiExp(d.exps, d.psthArgsSDG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);
 

@@ -53,6 +53,8 @@ arguments
     params.splitLevels     double        = []                              % specific category levels to use (e.g. [5 10 20]); empty = all available
     params.binWidth        double        = 50                              % PSTH bin width in ms
     params.smooth          double        = 0                              % Gaussian smoothing window in ms (0 = no smoothing)
+    params.capMs           struct        = struct()                       % display cap per stimulus, e.g. struct('SDGs', 1000):
+                                                                          %   bins starting after the cap are not drawn (display only)
     params.statType        string        = "maxPermuteTest"               % statistical test used for per-neuron p-values
     params.speed           string        = "max"                          % speed condition selector for MB/MBR stimuli
     params.alpha           double        = 0.05                           % significance threshold for neuron responsiveness
@@ -1164,6 +1166,15 @@ for s = 1:nStim
             meanTrace = mean(data, 1, 'omitnan');                          % grand mean across experiments
             semTrace  = std(data, 0, 1, 'omitnan') / sqrt(nValid);        % SEM across experiments
 
+            % Display cap: blank bins that start after this stimulus's test window
+            % (e.g. SDGs: the static grating starts drifting at 1000 ms)
+            stimKey = char(params.stimTypes{s});                          % stimulus label (struct field name)
+            if isfield(params.capMs, stimKey)
+                binLeft = lockedEdges(1:end-1) - lockedPreBase;           % left edge of each bin from onset (ms)
+                cut = binLeft >= params.capMs.(stimKey);                  % bins outside the stimulus window
+                meanTrace(cut) = NaN; semTrace(cut) = NaN;                % not drawn
+            end
+
             meanStore{s, b, ci} = meanTrace;                              % store for plotting
             semStore{s, b, ci}  = semTrace;
 
@@ -1278,8 +1289,9 @@ for s = 1:nStim
                 xE = lockedEdges - lockedPreBase;                         % bin edges (ms): steps change only at edges
                 [xs, us] = stairs(xE, [upper(:)' upper(end)]);            % step outline of the upper bound
                 [~,  ls] = stairs(xE, [lower(:)' lower(end)]);            % step outline of the lower bound
-                xFill = [xs(:)', fliplr(xs(:)')];                         % x coordinates: forward then backward for closed polygon
-                yFill = [us(:)', fliplr(ls(:)')];                         % y coordinates: upper then lower (reversed)
+                keep  = ~isnan(us) & ~isnan(ls);                          % skip capped (NaN) bins: a polygon cannot contain NaN
+                xFill = [xs(keep)', fliplr(xs(keep)')];                   % x coordinates: forward then backward for closed polygon
+                yFill = [us(keep)', fliplr(ls(keep)')];                   % y coordinates: upper then lower (reversed)
                 fill(ax, xFill, yFill, lineColor, ...
                     'FaceAlpha', 0.08, 'EdgeColor', 'none');              % semi-transparent filled polygon, no border
             end

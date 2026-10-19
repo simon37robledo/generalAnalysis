@@ -17,8 +17,7 @@ args = [d.statsArgs, {'ComparePairs', stims, 'Lock', d.lock(stims)}];
 Tloao = leaveOneAnimalOut(fig3Struct, figLabel='Figure 3', outName='LeaveOneAnimalOut_SDGm-SDGs');
 
 %% Population PSTH
-pa = d.psthArgs; pa{find(strcmp(pa, 'postStim')) + 1} = 2500;   % show the whole 1923 ms drifting window
-plotPSTH_MultiExp(d.exps, pa{:}, overwrite=true, stimTypes={"SDGm","SDGs"}, unionResponsive=true);
+plotPSTH_MultiExp(d.exps, d.psthArgsSDG{:}, overwrite=true, stimTypes={"SDGm","SDGs"}, unionResponsive=true);
 
 %% Population raster (interactive session): static then drifting phase of each trial
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes="SDG", unionUnits=true, ...

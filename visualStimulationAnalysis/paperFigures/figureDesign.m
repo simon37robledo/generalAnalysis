@@ -61,10 +61,24 @@ d.structPath = @(exps, stims) fullfile(d.paperFigs, ...
 d.rasterArgs = { ...
     'TakeTopPercentTrials', [], 'PaperFig', true, 'zScore', true, 'postStim', 500, ...
     'prefCatPSTH', false, 'statPrefCatPSTH', true, 'sdFloorPrctile', 25, 'speed', "best", ...
-    'useCompleteWindow', false, 'MarkFPnFN', false, 'useTtest', false, 'sortBy', "meanZScore"};  % shared raster settings
+    'useCompleteWindow', false, 'MarkFPnFN', false, 'useTtest', false, 'sortBy', "meanZScore", ...
+    'binWidth', 20};                                              % shared raster settings; 20 ms columns (10 ms rows were noisy)
 d.psthArgs = { ...
     'zScore', true, 'TakeTopPercentTrials', [], 'PaperFig', true, 'byDepth', false, ...
     'binWidth', 50, 'postStim', 500};                             % shared PSTH settings
+% PSTH bin rule: 50 ms bins for windows <= 1 s, 100 ms for 2 s windows (fewer
+% recordings and slower responses: smaller bins are noise).
+sdgW = d.statsArgs{find(strcmp(d.statsArgs, 'sdgWindows')) + 1}; % [static drifting] test windows (ms)
+d.psthArgsSDG = setArg(setArg(d.psthArgs, 'postStim', 2000), 'binWidth', 100);   % drifting-grating comparisons (0-2 s)
+d.psthArgsSDG = [d.psthArgsSDG, {'capMs', struct('SDGs', sdgW(1))}];   % SDGs drawn only over its static test window
+d.psthArgsStatic = [setArg(d.psthArgs, 'postStim', 1000), {'capMs', struct('SDGs', sdgW(1))}];  % RG vs SDGs (0-1 s)
+end
+
+function a = setArg(a, name, value)
+% Replace the value of one name-value pair in a cell of arguments.
+k = find(strcmp(a(1:2:end), name), 1);                            % pair index
+assert(~isempty(k), 'figureDesign: argument %s not found.', name);
+a{2*k} = value;                                                   % new value
 end
 
 function L = lockFor(stims)
