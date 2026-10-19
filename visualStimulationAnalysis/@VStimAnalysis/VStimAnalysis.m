@@ -509,6 +509,29 @@ classdef (Abstract) VStimAnalysis < handle
                         error('Unequal triggers for image-type trials, unresolved even after digital fallback (%d expected vs %d found).', ...
                             expectedFlips, measuredFlips);
                     end
+
+                    % Guard: the digitalTriggerDiode fallback has returned onsets shifted by a
+                    % constant ~100 ms (recordings 68 RG and 84 FFF, found 2026-10-19). Compare
+                    % every fallback time with the nearest edge of the raw analog diode signal:
+                    % a consistent shift is corrected trial by trial (snapped to the edge) with a
+                    % warning; an inconsistent one fails loudly.
+                    if isfield(diode, 'params') && isfield(diode.params, 'extractionMethod') && ...
+                            string(diode.params.extractionMethod) == "digitalTriggerDiode"
+                        if isempty(obj.sessionStartTime) || isempty(obj.sessionEndTime)
+                            obj.getSessionTime;                                    % session limits for the analog read
+                        end
+                        [A, t_ms] = obj.dataObj.getAnalogData(1, obj.sessionStartTime, ...
+                            obj.sessionEndTime - obj.sessionStartTime);            % raw diode for the whole session
+                        A = squeeze(A);                                            % vector
+                        Th = mean(A(1:100:end));                                   % same threshold as diodeThreshold
+                        analogEdges = unique([t_ms(A(1:end-1) < Th & A(2:end) >= Th), ...
+                            t_ms(A(1:end-1) > Th & A(2:end) <= Th)]) + obj.sessionStartTime;   % all analog crossings (ms)
+                        frameMs = obj.VST.ifi * 1000;                              % one frame (ms)
+                        stimOnFlipTimes  = snapToEdges(stimOnFlipTimes,  analogEdges, frameMs, 'onset',  obj.dataObj.recordingName);   % checked/corrected onsets
+                        if ~isempty(stimOffFlipTimes)
+                            stimOffFlipTimes = snapToEdges(stimOffFlipTimes, analogEdges, frameMs, 'offset', obj.dataObj.recordingName);  % checked/corrected offsets
+                        end
+                    end
                     fprintf('Saving results to file.\n');
                     save(obj.getAnalysisFileName,'params','stimOnFlipTimes','stimOffFlipTimes');
                     results=load(obj.getAnalysisFileName);
@@ -1018,4 +1041,31 @@ classdef (Abstract) VStimAnalysis < handle
         end
 
     end
+end
+
+function tOut = snapToEdges(tIn, edges, frameMs, label, recName)
+% snapToEdges  Check trigger times against the raw analog diode edges.
+%   Each time is matched to the nearest analog edge after removing the median
+%   offset. A shift smaller than one frame is accepted unchanged; a larger but
+%   consistent shift (>= 95% of trials within one frame of the median) is
+%   corrected by snapping every time to its edge, with a warning; anything
+%   else is an error, so a misaligned recording can never pass silently.
+tIn = tIn(:)';                                                       % row vector, as the callers store it
+nearest = @(t) edges(max(1, min(numel(edges), round(interp1(edges, 1:numel(edges), t, 'nearest', 'extrap')))));  % nearest edge to each time
+shift = nearest(tIn) - tIn;                                          % per-trial offset to the nearest edge (ms)
+medShift = median(shift);                                            % typical offset
+if abs(medShift) <= frameMs
+    tOut = tIn;                                                      % within one frame: keep as is
+    return
+end
+cand = nearest(tIn + medShift);                                      % edges near the corrected times
+ok = abs(cand - (tIn + medShift)) <= frameMs;                        % trials that agree with the common shift
+assert(mean(ok) >= 0.95, 'snapToEdges:inconsistent', ...
+    '%s %s times: fallback vs analog diode offset %.1f ms, but only %.0f%% of trials agree within one frame.', ...
+    recName, label, medShift, 100*mean(ok));                         % fail loudly on an inconsistent shift
+tOut = tIn + medShift;                                               % common correction for every trial
+tOut(ok) = cand(ok);                                                 % exact analog edge where it agrees
+warning('snapToEdges:corrected', ...
+    '%s: %s times from digitalTriggerDiode were %.1f ms off the analog diode edges - corrected (%d/%d trials snapped).', ...
+    recName, label, -medShift, sum(ok), numel(ok));                  % explicit, never silent
 end

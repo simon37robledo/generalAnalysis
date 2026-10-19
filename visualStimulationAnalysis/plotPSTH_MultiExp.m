@@ -1114,7 +1114,7 @@ end
 %  PLOTTING
 % =========================================================================
 
-tAxis     = lockedEdges(1:end-1);                                          % left bin edges within the analysis window (ms)
+tAxis     = lockedEdges(1:end-1) + diff(lockedEdges(1:2)) / 2;            % bin CENTRES (ms): bin [0, bw) is drawn at bw/2, so post-onset spikes never appear left of 0
 tAxisPlot = tAxis - lockedPreBase;                                         % shift so time 0 = stimulus onset
 
 % ---- Colour palette and legend label maps --------------------------------
@@ -1275,15 +1275,21 @@ for s = 1:nStim
             if params.shadeSTD && nValid > 1
                 upper = meanPSTH + semPSTH;                               % upper bound of the shaded region
                 lower = meanPSTH - semPSTH;                               % lower bound
-                xFill = [tAxisPlot(:)', fliplr(tAxisPlot(:)')];           % x coordinates: forward then backward for closed polygon
-                yFill = [upper(:)',      fliplr(lower(:)')];              % y coordinates: upper then lower (reversed)
+                xE = lockedEdges - lockedPreBase;                         % bin edges (ms): steps change only at edges
+                [xs, us] = stairs(xE, [upper(:)' upper(end)]);            % step outline of the upper bound
+                [~,  ls] = stairs(xE, [lower(:)' lower(end)]);            % step outline of the lower bound
+                xFill = [xs(:)', fliplr(xs(:)')];                         % x coordinates: forward then backward for closed polygon
+                yFill = [us(:)', fliplr(ls(:)')];                         % y coordinates: upper then lower (reversed)
                 fill(ax, xFill, yFill, lineColor, ...
                     'FaceAlpha', 0.08, 'EdgeColor', 'none');              % semi-transparent filled polygon, no border
             end
 
             % ---- Mean PSTH line ----------------------------------------
-            h = plot(ax, tAxisPlot(:)', meanPSTH(:)', ...
-                'Color', lineColor, 'LineWidth', 1.5);                    % plot mean as a solid line
+            assert(numel(meanPSTH) == numel(lockedEdges) - 1, ...
+                'plotPSTH_MultiExp: %d PSTH bins for %d edges.', numel(meanPSTH), numel(lockedEdges));  % one value per bin
+            h = stairs(ax, lockedEdges - lockedPreBase, [meanPSTH(:)' meanPSTH(end)], ...
+                'Color', lineColor, 'LineWidth', 1.5);                    % step plot: each bin flat between its edges, so
+                                                                          % no line segment carries post-onset spikes left of 0
 
             legendHandles(end+1) = h;                                     %#ok<AGROW> collect handle for legend
             legendLabels{end+1}  = legendLabel;                           %#ok<AGROW> collect label for legend
@@ -1305,7 +1311,7 @@ end
 
 xlabel(ax, sprintf('Time re. stim %s [ms]', params.alignTo), 'FontName', 'Helvetica', 'FontSize', 8);
 ylabel(ax, yLabel,                      'FontName', 'Helvetica', 'FontSize', 8);
-xlim(ax, [tAxisPlot(1), tAxisPlot(end)]);                                 % set x range to match the locked window
+xlim(ax, [lockedEdges(1), lockedEdges(end)] - lockedPreBase);               % full locked window (bin edges)
 ylim(ax, yLims);                                                          % apply the globally computed y limits
 
 legend(legendHandles, legendLabels, ...

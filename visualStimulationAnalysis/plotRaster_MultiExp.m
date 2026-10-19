@@ -1838,7 +1838,7 @@ for s = 1:nStim
     end
 
     % --- Per-stimulus time axis in seconds ---
-    tAxisPlot = tAxis{s} - lockedPreBase;                                % stim onset = 0 ms
+    tAxisPlot = tAxis{s} + diff(lockedEdges{s}(1:2)) / 2 - lockedPreBase;  % bin centres (imagesc x = pixel centre), stim onset = 0 ms
     tAxisSec  = tAxisPlot / 1000;                                        % convert to seconds
 
     imagesc(ax, tAxisSec, 1:size(data,1), data);                         % raster image
