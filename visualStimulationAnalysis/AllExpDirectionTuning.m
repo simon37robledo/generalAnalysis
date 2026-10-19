@@ -600,8 +600,10 @@ function ps = computeHierBootPvals(tbl, pairs, nBoot)
             fprintf('  Pair %s vs %s: no paired neurons. p = NaN.\n', stim1, stim2);
         else
             % Run hierarchical bootstrap on paired differences
-            % hierBoot resamples neurons within insertions within animals
-            bootDiff = hierBoot(diffs, nBoot, insers, animals);
+            % hierBootMatchFreq resamples animals, then insertions, then neurons.
+            % (Was plain hierBoot with the levels swapped: invalid, see CLAUDE.md.)
+            % Insertion codes come from one categorical, so they are unique across animals.
+            bootDiff = hierBootMatchFreq(diffs, nBoot, animals, insers);   % levels: animal (top), insertion
 
             % Two-sided p-value: proportion of bootstrap means ≤ 0
             % (tests H0: no difference between stimuli)
