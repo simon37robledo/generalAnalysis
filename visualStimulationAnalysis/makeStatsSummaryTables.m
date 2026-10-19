@@ -242,7 +242,79 @@ if params.runNull
         'Simulation: homogeneous Bernoulli spiking (1 ms bins); maximum over conditions x windows after the sign flip.'});
 end
 
+% =========================================================================
+% 9. Leave-one-animal-out summary across every comparison (supplementary)
+% =========================================================================
+figDir = fileparts(params.loaoPath);                               % LOAO files live next to the structs
+R = strings(0, 10);                                                % accumulated rows
+% Figures 1, 3, 4: leaveOneAnimalOut spreadsheets (paired hierarchical bootstrap, two-tailed)
+xl = {'LeaveOneAnimalOut.xlsx', 'LeaveOneAnimalOut_SDGm-SDGs.xlsx', 'LeaveOneAnimalOut_RG-SDGs.xlsx', ...
+      'LeaveOneAnimalOut_MB-MBR.xlsx', 'LeaveOneAnimalOut_MB-SDGm.xlsx'};
+for k = 1:numel(xl)
+    fx = fullfile(figDir, xl{k});
+    if ~isfile(fx), warning('makeStatsSummaryTables:noLOAO', 'Missing %s - skipped.', fx); continue, end   % explicit
+    Lx = readtable(fx, 'TextType', 'string');                       % one row per run x metric x pair
+    [G, gid] = findgroups(Lx(:, {'Figure','Metric','StimA','StimB'}));   % one group per comparison
+    for g = 1:height(gid)
+        Lg = Lx(G == g, :);
+        full = Lg(Lg.droppedAnimal == "none", :); drops = Lg(Lg.droppedAnimal ~= "none", :);
+        assert(height(full) == 1 && height(drops) >= 1, 'LOAO %s: expected one full-data row and >= 1 drop.', xl{k});
+        [~, iw] = max(drops.pValue);                               % run whose removal weakens the result most
+        R(end+1, :) = [full.Figure, stimLabel(gid.StimA(g)) + " vs " + stimLabel(gid.StimB(g)), gid.Metric(g), full.n, full.nAnimals, ...
+            sprintf('%s [%s, %s]', f(full.diffMean,3), f(full.diffCIlo,3), f(full.diffCIhi,3)), loaoP(full.pValue, loaoRes), ...
+            loaoP(min(drops.pValue), loaoRes) + " – " + loaoP(max(drops.pValue), loaoRes), drops.droppedAnimal(iw), ...
+            sprintf('%d / %d', sum(drops.pValue < 0.05), height(drops))];   %#ok<AGROW>
+    end
+end
+% Figure 2: spatial tuning index, MB vs SB (unpaired, one-tailed P(SB >= MB))
+f2 = fullfile(figDir, 'LeaveOneAnimalOut_Fig2_SpatialTuning.csv');
+if isfile(f2)
+    L2 = readtable(f2, 'TextType', 'string'); full = L2(L2.leftOut == "none", :); drops = L2(L2.leftOut ~= "none", :);
+    [~, iw] = max(drops.pOneTailed);
+    R(end+1, :) = ["Figure 2", "MB vs SB (unpaired)", "Spatial tuning index", full.nMB + " / " + full.nSB, "", ...
+        sprintf('%s (MB %s, SB %s)', f(full.meanMB - full.meanSB, 3), f(full.meanMB, 3), f(full.meanSB, 3)), ...
+        loaoP(full.pOneTailed, loaoRes) + " (one-tailed)", loaoP(min(drops.pOneTailed), loaoRes) + " – " + loaoP(max(drops.pOneTailed), loaoRes), ...
+        drops.leftOut(iw), sprintf('%d / %d', sum(drops.pOneTailed < 0.05), height(drops))];
+else
+    warning('makeStatsSummaryTables:noLOAO', 'Missing %s - skipped.', f2);
+end
+% Figure 5: fraction of direction-selective units vs 5% chance (one-tailed)
+f5a = fullfile(figDir, 'Fig5_fraction_direction_selective.csv'); f5b = fullfile(figDir, 'Fig5_LeaveOneAnimalOut_fractionDS.csv');
+if isfile(f5a) && isfile(f5b)
+    A5 = readtable(f5a, 'TextType', 'string'); B5 = readtable(f5b, 'TextType', 'string');
+    for i = 1:height(A5)
+        drops = B5(B5.stim == A5.stim(i), :); [~, iw] = max(drops.pVsChance);
+        R(end+1, :) = ["Figure 5", A5.stim(i) + " vs 5% chance", "Fraction direction-selective", A5.nUnits(i), A5.nAnimals(i), ...
+            sprintf('%s [%s, %s]', f(A5.fracDS(i),3), f(A5.ciLo(i),3), f(A5.ciHi(i),3)), loaoP(A5.pVsChance(i), loaoRes) + " (one-tailed)", ...
+            loaoP(min(drops.pVsChance), loaoRes) + " – " + loaoP(max(drops.pVsChance), loaoRes), drops.dropped(iw), ...
+            sprintf('%d / %d', sum(drops.pVsChance < 0.05), height(drops))];   %#ok<AGROW>
+    end
+else
+    warning('makeStatsSummaryTables:noLOAO', 'Missing Figure 5 tables - skipped.');
+end
+hdr = ["Figure", "Comparison", "Metric", "n (all animals)", "Animals", "Effect (all animals) [95% CI]", ...
+       "p (all animals)", "p range, one animal removed", "Removal giving the largest p", "Runs with p < 0.05"];
+outPaths{end+1} = writeTitledCsv(fullfile(params.outDir, 'Leave_one_animal_out_summary.csv'), ...
+    'Leave-one-animal-out sensitivity of every cross-animal comparison', ...
+    'Each comparison repeated with one animal removed at a time; the p range shows how much any single animal drives the result.', ...
+    hdr, R, {['Figures 1, 3, 4: paired hierarchical bootstrap of the per-unit (or per-insertion, fraction responsive) ', ...
+    'difference, two-tailed. Figure 2: two-sample hierarchical bootstrap, one-tailed P(SB >= MB). Figure 5: per-insertion ', ...
+    'fraction of direction-selective units vs 0.05, one-tailed. All: animals -> insertions -> units (hierBootMatchFreq), ', ...
+    '10000 replicates.']});
+
 fprintf('Wrote %d tables to %s\n', numel(outPaths), params.outDir);  % report
+end
+
+function s = stimLabel(x)
+% Paper labels for stimulus codes (RG is shown as SB; MG/SG are the drifting/static gratings).
+map = struct('RG', "SB", 'MG', "SDGm", 'SG', "SDGs");                % code -> paper label
+x = string(x); s = x;                                              % default: unchanged
+if isfield(map, char(x)), s = map.(char(x)); end                  % exact-code mapping only
+end
+
+function s = loaoP(p, res)
+% p as text: exact, or an upper bound when no replicate reached it.
+[pt, po] = formatPValue(p, res); s = pText(po, pt);
 end
 
 % =========================================================================
