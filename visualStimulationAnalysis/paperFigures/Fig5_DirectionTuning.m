@@ -55,21 +55,27 @@ title('Direction-selective units (p < 0.05)');
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'DirectionSelective_fraction.jpg']), 'Resolution', 300);
 writetable(fr, fullfile(d.paperFigs, 'Fig5_fraction_direction_selective.csv'));
 
-%% DSI per unit (animal-colored), bootstrap mean and 95% CI
+%% DSI above chance per unit (animal-colored), bootstrap mean and 95% CI
+% DSI minus the unit's shuffled-label mean DSI (DSIcorr): raw DSI is biased upward
+% with few trials (an untuned unit scores ~0.3), so chance sits at 0 here.
+% Units selective by the permutation test (pDSI < 0.05) are outlined in black.
 fig = figure('Position', [100 100 480 380]); hold on;
 anAll = unique(A.animal); cmap = lines(numel(anAll));             % one color per animal
 for k = 1:numel(stims)
     a = A(A.stim == stims(k), :);
     [~, ai] = ismember(a.animal, anAll);
-    swarmchart(k * ones(height(a), 1), a.DSI, 14, cmap(ai, :), 'filled', 'MarkerFaceAlpha', 0.6, 'XJitterWidth', 0.5);
-    b = hierBootMatchFreq(a.DSI, nBoot, double(categorical(a.animal)), a.exp);   % animal, then insertion
+    sel = a.pDSI < 0.05;                                          % direction-selective units
+    swarmchart(k * ones(sum(~sel), 1), a.DSIcorr(~sel), 14, cmap(ai(~sel), :), 'filled', 'MarkerFaceAlpha', 0.5, 'XJitterWidth', 0.5);   % not selective
+    swarmchart(k * ones(sum(sel), 1), a.DSIcorr(sel), 18, cmap(ai(sel), :), 'filled', 'MarkerEdgeColor', 'k', 'XJitterWidth', 0.5);       % selective
+    b = hierBootMatchFreq(a.DSIcorr, nBoot, double(categorical(a.animal)), a.exp);   % animal, then insertion
     errorbar(k, mean(b), mean(b) - prctile(b, 2.5), prctile(b, 97.5) - mean(b), 'k', 'LineWidth', 1.5, 'CapSize', 8);
 end
-set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stims); ylabel('DSI'); ylim([0 1]);
-title('Direction selectivity (responsive, present units)');
+yline(0, 'k:');                                                   % chance level
+set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stims); ylabel('DSI - chance DSI');
+title('Direction selectivity above chance (black outline: p < 0.05)');
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'DSI_swarm.jpg']), 'Resolution', 300);
 
-%% Preferred directions of direction-selective units (MB convention: 0 = up)
+%% Preferred directions of direction-selective units (screen directions)
 fig = figure('Position', [100 100 900 300]);
 tl = tiledlayout(1, numel(stims));
 for k = 1:numel(stims)
@@ -77,7 +83,8 @@ for k = 1:numel(stims)
     nexttile(tl);
     polarhistogram(a.prefDir, linspace(-pi/8, 2*pi - pi/8, 9), 'FaceColor', [0.3 0.3 0.3]);   % 8 bins centred on 0, 45, ...
     title(sprintf('%s (n = %d)', stims(k), height(a)));
-    ax = gca; ax.ThetaZeroLocation = 'top'; ax.ThetaDir = 'counterclockwise';   % 0 = up, pi/2 = left (MB phi)
+    ax = gca; ax.ThetaZeroLocation = 'top'; ax.ThetaDir = 'counterclockwise';   % MB phi: 0 = up, pi/2 = left
+    ax.ThetaTick = [0 90 180 270]; ax.ThetaTickLabel = {'up', 'left', 'down', 'right'};   % motion direction on the screen
 end
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'PreferredDirection.jpg']), 'Resolution', 300);
 

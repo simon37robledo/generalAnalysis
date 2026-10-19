@@ -1300,7 +1300,8 @@ end % stim-type loop
 
 % ---- Reference lines at stimulus onset and offset -----------------------
 xline(ax, 0,               'k--', 'LineWidth', 1.2, 'HandleVisibility', 'off'); % vertical dashed line at t = 0 (stim onset)
-xline(ax, params.postStim, 'k--', 'LineWidth', 1.2, 'HandleVisibility', 'off'); % vertical dashed line at stim offset
+% (no line at postStim: it is only the end of the plotted window, not a stimulus
+%  offset -- RG runs 500 and 1000 ms protocols and MB lines are crossing-aligned)
 
 % ---- Axis labels and formatting -----------------------------------------
 if params.zScore

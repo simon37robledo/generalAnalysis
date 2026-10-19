@@ -129,6 +129,7 @@ allDirs = uniquetol(cell2mat(Lu(~cellfun(@isempty, Lu))), 1e-4);   % directions 
 nD = numel(allDirs);                                               % usually 4
 R = nan(nU, nD); nPerDir = zeros(nU, nD);                          % tuning curves, trial counts
 DSI = nan(nU, 1); OSI = nan(nU, 1); prefDir = nan(nU, 1); pDSI = nan(nU, 1); pOSI = nan(nU, 1);
+nullDSImean = nan(nU, 1);                                          % mean DSI under shuffled direction labels
 for u = 1:nU
     x = Xu{u}; l = Lu{u};                                          % this unit's trials and labels
     if isempty(x), continue, end                                   % MB unit without a usable RF cell
@@ -142,6 +143,7 @@ for u = 1:nU
         [nullD(b), nullO(b)] = tuneIdx(Rb, allDirs);               % same statistic under H0
     end
     pDSI(u) = (sum(nullD >= DSI(u)) + 1) / (params.nPerm + 1);     % permutation p (DSI)
+    nullDSImean(u) = mean(nullD);                                  % chance-level DSI for this unit's trial counts
     pOSI(u) = (sum(nullO >= OSI(u)) + 1) / (params.nPerm + 1);     % permutation p (OSI)
 end
 
@@ -151,6 +153,8 @@ T.stim = repmat(stim, nU, 1);                                      % stimulus fa
 T.cell = nan(nU, 1); T.speed = nan(nU, 1);                         % MB-only columns
 if stim == "MB", T.cell = cellU; T.speed = bestSp; end             % RF cell and Figure 1 speed
 T.dirs = repmat({allDirs(:)'}, nU, 1);                             % directions of each tuning curve (MB phi); cells: 4 or 8 directions per recording
+T.nullDSImean = nullDSImean;                                       % DSI expected by chance (small-sample bias)
+T.DSIcorr = DSI - nullDSImean;                                     % bias-corrected DSI: 0 = chance
 end
 
 % =========================================================================

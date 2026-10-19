@@ -37,6 +37,11 @@ end
 results = SpatialTuningIndex(exps, tuneArgs{:}, overwrite=true, PaperFig=true, ...
     plotRFs=false, plotRFunion=false, detectStripe=true, testStripeDetection=false);   % cache name does not encode every param: always overwrite
 
+%% Paired locality score: units responsive AND present for both MB and SB, MB - SB per unit
+pairedArgs = tuneArgs; pairedArgs{find(strcmp(pairedArgs(1:2:end), 'allResponsive')) * 2} = false;   % intersection mode
+resPaired = SpatialTuningIndex(exps, pairedArgs{:}, overwrite=true, PaperFig=true, ...
+    plotRFs=false, plotRFunion=false, detectStripe=true, testStripeDetection=false);   % paired hierarchical bootstrap of MB - SB
+
 %% Stripe units vs responsive non-stripe units (depth, z, OSI/DSI, direction)
 stripeArgs ={'indexType', "L_amplitude_diff", 'onOff', 1, 'sizeIdx', 1, 'lumIdx', 1, 'useRF', true, ...
     'prefDir', true, 'unionResponsive', false, 'allResponsive', true, 'splitHalf', true};   % must match the call above
