@@ -514,6 +514,11 @@ if params.plotMeanSem
     drawMeanSemBars(ax, statsDiff, params);
 end
 
+% ---- Example units (markUnits) ------------------------------------------
+% Same symbols as in the raw panels, at each unit's paired difference; matched
+% by animal + real insertion + NeurID only (the diff row carries the pair label).
+overlayMarkedUnits(ax, tblDiff, params, false);
+
 % ---- Significance annotation --------------------------------------------
 % Capture the current auto-scaled Y limits AFTER all data have been drawn
 % so the lower bound reflects the true data range
