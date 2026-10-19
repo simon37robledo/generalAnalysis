@@ -79,9 +79,14 @@ MB population PSTH aligned to the RF crossing (t = 0 = ball enters the preferred
   gave ~100% false positives and was discarded.
 
 ## 5. Null calibration with artificial neurons (supplementary figure)
-Simulated units with no response (homogeneous Bernoulli spiking at the same rate before
-and during the stimulus, 0.5-20 Hz), on the trial layout of a real recording, through each
-test. Pooled false-positive rates at alpha = 0.05: MB grid 4.9%, SB ON+OFF 3.5%, MBR 9
+Simulated units with no response (homogeneous Bernoulli spiking, 1 ms bins, at the same
+rate before and during the stimulus) on the trial layout of a real recording, through each
+test. Per test design: 240 simulated units at each of 6 firing rates (0.5, 1, 2, 5, 10,
+20 Hz) = 1,440 units, 2,000 sign flips each; 9 designs (7 used, 2 discarded) = 12,960
+simulated units in total. Layouts: MB and SB from recording 97 (MB 36 conditions x 10
+trials, 2367 ms sweep; SB 81 positions x 10 trials); FFF, SDGs and SDGm from recording 52;
+MBR from recording 70; NI from recording 92. Pooled false-positive rates at alpha = 0.05
+(false positives / 1,440): MB grid 4.9%, SB ON+OFF 3.5%, MBR 9
 segments 5.0%, SDGs 5.3%, SDGm 4.1%, FFF 3.1%, NI 3.7%; discarded MB sliding window 99.9%.
 Clopper-Pearson CIs per rate in `Null_calibration_*.csv`; figure `figS_NullCalibration.jpg`.
 (The FP/FN raster screen was a display-concordance QC and is not reported.)
