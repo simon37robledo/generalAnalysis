@@ -5,6 +5,7 @@
 % (StatisticsPerNeuronPerCategory still needs the same fixes). NV is not in the paper.
 
 d     = figureDesign();                                           % shared design
+paperFigPrefix('fig3');                                           % saved panels are named fig3_<panel>
 stims = {'SDGm', 'SDGs'};                                         % compared stimuli
 fig3Struct = d.structPath(d.exps, stims);                         % analysis struct written by the stats cell
 

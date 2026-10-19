@@ -247,6 +247,7 @@ if params.plot                                       % only when plotting was re
             for fi = 1:numel(newFigs)                    % save each figure belonging to this neuron
                 fname = sprintf('%s_%s_ins%g_exp%g_U%d.jpg', stim, sub.animal(1), sub.realInsertion(1), exp, phyId); % base name, this neuron's own phy ID
                 if numel(newFigs) > 1, fname = strrep(fname, '.jpg', sprintf('_%d.jpg', fi)); end % disambiguate raster vs raw-data panel
+                fname = [paperFigPrefix(), fname];               % figure-number prefix set by the FigN script
                 % exportgraphics on a network share (W:) can hit a transient sharing
                 % violation when something else (Explorer thumbnail generation, AV/
                 % indexer) briefly opens a just-written .jpg — libjpeg surfaces that as

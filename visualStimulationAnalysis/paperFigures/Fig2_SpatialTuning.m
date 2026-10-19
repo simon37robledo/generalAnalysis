@@ -12,6 +12,7 @@
 % Run the cells in order; rasters must be drawn in an interactive session.
 
 d    = figureDesign();                                            % shared design (recordings, output folder)
+paperFigPrefix('fig2');                                           % saved panels are named fig2_<panel>
 exps = intersect(d.exps, [40:43, 49:54, 64:66, 68:85, 87:97]);    % recordings with MB receptive-field maps
 tuneArgs = {'indexType', "L_amplitude_diff", 'topPercent', 5, 'useRF', true, 'prefDir', true, ...
     'onOff', 1, 'sizeIdx', 1, 'lumIdx', 1, 'unionResponsive', false, 'allResponsive', true, ...

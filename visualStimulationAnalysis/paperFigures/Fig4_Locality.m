@@ -9,6 +9,7 @@
 %   descriptive within-PV97 panel only (one animal: no animal-level claim).
 
 d = figureDesign();                                               % shared design
+paperFigPrefix('fig4');                                           % saved panels are named fig4_<panel>
 
 %% Static locality: RG vs SDGs (statistics)
 stimsS = {'RG', 'SDGs'};                                          % pairwise: more units than the 3-way with FFF

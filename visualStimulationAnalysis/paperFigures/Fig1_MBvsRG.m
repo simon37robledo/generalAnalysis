@@ -4,6 +4,7 @@
 % blank under matlab -batch).
 
 d     = figureDesign();                                           % shared design
+paperFigPrefix('fig1');                                           % saved panels are named fig1_<panel>
 stims = {'MB', 'RG'};                                             % compared stimuli
 fig1Struct = d.structPath(d.exps, stims);                         % analysis struct written by the stats cell
 

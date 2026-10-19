@@ -5,6 +5,7 @@
 % tested for a family only if present throughout that family's block.
 
 d = figureDesign();                                               % shared recording list
+paperFigPrefix('summary');                                           % saved panels are named summary_<panel>
 [Tresp, Sresp] = AllExpResponsiveUnion(d.exps, ...
     Stimuli        = {'MB','RG','MBR','SDGm','SDGs','FFF'}, ...   % families in the paper
     threshold      = 0.05, ...                                    % same cutoff as the figures

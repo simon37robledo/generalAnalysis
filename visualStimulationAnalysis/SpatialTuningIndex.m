@@ -1523,7 +1523,7 @@ if params.plotRFs
             % Build the output PDF path inside the combined-analysis directory
             pdfName = sprintf('RFpages_%s_%s%s%s.pdf', ...
                 stimLabel_file, params.indexType, shuffTag, unionTag);
-            pdfPath = fullfile(saveDir, pdfName);  % full path for the PDF file
+            pdfPath = fullfile(saveDir, [paperFigPrefix(), pdfName]);  % full path for the PDF file (figure-number prefix)
 
             % Flag: true until the first page is exported (create vs append)
             firstPdfPage = true;

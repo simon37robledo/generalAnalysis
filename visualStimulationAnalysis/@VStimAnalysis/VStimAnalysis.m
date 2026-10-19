@@ -77,6 +77,7 @@ classdef (Abstract) VStimAnalysis < handle
                 % '-vector' is a content-type flag only valid for vector formats (e.g. -dpdf);
                 % JPEG is raster-only, and pairing it with '-djpeg' silently broke MATLAB's
                 % automatic filename-extension logic, saving files with no extension.
+                figName = [paperFigPrefix(), char(figName)];             % figure-number prefix set by the FigN script (e.g. 'fig1_')
                 print([out,filesep,figName],'-djpeg','-r300');
             else
                 disp(['Printing fig: ',obj.visualStimPlotsFolder,filesep,figName]);
