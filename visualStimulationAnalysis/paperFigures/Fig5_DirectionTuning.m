@@ -81,7 +81,8 @@ tl = tiledlayout(1, numel(stims));
 for k = 1:numel(stims)
     a = A(A.stim == stims(k) & A.pDSI < 0.05, :);                 % selective units
     nexttile(tl);
-    polarhistogram(a.prefDir, linspace(-pi/8, 2*pi - pi/8, 9), 'FaceColor', [0.3 0.3 0.3]);   % 8 bins centred on 0, 45, ...
+    nd = max([4; cellfun(@numel, a.dirs)]);                       % directions tested (4, or 8 in 45-degree sets)
+    polarhistogram(a.prefDir, linspace(-pi/nd, 2*pi - pi/nd, nd + 1), 'FaceColor', [0.3 0.3 0.3]);   % one bin per tested direction
     title(sprintf('%s (n = %d)', stims(k), height(a)));
     ax = gca; ax.ThetaZeroLocation = 'top'; ax.ThetaDir = 'counterclockwise';   % MB phi: 0 = up, pi/2 = left
     ax.ThetaTick = [0 90 180 270]; ax.ThetaTickLabel = {'up', 'left', 'down', 'right'};   % motion direction on the screen
