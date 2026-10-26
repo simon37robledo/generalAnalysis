@@ -140,7 +140,7 @@ for u = eNeuron
         maxRespIn = maxRespIn-1;
         trials = maxRespIn*trialsPerCath+1:maxRespIn*trialsPerCath + trialsPerCath;
 
-        chan = goodU(1,u);
+        chan = unitRawChannel(obj.spikeSortingFolder, phy_IDg(u));   % recording channel of this unit (not ic(1,:): Kilosort index)
 
         startTimes = directimesSorted(trials)+start;
 

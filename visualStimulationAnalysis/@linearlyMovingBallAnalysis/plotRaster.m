@@ -295,7 +295,7 @@ if params.Gaussian
     [Mr]=ConvBurstMatrix(Mr,fspecial('gaussian',[1 params.GaussianLength],3),'same');
 end
 
-channels = goodU(1,eNeuron);
+channels = unitRawChannel(obj.spikeSortingFolder, phy_IDg(eNeuron));   % recording channels of the plotted units (titles)
 
 [nT,nN,nB] = size(Mr);
 
@@ -727,7 +727,7 @@ for u = eNeuron
     %Mark selected trial (RasterTrials was already picked above by the real-spike search)
     RasterTrials = trials(best_row);
 
-    chan = goodU(1,u);
+    chan = unitRawChannel(obj.spikeSortingFolder, phy_IDg(u));   % recording channel of this unit (not ic(1,:): Kilosort index)
 
     subplot(18,1,[1 3])
 
