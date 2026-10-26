@@ -55,7 +55,7 @@ tests = runTest(tests, "MB: DSI above chance", u5, u5.DSIcorr);
 tests = runTest(tests, "MB: direction-selective (yes/no)", u5, double(u5.pDSI < 0.05));
 % Spatial tuning index and stripe RFs (Figure 2 table)
 L2 = load('W:\Large_scale_mapping_NP\lizards\Combined_lizard_analysis\Ex_40-97_SpatialTuningIndex_linearlyMovingBall-rectGrid_RF_prefDir_allResp_splitHalf_presence.mat', 'tbl');
-t2 = L2.tbl(L2.tbl.onOff == 1 & L2.tbl.sizeIdx == 1 & L2.tbl.lumIdx == 1, :);
+t2 = L2.tbl(L2.tbl.onOff == 1 & L2.tbl.sizeIdx == 1 & L2.tbl.lumValue == 255, :);   % white only (errors on a pre-fix cache)
 t2.exp = str2double(string(t2.experimentNum));                   % numeric recording ID (categorical -> value)
 for st = ["linearlyMovingBall", "rectGrid"]
     a = innerjoin(t2(t2.stimulus == st, {'exp','phyID','L_amplitude_diff','isStripe'}), ...

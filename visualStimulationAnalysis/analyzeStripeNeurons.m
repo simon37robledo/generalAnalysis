@@ -22,7 +22,7 @@ function results = analyzeStripeNeurons(exList, params)
 %             MB stripe   vs  SB stripe
 %
 %   PARAMETERS (must match the SpatialTuningIndex run that produced the cache)
-%       indexType, onOff, sizeIdx, lumIdx        condition filter
+%       indexType, onOff, sizeIdx, lumValue      condition filter (lumValue = pixel value, 255 = white)
 %       useRF, prefDir, allResponsive, unionResponsive   filename-tag flags
 %       nBoot      number of bootstrap resamples for hierBoot          (10000)
 %       Alpha      transparency for swarm dots                          (0.4)
@@ -43,7 +43,7 @@ arguments
     params.indexType        string  = "L_amplitude_diff"
     params.onOff            double  = 1
     params.sizeIdx          double  = 1
-    params.lumIdx           double  = 1
+    params.lumValue         double  = 255   % luminance (pixel value) kept by SpatialTuningIndex
     params.useRF            logical = true
     params.prefDir          logical = true
     params.allResponsive    logical = false
@@ -95,7 +95,10 @@ if ~ismember('isStripe', tbl.Properties.VariableNames)
 end
 
 % Apply the same condition filter that SpatialTuningIndex uses for plotting
-idxCond = tbl.onOff == params.onOff & tbl.sizeIdx == params.sizeIdx & tbl.lumIdx == params.lumIdx;
+if ~ismember('lumValue', tbl.Properties.VariableNames)          % cache from before the luminance fix (index 1 = black there)
+    error('Cached table lacks lumValue (old cache). Re-run SpatialTuningIndex.');
+end
+idxCond = tbl.onOff == params.onOff & tbl.sizeIdx == params.sizeIdx & tbl.lumValue == params.lumValue;   % luminance by value
 tbl     = tbl(idxCond, :);
 
 % =========================================================================
@@ -323,7 +326,7 @@ mbNonStr = mbAll(~mbAll.isStripe, :);
 sbNonStr = sbAll(~sbAll.isStripe, :);
 
 fprintf('\nStripe summary (condition onOff=%d, size=%d, lum=%d):\n', ...
-    params.onOff, params.sizeIdx, params.lumIdx);
+    params.onOff, params.sizeIdx, params.lumValue);              % luminance as pixel value
 fprintf('  MB stripe: %4d / %4d responsive (%.1f%%)\n', ...
     height(mbStripe), height(mbAll), 100*height(mbStripe)/max(1,height(mbAll)));
 fprintf('  SB stripe: %4d / %4d responsive (%.1f%%)\n', ...

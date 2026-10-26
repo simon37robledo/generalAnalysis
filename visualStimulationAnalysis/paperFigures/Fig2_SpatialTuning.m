@@ -13,10 +13,12 @@
 
 d    = figureDesign();                                            % shared design (recordings, output folder)
 paperFigPrefix('fig2');                                           % saved panels are named fig2_<panel>
-exps = intersect(d.exps, [40:43, 49:54, 64:66, 68:85, 87:97]);    % recordings with MB receptive-field maps
+exps = intersect(d.exps, [40:43, 49:54, 64:66, 68:83, 85, 87, 89:97]);   % MB with 9 parallel trajectories (full 9x9 coverage):
+                                                                  % excludes 1, 8 (single trajectory, 8 directions, SB 4x4)
+                                                                  % and 84, 88, 96 (single central trajectory, 3 sizes)
 tuneArgs = {'indexType', "L_amplitude_diff", 'topPercent', 5, 'useRF', true, 'prefDir', true, ...
-    'onOff', 1, 'sizeIdx', 1, 'lumIdx', 1, 'unionResponsive', false, 'allResponsive', true, ...
-    'splitHalf', true};                                           % index design (shared by both calls)
+    'onOff', 1, 'sizeIdx', 1, 'lumValue', 255, 'unionResponsive', false, 'allResponsive', true, ...
+    'splitHalf', true};                                           % index design (shared by both calls); white only, as Figure 1
 
 %% Receptive fields on each half of the repetitions (slow: run once, cached per recording)
 % Computes and caches ...-odd/-even RF files (and speed 2 where a unit's Figure-1
@@ -27,6 +29,8 @@ for ex = exps
     for half = ["all", "odd", "even"]
         rectGridAnalysis(NP).CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half);   % SB maps
         mb = linearlyMovingBallAnalysis(NP);                      % MB analysis object
+        assert(numel(unique(mb.VST.offsets)) == 9, ...            % Figure 2 needs the full 9x9 trajectory coverage
+            'Fig2: recording %d has %d MB trajectories, not 9.', ex, numel(unique(mb.VST.offsets)));
         for sp = 1:numel(unique(mb.VST.speed))                    % every recorded speed
             mb.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half, speed=sp);       % MB maps
         end
@@ -43,13 +47,13 @@ resPaired = SpatialTuningIndex(exps, pairedArgs{:}, overwrite=true, PaperFig=tru
     plotRFs=false, plotRFunion=false, detectStripe=true, testStripeDetection=false);   % paired hierarchical bootstrap of MB - SB
 
 %% Stripe units vs responsive non-stripe units (depth, z, OSI/DSI, direction)
-stripeArgs ={'indexType', "L_amplitude_diff", 'onOff', 1, 'sizeIdx', 1, 'lumIdx', 1, 'useRF', true, ...
+stripeArgs ={'indexType', "L_amplitude_diff", 'onOff', 1, 'sizeIdx', 1, 'lumValue', 255, 'useRF', true, ...
     'prefDir', true, 'unionResponsive', false, 'allResponsive', true, 'splitHalf', true};   % must match the call above
 resStripe = analyzeStripeNeurons(exps, stripeArgs{:}, PaperFig=true);
 
 %% Leave-one-animal-out: MB vs SB index (two-sample hierarchical bootstrap, as in SpatialTuningIndex)
 S   = results;                                                    % SpatialTuningIndex output
-tbl = S.tbl(S.tbl.onOff == 1 & S.tbl.sizeIdx == 1 & S.tbl.lumIdx == 1, :);   % plotted condition
+tbl = S.tbl(S.tbl.onOff == 1 & S.tbl.sizeIdx == 1 & S.tbl.lumValue == 255, :);   % plotted condition (white)
 animals = categories(removecats(tbl.animal));                     % animals in the figure
 loao = table('Size', [numel(animals) + 1, 6], 'VariableTypes', {'string','double','double','double','double','double'}, ...
     'VariableNames', {'leftOut','nMB','nSB','meanMB','meanSB','pOneTailed'});   % one row per run

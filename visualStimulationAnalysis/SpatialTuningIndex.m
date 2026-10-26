@@ -14,7 +14,8 @@ arguments
     params.indexType  string        = "L_amplitude_diff"  % L_amplitude_diff, L_amplitude_ratio, L_geometric, L_combined
     params.onOff      double        = 1             % 1=on, 2=off (rectGrid only; ignored for linearlyMovingBall)
     params.sizeIdx    double        = 1
-    params.lumIdx     double        = 1
+    params.lumValue   double        = 255   % luminance (pixel value) analysed; RFs are sliced to it on load
+                                            % (a fixed index picked black in black+white recordings, see keepLuminance)
     params.nBoot      double        = 10000
     params.yLegend    char          = 'Spatial Tuning Index'
     params.yMaxVis    double        = 1
@@ -89,6 +90,11 @@ end
 if params.splitHalf && ~params.useRF
     error('splitHalf=true requires useRF=true (split-half receptive fields).');
 end
+% luminance selection (keepLuminance) slices the RF maps only, not gridSpikeRate
+if ~params.useRF
+    error('useRF=false is not supported: lumValue selection is implemented for the RF maps only.');
+end
+params.lumIdx = 1;   % RF maps keep only lumValue (keepLuminance), so luminance index 1 is lumValue in every recording
 
 % allResponsive is incompatible with diff plotting — neurons are unpaired
 if params.allResponsive
@@ -389,7 +395,7 @@ if ~goto_plot
 
             % Receptive fields of ALL good units (all repetitions); for MB each
             % unit's RF comes from its Figure-1 speed (lowest p).
-            S_rf = loadRF(obj, stimType, "all", bestSpeed_all{s}, numel(phy_IDg));
+            S_rf = loadRF(obj, stimType, "all", bestSpeed_all{s}, numel(phy_IDg), params.lumValue);   % white only
 
             % ----------------------------------------------------------
             % Build gridSpikeRateSelected and gridShuffMean
@@ -635,6 +641,7 @@ if ~goto_plot
             nN    = size(gridSpikeRateSelected, 3);
             nSize = size(gridSpikeRateSelected, 4);
             nLum  = size(gridSpikeRateSelected, 5);
+            assert(nLum == 1, 'Exp %d %s: %d luminance levels after keepLuminance, expected 1.', ex, stimType, nLum);  % rows.lumValue relies on it
             nGrid = size(gridSpikeRateSelected, 1);
 
             fprintf('gridSpikeRateSelected size: %s\n', num2str(size(gridSpikeRateSelected)));
@@ -816,6 +823,7 @@ if ~goto_plot
                     rows.onOff             = repmat(params.onOff, nN, 1);
                     rows.sizeIdx           = repmat(si, nN, 1);
                     rows.lumIdx            = repmat(li, nN, 1);
+                    rows.lumValue          = repmat(params.lumValue, nN, 1);   % luminance kept by keepLuminance (nLum = 1)
                     
                     % Preferred-direction index into the direction dimension of
                     % RFuSTDirSizeLum.  NaN for rectGrid or when prefDir=false.
@@ -879,7 +887,7 @@ if params.detectStripe && params.testStripeDetection
     % ---- Filter table to the requested condition --------------------
     idxCondTest       = tbl.onOff   == params.onOff   & ...
         tbl.sizeIdx == params.sizeIdx & ...
-        tbl.lumIdx  == params.lumIdx;
+        tbl.lumValue == params.lumValue;   % by value: errors on a cache without lumValue
     tblTest           = tbl(idxCondTest, :);
     tblTest.value     = tblTest.(params.indexType);
 
@@ -959,12 +967,15 @@ if params.detectStripe && params.testStripeDetection
                 p_s_t     = NP_t.convertPhySorting2tIc(obj_lmb.spikeSortingFolder);
                 phy_IDg_t = p_s_t.phy_ID(string(p_s_t.label') == 'good');
 
-                S_rf_lmb_t = obj_lmb.CalculateReceptiveFields;
+                S_rf_lmb_t = keepLuminance(obj_lmb.CalculateReceptiveFields, obj_lmb, "linearlyMovingBall", params.lumValue);  % analysed luminance only
                 try
                     obj_rg_t  = rectGridAnalysis(NP_t);
                     S_rf_rg_t = obj_rg_t.CalculateReceptiveFields;
                 catch
                     S_rf_rg_t = [];
+                end
+                if ~isempty(S_rf_rg_t)                                          % outside the try: a luminance error must not be swallowed
+                    S_rf_rg_t = keepLuminance(S_rf_rg_t, obj_rg_t, "rectGrid", params.lumValue);   % analysed luminance only
                 end
 
                 rfSpeed_t  = S_rf_lmb_t.params.speed;
@@ -1145,7 +1156,7 @@ results.tbl = tbl;
 
 idxCond       = tbl.onOff   == params.onOff   & ...
                 tbl.sizeIdx == params.sizeIdx & ...
-                tbl.lumIdx  == params.lumIdx;
+                tbl.lumValue == params.lumValue;   % by value: errors on a cache without lumValue
 tblCond       = tbl(idxCond, :);
 tblCond.value = tblCond.(params.indexType);
 
@@ -1189,7 +1200,7 @@ if params.plot
     % Filter table to the requested on/off, size, and lum condition
     idx     = tbl.onOff   == params.onOff   & ...
               tbl.sizeIdx == params.sizeIdx & ...
-              tbl.lumIdx  == params.lumIdx;
+              tbl.lumValue == params.lumValue;   % by value: errors on a cache without lumValue
     tblPlot = tbl(idx, :);
     tblPlot.value     = tblPlot.(params.indexType);
     tblPlot.insertion = tblPlot.experimentNum;  % rename for plotting compatibility
@@ -1398,7 +1409,7 @@ if params.plotRFs
         % -----------------------------------------------------------------
         idxCond_rf      = tbl.onOff   == params.onOff   & ...
                           tbl.sizeIdx == params.sizeIdx & ...
-                          tbl.lumIdx  == params.lumIdx;
+                          tbl.lumValue == params.lumValue;   % by value: errors on a cache without lumValue
         tblCondRF       = tbl(idxCond_rf, :);            % rows matching condition
         tblCondRF.value = tblCondRF.(params.indexType);   % copy chosen index into 'value'
 
@@ -1767,7 +1778,8 @@ if params.plotRFs
                                 phy_IDg_tmp = p_s_tmp.phy_ID(string(p_s_tmp.label') == 'good');
 
                                 % Load MB receptive field data (always needed for prefDir)
-                                S_rf_lmb = obj_lmb.CalculateReceptiveFields;
+                                S_rf_lmb = keepLuminance(obj_lmb.CalculateReceptiveFields, obj_lmb, ...
+                                    "linearlyMovingBall", params.lumValue);      % analysed luminance only
 
                                 % Load RG receptive field data (needed for rectGrid
                                 % tiles; wrapped in try-catch in case this experiment
@@ -1777,6 +1789,9 @@ if params.plotRFs
                                     S_rf_rg = obj_rg.CalculateReceptiveFields;
                                 catch
                                     S_rf_rg = [];   % flag: no RG data for this experiment
+                                end
+                                if ~isempty(S_rf_rg)                    % outside the try: a luminance error must not be swallowed
+                                    S_rf_rg = keepLuminance(S_rf_rg, obj_rg, "rectGrid", params.lumValue);   % analysed luminance only
                                 end
 
                                 % ---- Compute preferred direction for ALL good units ----
@@ -2095,10 +2110,11 @@ end  % plotRFs block
 %  LOCAL FUNCTIONS (no closing 'end': the main function has none either)
 % =========================================================================
 
-function S = loadRF(obj, stimType, half, bestSpeed, nGood)
+function S = loadRF(obj, stimType, half, bestSpeed, nGood, lumValue)
 % Receptive fields of ALL good units for one set of repetitions ("all",
 % "odd" or "even"). MB: each unit's maps come from its own speed (bestSpeed,
 % the Figure-1 rule); other speeds are computed and cached on first use.
+% Only luminance lumValue is kept (keepLuminance), so luminance index 1 is lumValue.
 switch stimType
     case "rectGrid"
         S = obj.CalculateReceptiveFields(AllResponsiveNeurons=false, trialHalf=half);   % all good units
@@ -2127,6 +2143,35 @@ switch stimType
         end
         S.unitSpeed = bestSpeed(:);                                      % record which speed each unit uses
 end
+S = keepLuminance(S, obj, stimType, lumValue);                       % analysed luminance only (index 1)
+
+function S = keepLuminance(S, obj, stimType, lumValue)
+% Keep only luminance lumValue (pixel value) in an RF struct. CalculateReceptiveFields
+% orders the luminance dimension by unique() (ascending), so in recordings that
+% interleave black (1) and white (255) a fixed index 1 is black. After this call the
+% luminance dimension has one entry, lumValue, in every recording.
+switch stimType
+    case "linearlyMovingBall"
+        lums = unique(obj.ResponseWindow.Speed1.C(:, 6));             % luminance levels, order of the RF dimension
+        nLum = size(S.RFuSTDirSizeLum, 3);                            % RF luminance dimension
+        assert(numel(lums) == nLum, 'MB RFs have %d luminance levels, trials have %d (%s).', ...
+            nLum, numel(lums), mat2str(lums'));                       % the two must describe the same levels
+        k = find(lums == lumValue);                                   % position of the analysed luminance
+        assert(isscalar(k), 'MB luminance %d was not presented (levels %s).', lumValue, mat2str(lums'));
+        % Each luminance slice is accumulated over its conditions but divided by the
+        % conditions of all luminances (CalculateReceptiveFields), i.e. it is 1/nLum of
+        % the per-condition scale of RFuST and RFuShuffST; multiply back by nLum.
+        S.RFuSTDirSizeLum = S.RFuSTDirSizeLum(:, :, k, :, :, :) * nLum;   % [nDir, nSize, 1, rfY, rfX, nN]
+    case "rectGrid"
+        lums = unique(obj.VST.rectLuminosity(obj.VST.luminosities));  % luminance levels, as in CalculateReceptiveFields
+        assert(numel(lums) == size(S.RFu, 2) && isequal(size(S.RFu), size(S.RFuShuffMean)), ...
+            'RG RFs have %d luminance levels, stimulus has %d (%s).', size(S.RFu, 2), numel(lums), mat2str(lums));
+        k = find(lums == lumValue);                                   % position of the analysed luminance
+        assert(isscalar(k), 'RG luminance %d was not presented (levels %s).', lumValue, mat2str(lums));
+        S.RFu          = S.RFu(:, k, :, :, :, :);                     % [2(onOff), 1, nSize, sR, sR, nN]
+        S.RFuShuffMean = S.RFuShuffMean(:, k, :, :, :, :);            % shuffle of the same luminance
+end
+S.lumValue = lumValue;                                                % record the luminance kept
 
 function G = toGrid(A, nGrid)
 % Block-average the first two (square) dimensions of A to nGrid x nGrid;
@@ -2184,8 +2229,8 @@ shuff = reshape(toGrid(sh, nGrid), [nGrid, nGrid, nU, nSize, nLums]);   % 9x9 sh
 function [mapsA, shufA, mapsB, shufB] = splitHalfMaps(obj, stimType, uIdx, bestSpeed, nGood, params, nGrid)
 % Cross-validated maps: A = measured on even repetitions (MB direction
 % chosen on odd), B = measured on odd (direction chosen on even).
-Sodd  = loadRF(obj, stimType, "odd",  bestSpeed, nGood);             % odd repetitions
-Seven = loadRF(obj, stimType, "even", bestSpeed, nGood);             % even repetitions
+Sodd  = loadRF(obj, stimType, "odd",  bestSpeed, nGood, params.lumValue);   % odd repetitions, analysed luminance only
+Seven = loadRF(obj, stimType, "even", bestSpeed, nGood, params.lumValue);   % even repetitions, analysed luminance only
 switch stimType
     case "linearlyMovingBall"
         if params.prefDir
