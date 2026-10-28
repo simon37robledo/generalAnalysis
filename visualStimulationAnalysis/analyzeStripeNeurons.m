@@ -66,7 +66,7 @@ end
 % 1.  Locate and load the cached SpatialTuningIndex results
 % =========================================================================
 NP_first = loadNPclassFromTable(exList(1));
-vs_first = linearlyMovingBallAnalysis(NP_first);
+vs_first = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);   % paths only: any MB session
 pBase    = extractBefore(vs_first.getAnalysisFileName, 'lizards');
 saveDir  = [pBase 'lizards\Combined_lizard_analysis'];
 

@@ -8,7 +8,7 @@ for ex =  exp%GoodRecordingsPV%allGoodRec %GoodRecordings%GoodRecordingsPV%GoodR
     %%%%%%%%%%%% Load data and data paremeters
     %1. Load NP class
     NP = loadNPclassFromTable(ex);
-    vs = linearlyMovingBallAnalysis(NP,Session=1);
+    vs = linearlyMovingBallAnalysis(NP,Session=1,MultipleOffsets=false);   % sorting folder only: any MB session
     KSversion =4;
 
     [qMetric,unitType]=NP.getBombCell(NP.recordingDir+"\kilosort4",0,KSversion,1);
@@ -171,7 +171,7 @@ selected = PVexps(idx);
 selected =69; 
 for i = selected(1:end)
     NP = loadNPclassFromTable(i);
-    vs = linearlyMovingBallAnalysis(NP,Session=1);
+    vs = linearlyMovingBallAnalysis(NP,Session=1,MultipleOffsets=false);   % sorting folder only: any MB session
 
     p = vs.dataObj.convertPhySorting2tIc(vs.spikeSortingFolder);
     phy_IDg = p.phy_ID(string(p.label') == 'good');

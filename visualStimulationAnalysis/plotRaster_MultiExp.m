@@ -195,7 +195,7 @@ end
 % Derive save/load path from the first experiment
 % -------------------------------------------------------------------------
 NP_first = loadNPclassFromTable(exList(end));                              % load NP object for path info
-vs_first = linearlyMovingBallAnalysis(NP_first);                         % analysis object for filesystem path
+vs_first = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);  % analysis object for filesystem path (any MB session)
 
 p = extractBefore(vs_first.getAnalysisFileName, 'lizards');              % root up to 'lizards' token
 p = [p 'lizards'];                                                      % include 'lizards' folder

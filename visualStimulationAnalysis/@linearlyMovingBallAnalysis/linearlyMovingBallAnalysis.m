@@ -14,7 +14,8 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
             arguments (Input) %ResponseWindow.mat
                 dataObj
                 params.Session double = 1
-                params.MultipleOffsets logical = false
+                params.MultipleOffsets logical = true    % use the session with parallel trajectories (9x9 protocol);
+                                                         % false = the requested session as is (e.g. size/speed analyses)
                 params.Multiplesizes logical = false
             end
             if nargin==0
@@ -31,12 +32,26 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
                     originalSession = params.Session;
                     params.Session = 1 + floor(1/params.Session); %converts 1 into 2 and 2 into 1. Only a maximum of two sessions per insertion.
 
+                    % Build the other session; it may not exist (one MB session in this insertion)
+                    try
+                        other = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'MultipleOffsets', false);
+                    catch
+                        other = [];                                   % no second MB session
+                    end
+                    % Without a session with parallel trajectories the grid analyses cannot run:
+                    % fail loudly; callers treat a constructor error as "MB absent"
+                    if isempty(other) || isempty(other.VST) || length(unique(other.VST.offsets)) < 2
+                        error('linearlyMovingBallAnalysis:noGridSession', ...
+                            ['%s: no MB session with parallel trajectories (9x9 protocol); MB treated as absent. ' ...
+                             'Pass MultipleOffsets=false to load the single-trajectory session.'], dataObj.recordingName);
+                    end
+
                     warning('linearlyMovingBallAnalysis:insufficientOffsets', ...
                         'Session %d has fewer than 2 unique offsets. Switching to session %d.', ...
                         originalSession, params.Session);
 
-                    % Reconstruct the object with the fallback session - overwrites the first construction
-                    obj = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'MultipleOffsets', false);
+                    % Use the fallback session - overwrites the first construction
+                    obj = other;
                     obj.Session = params.Session;
                 end
 
@@ -50,7 +65,8 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
                         originalSession, params.Session);
 
                     % Reconstruct the object with the fallback session - overwrites the first construction
-                    obj = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'Multiplesizes', false);
+                    obj = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'Multiplesizes', false, ...
+                        'MultipleOffsets', false);                    % keep this (multi-size) session: no switch back to 9x9
                     obj.Session = params.Session;
                 end
 

@@ -36,6 +36,10 @@ function d = figureDesign()
 %     psthArgs    name-value cell shared by the plotPSTH_MultiExp calls
 
 d.exps      = [1, 8, 40:43, 49:54, 64:66, 68:85, 87:97];          % all recordings (stimuli absent from one are skipped)
+% MB = the 9x9 session (parallel trajectories) everywhere: 84, 88, 96 use session 2.
+% Recordings 1 and 8 have no 9x9 MB session (single trajectory, 8 directions): the
+% MB constructor errors (linearlyMovingBallAnalysis:noGridSession) and every figure
+% treats MB as absent there; their other stimuli are kept.
 d.paperFigs = 'W:\Large_scale_mapping_NP\Paper_figs';             % where AllExpAnalysis saves figures and structs
 
 d.statsArgs = { ...

@@ -31,7 +31,7 @@ end
 T = table();
 for ex = exList
     NP  = loadNPclassFromTable(ex);                                % recording
-    obj = linearlyMovingBallAnalysis(NP);                          % any stimulus object: shared sorting folder
+    obj = linearlyMovingBallAnalysis(NP, MultipleOffsets=false);   % any stimulus object: shared sorting folder (any MB session)
     p   = NP.convertPhySorting2tIc(obj.spikeSortingFolder);        % good-unit order used by every statistic
     good  = string(p.label') == 'good';                            % good somatic units
     phyID = p.phy_ID(good);                                        % their phy cluster IDs, in stats order

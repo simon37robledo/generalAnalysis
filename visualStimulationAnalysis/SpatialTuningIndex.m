@@ -123,7 +123,7 @@ switch params.stimTypes(1)
     case "rectGrid"
         vs_first = rectGridAnalysis(NP_first);
     case "linearlyMovingBall"
-        vs_first = linearlyMovingBallAnalysis(NP_first);
+        vs_first = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);   % paths only: any MB session
 end
 
 % Extract base path up to 'lizards' folder
@@ -207,7 +207,7 @@ if ~goto_plot
         end
 
         % Use linearlyMovingBall to extract spike sorting info (shared across stim types)
-        obj_s = linearlyMovingBallAnalysis(NP);
+        obj_s = linearlyMovingBallAnalysis(NP, MultipleOffsets=false);   % spike-sorting folder only: any MB session
 
         % Extract animal name from recording name (first underscore-delimited token)
         nameParts  = split(NP.recordingName, '_');

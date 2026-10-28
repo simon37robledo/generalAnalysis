@@ -265,7 +265,7 @@ end
 
 % Load the first experiment to extract directory paths for saving
 NP0 = loadNPclassFromTable(expList(end));
-vs0 = linearlyMovingBallAnalysis(NP0);
+vs0 = linearlyMovingBallAnalysis(NP0, 'MultipleOffsets', false);   % paths only: any MB session
 
 % Build the root path and combined-analysis save directory
 rootPath = extractBefore(vs0.dataObj.recordingDir, 'lizards');  % path up to 'lizards'

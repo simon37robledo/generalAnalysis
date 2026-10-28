@@ -143,7 +143,7 @@ end
 % Build save directory path using the first experiment as a reference
 % -------------------------------------------------------------------------
 NP_first  = loadNPclassFromTable(exList(end));                               % load NP class for the first experiment to extract paths
-vs_first  = linearlyMovingBallAnalysis(NP_first);                         % construct a ball-analysis object just to access getAnalysisFileName
+vs_first  = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);  % ball-analysis object just to access getAnalysisFileName (any MB session)
 
 basePath  = extractBefore(vs_first.getAnalysisFileName, 'lizards');        % trim the path at 'lizards' to get the shared root
 basePath  = [basePath 'lizards'];                                           % re-append 'lizards' to form the correct base

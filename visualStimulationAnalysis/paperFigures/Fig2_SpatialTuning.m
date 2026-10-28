@@ -13,9 +13,10 @@
 
 d    = figureDesign();                                            % shared design (recordings, output folder)
 paperFigPrefix('fig2');                                           % saved panels are named fig2_<panel>
-exps = intersect(d.exps, [40:43, 49:54, 64:66, 68:83, 85, 87, 89:97]);   % MB with 9 parallel trajectories (full 9x9 coverage):
-                                                                  % excludes 1, 8 (single trajectory, 8 directions, SB 4x4)
-                                                                  % and 84, 88, 96 (single central trajectory, 3 sizes)
+exps = intersect(d.exps, [40:43, 49:54, 64:66, 68:85, 87:97]);    % MB with 9 parallel trajectories (full 9x9 coverage):
+                                                                  % excludes 1, 8 (single trajectory, 8 directions, SB 4x4);
+                                                                  % 84, 88, 96 use their second (9x9) MB session
+                                                                  % (linearlyMovingBallAnalysis picks it by default)
 tuneArgs = {'indexType', "L_amplitude_diff", 'topPercent', 5, 'useRF', true, 'prefDir', true, ...
     'onOff', 1, 'sizeIdx', 1, 'lumValue', 255, 'unionResponsive', false, 'allResponsive', true, ...
     'splitHalf', true};                                           % index design (shared by both calls); white only, as Figure 1
