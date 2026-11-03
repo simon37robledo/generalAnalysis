@@ -72,7 +72,8 @@ if params.write
     outDir   = fileparts(structPath);                            % next to the analysed struct
     xlsxPath = fullfile(outDir, [params.outName '.xlsx']);
     csvPath  = fullfile(outDir, [params.outName '.csv']);
-    writetable(T, xlsxPath);                                     % spreadsheet for the supplement
+    writetable(T, xlsxPath, 'WriteMode', 'replacefile');         % spreadsheet for the supplement; replace the file, since
+                                                                 % plain writetable leaves rows of a longer old table behind
     writetable(T, csvPath);                                      % plain-text copy
     outPaths = {xlsxPath, csvPath};
     fprintf('\nWrote %d rows to:\n  %s\n  %s\n', height(T), xlsxPath, csvPath);

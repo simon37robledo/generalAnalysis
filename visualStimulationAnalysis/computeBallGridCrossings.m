@@ -68,23 +68,26 @@ trialDivVid   = size(C,1) / numel(unique(C(:,2))) / numel(unique(C(:,3))) ...
 nFrames  = sizeX(end);
 nTrials  = size(C,1);
 
-% Build [nTrials × nFrames] position arrays matching C order
-% Loop structure MUST match the order used to build C (dir × offset ×
-% speed)member you can have more than one speed
-ChangePosX = zeros(nTrials, nFrames);
-ChangePosY = zeros(nTrials, nFrames);
-j = 1;
-for d  = 1:sizeX(3)           % directions
-    for of = 1:sizeX(2)       % offsets
-        for sp = 1:sizeX(1)   % speeds (one after speedIndx selection)
-            % Replicate trajectory across size categories and trial divisions
-            traj = squeeze(Xpos(sp, of, d, :))';   % [1 × nFrames]
-            ChangePosX(j:j+nSizes*trialDivVid-1, :) = repmat(traj, nSizes*trialDivVid, 1);
-            trajY = squeeze(Ypos(sp, of, d, :))';
-            ChangePosY(j:j+nSizes*trialDivVid-1, :) = repmat(trajY, nSizes*trialDivVid, 1);
-            j = j + nSizes * trialDivVid;
-        end
-    end
+% Build [nTrials × nFrames] position arrays matching C order.
+% Each trial's trajectory is looked up from its own (direction, offset) in C.
+% (A fill loop in direction x offset order assumed C had no luminosity level
+% between direction and offset; C is sorted direction x luminosity x offset,
+% so black+white recordings got the wrong trajectory in most trials.)
+assert(sizeX(1) == 1, 'computeBallGridCrossings: expected one speed after selection, got %d.', sizeX(1));
+dirVals = unique(obj.VST.directions);                % trajectory direction axis: phi ascending (VS_linearlyMovingBall)
+offVals = obj.VST.parallelsOffset(:)';               % trajectory offset axis: stimulus parameter order
+assert(numel(dirVals) == sizeX(3) && numel(offVals) == sizeX(2), ...
+    'computeBallGridCrossings: %d directions x %d offsets in VST, trajectories are %d x %d.', ...
+    numel(dirVals), numel(offVals), sizeX(3), sizeX(2));   % axes must describe the trajectory array
+[okD, dIdx] = ismembertol(C(:,2), dirVals, 1e-6);    % direction index of every trial
+[okO, oIdx] = ismember(C(:,3), offVals);             % offset index of every trial
+assert(all(okD) && all(okO), 'computeBallGridCrossings: %d trials without a matching trajectory.', ...
+    sum(~(okD & okO)));                              % every trial must map to exactly one trajectory
+ChangePosX = zeros(nTrials, nFrames);                % per-trial x position per frame
+ChangePosY = zeros(nTrials, nFrames);                % per-trial y position per frame
+for t = 1:nTrials
+    ChangePosX(t, :) = squeeze(Xpos(1, oIdx(t), dIdx(t), :))';   % this trial's own trajectory (x)
+    ChangePosY(t, :) = squeeze(Ypos(1, oIdx(t), dIdx(t), :))';   % this trial's own trajectory (y)
 end
 
 % -------------------------------------------------------------------------

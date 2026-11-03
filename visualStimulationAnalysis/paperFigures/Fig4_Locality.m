@@ -19,7 +19,7 @@ leaveOneAnimalOut(d.structPath(d.exps, stimsS), figLabel='Figure 4 static', outN
 
 %% Static locality: PSTH and raster (RG ON period; interactive session for the raster)
 plotPSTH_MultiExp(d.exps, d.psthArgsStatic{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
-plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);
+plotRaster_MultiExp(d.exps, d.rasterArgsStatic{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);   % 0-1 s
 
 %% Moving locality: MB vs MBR (statistics)
 stimsB = {'MB', 'MBR'};
@@ -40,7 +40,7 @@ leaveOneAnimalOut(d.structPath(d.exps, stimsG), figLabel='Figure 4 MB-SDGm', out
 plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
 plotPSTH_MultiExp(d.exps, d.psthArgsSDG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);
-plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);
+plotRaster_MultiExp(d.exps, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);      % SDGm 0-2 s, MB 500 ms after the crossing
 
 %% Supplementary (descriptive, PV97 only): MBR vs SDGm
 expsPV97 = 49:54;                                                 % the only recordings with both MBR and SDG

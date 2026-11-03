@@ -38,21 +38,23 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
                     catch
                         other = [];                                   % no second MB session
                     end
-                    % Without a session with parallel trajectories the grid analyses cannot run:
-                    % fail loudly; callers treat a constructor error as "MB absent"
+                    % No session with parallel trajectories (recs 1, 8): keep the single-trajectory
+                    % session; the grid test only uses the cells the ball crosses. Analyses that
+                    % need 9x9 coverage (Fig 2 receptive-field maps) must exclude these recordings.
                     if isempty(other) || isempty(other.VST) || length(unique(other.VST.offsets)) < 2
-                        error('linearlyMovingBallAnalysis:noGridSession', ...
-                            ['%s: no MB session with parallel trajectories (9x9 protocol); MB treated as absent. ' ...
-                             'Pass MultipleOffsets=false to load the single-trajectory session.'], dataObj.recordingName);
+                        warning('linearlyMovingBallAnalysis:singleTrajectory', ...
+                            '%s: no MB session with parallel trajectories; using the single-trajectory session %d.', ...
+                            dataObj.recordingName, originalSession);
+                        obj.Session = originalSession;                % keep the session constructed above
+                    else
+                        warning('linearlyMovingBallAnalysis:insufficientOffsets', ...
+                            'Session %d has fewer than 2 unique offsets. Switching to session %d.', ...
+                            originalSession, params.Session);
+
+                        % Use the fallback session - overwrites the first construction
+                        obj = other;
+                        obj.Session = params.Session;
                     end
-
-                    warning('linearlyMovingBallAnalysis:insufficientOffsets', ...
-                        'Session %d has fewer than 2 unique offsets. Switching to session %d.', ...
-                        originalSession, params.Session);
-
-                    % Use the fallback session - overwrites the first construction
-                    obj = other;
-                    obj.Session = params.Session;
                 end
 
 

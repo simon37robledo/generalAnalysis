@@ -210,7 +210,7 @@ if params.write && ~isempty(T)
 
     xlsxPath = fullfile(outDir, [params.outName '.xlsx']);
     csvPath  = fullfile(outDir, [params.outName '.csv']);
-    writetable(T, xlsxPath);
+    writetable(T, xlsxPath, 'WriteMode', 'replacefile');   % replace: plain writetable leaves rows of a longer old table behind
     writetable(T, csvPath);
     outPaths = {xlsxPath, csvPath};
 

@@ -36,10 +36,10 @@ function d = figureDesign()
 %     psthArgs    name-value cell shared by the plotPSTH_MultiExp calls
 
 d.exps      = [1, 8, 40:43, 49:54, 64:66, 68:85, 87:97];          % all recordings (stimuli absent from one are skipped)
-% MB = the 9x9 session (parallel trajectories) everywhere: 84, 88, 96 use session 2.
-% Recordings 1 and 8 have no 9x9 MB session (single trajectory, 8 directions): the
-% MB constructor errors (linearlyMovingBallAnalysis:noGridSession) and every figure
-% treats MB as absent there; their other stimuli are kept.
+% MB = the 9x9 session (parallel trajectories) where one exists: 84, 88, 96 use session 2.
+% Recordings 1 and 8 have only a single-trajectory MB (8 directions): it is used in every
+% figure except Figure 2 (receptive-field maps need 9x9 coverage; Fig2 lists its recordings
+% and asserts 9 trajectories). Sensitivity without 1 and 8: Sensitivity_NoRecs1_8.m.
 d.paperFigs = 'W:\Large_scale_mapping_NP\Paper_figs';             % where AllExpAnalysis saves figures and structs
 
 d.statsArgs = { ...
@@ -76,6 +76,10 @@ sdgW = d.statsArgs{find(strcmp(d.statsArgs, 'sdgWindows')) + 1}; % [static drift
 d.psthArgsSDG = setArg(setArg(d.psthArgs, 'postStim', 2000), 'binWidth', 100);   % drifting-grating comparisons (0-2 s)
 d.psthArgsSDG = [d.psthArgsSDG, {'capMs', struct('SDGs', sdgW(1))}];   % SDGs drawn only over its static test window
 d.psthArgsStatic = [setArg(d.psthArgs, 'postStim', 1000), {'capMs', struct('SDGs', sdgW(1))}];  % RG vs SDGs (0-1 s)
+% Raster windows for gratings, matching the PSTHs: grid-tested MB keeps its own
+% window after the RF crossing (gridPostMs); onset-tested panels use postStim.
+d.rasterArgsSDG    = setArg(d.rasterArgs, 'postStim', 2000);     % MB vs SDGm: drifting grating 0-2 s (test window 1923 ms)
+d.rasterArgsStatic = setArg(d.rasterArgs, 'postStim', sdgW(1));  % RG vs SDGs: 0-1 s (static test window 1000 ms)
 end
 
 function a = setArg(a, name, value)

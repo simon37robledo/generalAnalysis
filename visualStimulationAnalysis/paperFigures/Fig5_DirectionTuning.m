@@ -89,6 +89,133 @@ for k = 1:numel(stims)
 end
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'PreferredDirection.jpg']), 'Resolution', 300);
 
+%% Example direction-tuned MB unit: a priori selection and tuning curve
+% Rule fixed before looking at any raster: MB units responsive AND present (A),
+% direction-selective (pDSI < 0.05) and crossing their RF cell >= minCross times
+% in every direction, ranked by DSIcorr (DSI above chance). The top unit is
+% plotted unless exPick names another one. Tuning curve = the grid test's own
+% per-trial values (ObsDiff: mean rate in the 300 ms after the ball crosses the
+% RF cell minus the 300 ms pre-trial baseline), mean +/- SEM per direction.
+% Only interior RF cells (interiorOnly = true, user 2026-11-03): an edge cell is
+% crossed ~230 ms after onset in the entering directions and ~250 ms before offset
+% in the others, so early- vs late-crossing directions also differ in time within
+% the trial; an interior cell avoids that ambiguity in the example. (The top edge
+% units, rec 75 phy 32 and 202, cell 81, were checked 2026-11-03: no onset response
+% in late-crossing trials and left >> up at equal crossing times, i.e. directional.)
+exPick   = [];                                                    % [exp phyID] overrides the rule; [] = top candidate
+minCross = 5;                                                     % crossings of the RF cell required in every direction
+interiorOnly = true;                                              % only RF cells off the grid edge (crossed >= 470 ms from onset and offset)
+gs       = 9;                                                     % grid size of the MB test (StatisticsPerNeuron: GridSize = 9)
+arrows   = char([8593 8598 8592 8601 8595 8600 8594 8599]);       % up, up-left, left, down-left, down, down-right, right, up-right
+dNames   = ["up" "up-left" "left" "down-left" "down" "down-right" "right" "up-right"];   % same order (MB phi, 45-degree steps)
+dIdx     = @(phi) mod(round(phi / (pi/4)), 8) + 1;                % MB phi (0 = up, pi/2 = left) -> nearest 45-degree label
+M    = A(A.stim == "MB", :);                                      % analysable MB units
+[rC, cC] = ind2sub([gs gs], M.cell);                              % grid row and column of each RF cell
+inner = rC > 1 & rC < gs & cC > 1 & cC < gs;                      % RF cell off the grid edge
+cand = M(M.pDSI < 0.05 & cellfun(@(n) all(n >= minCross), M.nPerDir) & (inner | ~interiorOnly), :);   % selective, enough crossings, interior
+cand = sortrows(cand, 'DSIcorr', 'descend');                      % strongest selectivity above chance first
+assert(height(cand) > 0, 'Fig5: no MB unit passes the example-unit criteria.');   % fail loudly
+top  = cand(1:min(5, height(cand)), {'exp','phyID','animal','DSIcorr','pDSI','prefDir'});   % top 5 candidates
+top.prefDeg  = rad2deg(top.prefDir);                              % preferred direction in degrees (MB phi)
+top.prefName = dNames(dIdx(top.prefDir))';                        % nearest screen direction
+top.peakRate = cellfun(@max, cand.R(1:height(top)));              % largest mean delta rate over directions (spikes/s): flags sparse units
+fprintf('Example-unit candidates: %d of %d analysable MB units pass (interiorOnly = %d); top %d:\n', height(cand), height(M), interiorOnly, height(top));
+disp(top);
+if isempty(exPick)
+    ex1 = cand(1, :);                                             % rule: top-ranked candidate
+else
+    ex1 = M(M.exp == exPick(1) & M.phyID == exPick(2), :);        % the chosen unit (key match)
+    assert(height(ex1) == 1, 'Fig5: exPick [%d %d] is not one analysable MB unit.', exPick(1), exPick(2));   % exactly one row
+    if ~any(cand.exp == exPick(1) & cand.phyID == exPick(2))
+        warning('Fig5:exampleNotCandidate', 'Unit %d/%d does not pass the example-unit criteria.', exPick(1), exPick(2));   % flag a post-hoc pick
+    end
+end
+
+vsEx = linearlyMovingBallAnalysis(loadNPclassFromTable(ex1.exp)); % 9x9 MB session, as in directionTuningUnits
+StEx = vsEx.StatisticsPerNeuron;                                  % bare call: figure-design grid statistics (errors if stale)
+spF  = sprintf('Speed%d', ex1.speed);                             % the unit's Figure 1 speed
+g    = StEx.(spF);                                                % grid results at that speed
+assert(StEx.gridParams.GridSize == gs, 'Fig5: grid is %dx%d, the interior rule assumes %dx%d.', ...
+    StEx.gridParams.GridSize, StEx.gridParams.GridSize, gs, gs);  % edge rule matches the test's grid
+win  = StEx.gridParams.GridAnalysisWindow;                        % test window after the crossing = baseline length (ms)
+sDur = vsEx.ResponseWindow.(spF).stimDur;                         % stimulus duration at this speed (ms)
+ps   = vsEx.dataObj.convertPhySorting2tIc(vsEx.spikeSortingFolder);   % spike sorting
+isG  = string(ps.label') == 'good';                               % good units = columns of the statistics
+gid  = ps.phy_ID(isG);                                            % their phy IDs
+assert(gid(ex1.unitIdx) == ex1.phyID, 'Fig5: unit %d of rec %d is phy %d, the cache says phy %d.', ...
+    ex1.unitIdx, ex1.exp, gid(ex1.unitIdx), ex1.phyID);           % unit ordering matches the cache
+c    = ex1.cell;                                                  % RF grid cell of the tuning curve
+x    = g.ObsDiff(:, c, ex1.unitIdx) * 1000;                       % per-trial response - baseline (spikes/s); NaN = cell not crossed
+dr   = g.trialDirections(:);                                      % trial directions (MB phi, rad)
+uD   = unique(dr(~isnan(x)));                                     % directions crossing the cell, ascending (up, left, down, right)
+mR = nan(numel(uD), 1); sR = mR; nR = mR;                         % mean, SEM, crossings per direction
+for k = 1:numel(uD)
+    xk = x(dr == uD(k) & ~isnan(x));                              % this direction's crossings
+    mR(k) = mean(xk); sR(k) = std(xk) / sqrt(numel(xk)); nR(k) = numel(xk);   % mean, SEM, n
+end
+[okD, ia] = ismembertol(uD, ex1.dirs{1}, 1e-4);                   % cached tuning-curve column of each direction
+assert(all(okD) && max(abs(mR - ex1.R{1}(ia)'), [], 'all') < 1e-6 && isequal(nR, ex1.nPerDir{1}(ia)'), ...
+    'Fig5: tuning curve of rec %d phy %d differs from the Fig5 cache (stale cache?).', ex1.exp, ex1.phyID);   % same data as DSI/pDSI
+cr = g.crossingMs(~isnan(x), c);                                  % crossing times of the analysed trials (ms from onset)
+if any(cr < win | cr > sDur - win)
+    warning('Fig5:exampleEdgeTiming', ['Rec %d phy %d: RF-cell crossings at %.0f-%.0f ms of a %.0f ms trial; ', ...
+        'its window holds onset or is cut at offset in some directions.'], ex1.exp, ex1.phyID, min(cr), max(cr), sDur);   % confound check
+end
+lab = string(arrows(dIdx(uD))') + " " + dNames(dIdx(uD))';        % tick labels: arrow + name
+ttl = sprintf('Rec %d, phy %d (%s), cell %d: DSI %.2f, DSIcorr %.2f, p_{DSI} = %.4f, preferred %s (%.0f%s)', ...
+    ex1.exp, ex1.phyID, ex1.animal, c, ex1.DSI, ex1.DSIcorr, ex1.pDSI, dNames(dIdx(ex1.prefDir)), rad2deg(ex1.prefDir), char(176));   % unit and its selectivity
+fig = figure('Position', [100 100 820 380]);
+tl  = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact');
+pax = polaraxes(tl); pax.Layout.Tile = 1; hold(pax, 'on');        % polar tuning curve
+rr  = max(mR, 0);                                                 % negatives clamped to 0, as in the DSI
+polarplot(pax, [uD; uD(1)], [rr; rr(1)], 'k-o', 'LineWidth', 1.5, 'MarkerFaceColor', 'k');   % closed tuning curve
+for k = 1:numel(uD)
+    polarplot(pax, [uD(k) uD(k)], max(mR(k) + [-1 1] * sR(k), 0), 'k-', 'LineWidth', 1);     % +/- SEM
+end
+polarplot(pax, [ex1.prefDir ex1.prefDir], [0 max(rr)], 'r-', 'LineWidth', 2);              % vector-sum preferred direction
+pax.ThetaZeroLocation = 'top'; pax.ThetaDir = 'counterclockwise'; % MB phi: 0 = up, pi/2 = left
+pax.ThetaTick = rad2deg(uD'); pax.ThetaTickLabel = cellstr(lab);  % one tick per tested direction
+title(pax, 'Rectified mean (spikes/s)');
+ax = nexttile(tl, 2); hold(ax, 'on');                             % linear tuning curve
+errorbar(ax, 1:numel(uD), mR, sR, 'k-o', 'LineWidth', 1.5, 'MarkerFaceColor', 'k', 'CapSize', 6);   % mean +/- SEM (not rectified)
+yline(ax, 0, 'k:');                                               % baseline level
+set(ax, 'XTick', 1:numel(uD), 'XTickLabel', cellstr(lab + " (n=" + nR + ")")); xlim(ax, [0.5 numel(uD) + 0.5]);   % directions and crossings
+xlabel(ax, 'Ball motion direction'); ylabel(ax, '\Delta rate, 300 ms after RF crossing (spikes/s)');
+title(tl, ttl, 'FontSize', 9);
+exportgraphics(fig, fullfile(d.paperFigs, sprintf('%sExampleUnit_rec%d_phy%d_tuning.jpg', paperFigPrefix(), ex1.exp, ex1.phyID)), 'Resolution', 300);
+
+%% Example direction-tuned MB unit: raster per direction (desktop session: blank under matlab -batch)
+% One block per direction, the trials crossing the RF cell (as the test, cf.
+% gridAlignedMR): columns before 0 are the pre-trial baseline, columns from 0
+% start at the ball crossing the cell. Shaded: the test's response window.
+% Red ticks: stimulus offset of each trial (the window is cut there).
+preB = win;                                                       % baseline length = test window (300 ms)
+post = 500;                                                       % ms shown after the crossing (plotRaster_MultiExp gridPostMs)
+spk  = ps.ic(:, isG); spk = spk(:, ex1.unitIdx);                  % spike-sorting column of the unit
+fig = figure('Position', [100 100 460 640]); ax = axes(fig); hold(ax, 'on');
+y0 = 0;                                                           % rows used by previous blocks
+for k = 1:numel(uD)
+    rows = dr == uD(k) & ~isnan(g.crossingMs(:, c));              % this direction's trials crossing the RF cell
+    assert(sum(rows) == nR(k), 'Fig5: %d crossings in the raster, %d in the tuning curve.', sum(rows), nR(k));   % same trials
+    ons  = g.trialOnsets(rows);                                   % trial onsets (ms)
+    MR   = eventAlignedMR(spk, ps.t, ons, ons + g.crossingMs(rows, c), preB, post);   % [trials x (preB + post)] baseline | crossing
+    [tr, tb] = find(MR > 0);                                      % trial and 1 ms bin of every spike
+    plot(ax, tb - preB - 0.5, y0 + tr, 'k.', 'MarkerSize', 5);   % bin centre, 0 = crossing
+    off = sDur - g.crossingMs(rows, c);                           % stimulus offset relative to the crossing (ms)
+    vis = off < post;                                             % offsets inside the plotted window
+    plot(ax, off(vis), y0 + find(vis), 'r|', 'MarkerSize', 4);    % offset tick per trial
+    text(ax, -preB - 15, y0 + nR(k) / 2, arrows(dIdx(uD(k))), 'FontSize', 16, 'HorizontalAlignment', 'right');   % direction arrow
+    y0 = y0 + nR(k);                                              % next block starts below
+    yline(ax, y0 + 0.5, 'k-');                                    % block separator
+end
+hw = patch(ax, [0 win win 0], [0.5 0.5 y0 + 0.5 y0 + 0.5], [1 0.85 0.85], 'EdgeColor', 'none');   % response window
+uistack(hw, 'bottom');                                            % shading behind the spikes
+xline(ax, 0, 'k-', 'LineWidth', 1.5);                             % RF crossing (left of it: pre-trial baseline)
+set(ax, 'YDir', 'reverse', 'YTick', [], 'Layer', 'top'); xlim(ax, [-preB post]); ylim(ax, [0.5 y0 + 0.5]);
+xlabel(ax, 'Time from RF-cell crossing (ms); < 0: pre-trial baseline');   % rows: trials, one block per direction (arrows)
+title(ax, sprintf('Rec %d, phy %d, cell %d', ex1.exp, ex1.phyID, c));
+exportgraphics(fig, fullfile(d.paperFigs, sprintf('%sExampleUnit_rec%d_phy%d_raster.jpg', paperFigPrefix(), ex1.exp, ex1.phyID)), 'Resolution', 300);
+
 %% Same tuning across stimuli
 % Strict: preferred-direction agreement (mean cos of the difference) in units
 % direction-selective to BOTH stimuli. Relaxed: correlation of the two tuning

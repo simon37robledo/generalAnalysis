@@ -111,8 +111,10 @@ end
 %       the static-grating phase.
 %   v9: per-block unit presence (present, presenceRatio) stored per condition;
 %       segmented tests use a baseline of the same length as each segment.
+%   v10: MB grid test looks up each trial's trajectory from its own (direction,
+%       offset); black+white recordings had most trials on the wrong trajectory.
 % -------------------------------------------------------------------------
-params.statsVersion = 9;                                           % current statistics code version
+params.statsVersion = 10;                                          % current statistics code version
 
 % -------------------------------------------------------------------------
 % Without a sliding-window width the sliding-window mode cannot run. Resolve

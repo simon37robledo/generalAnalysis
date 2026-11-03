@@ -60,6 +60,8 @@ arguments
                                             % row per unit to drop from the stripe
                                             % group: {stimulus, experimentNum, phyID}
                                             % e.g. {"rectGrid", 49, 185; "rectGrid", 84, 576}
+    params.dirTuningFile    char    = 'W:\Large_scale_mapping_NP\Paper_figs\Fig5_directionTuning_units.mat'
+                                            % Figure 5 per-unit tuning table (U): OSI/DSIcorr/pDSI source
 end
 
 % =========================================================================
@@ -264,55 +266,44 @@ for ki = 1:numel(unmatchedZKeys)
 end
 
 % =========================================================================
-% 2c. Direction/orientation tuning (OSI, DSI) for MB neurons.
-%     From DirectionTuning, joined by phyID. rectGrid has no direction
-%     category, so SB rows stay NaN (OSI/DSI undefined there).
+% 2c. Direction/orientation tuning (OSI, DSIcorr, pDSI) for MB neurons.
+%     From the Figure 5 per-unit table (directionTuningUnits: MB at the
+%     RF-cell crossing, per-unit speed), joined on (experiment, phyID).
+%     rectGrid has no direction category, so SB rows stay NaN.
 % =========================================================================
-tbl.OSI = nan(height(tbl), 1);
-tbl.DSI = nan(height(tbl), 1);
+tbl.OSI     = nan(height(tbl), 1);                               % orientation selectivity (Figure 5)
+tbl.DSIcorr = nan(height(tbl), 1);                               % DSI minus its shuffled-label mean (Figure 5)
+tbl.pDSI    = nan(height(tbl), 1);                               % direction-label permutation p (Figure 5)
 
-dtCache = containers.Map('KeyType','double','ValueType','any');   % key: experiment
-unmatchedDTPhy = containers.Map('KeyType','double','ValueType','any');  % key: experiment -> phyIDs that failed to match
-
-for ri = 1:height(tbl)
-    if tbl.stimulus(ri) ~= "linearlyMovingBall", continue; end    % MB only
-    ex_ri = str2double(string(tbl.experimentNum(ri)));
-
-    if ~dtCache.isKey(ex_ri)
-        try
-            NP_ri  = loadNPclassFromTable(ex_ri);
-            obj_ri = linearlyMovingBallAnalysis(NP_ri);
-            dt = DirectionTuning(obj_ri, 'save', true, 'overwrite', false);
-            dtCache(ex_ri) = struct('OSI', dt.OSI, 'DSI', dt.DSI, 'phyID', dt.phyID);
-        catch ME
-            warning('DirectionTuning failed for exp %d: %s', ex_ri, ME.message);
-            dtCache(ex_ri) = struct('OSI', [], 'DSI', [], 'phyID', []);
-        end
-    end
-
-    dc = dtCache(ex_ri);
-    if ~isempty(dc.phyID)
-        idx = find(dc.phyID == tbl.phyID(ri), 1);
-        if ~isempty(idx)
-            tbl.OSI(ri) = dc.OSI(idx);
-            tbl.DSI(ri) = dc.DSI(idx);
-        else
-            % Same silent-mismatch risk as the zResp loop above: phyID
-            % from the cached table is absent from DirectionTuning's
-            % freshly-computed phyID list for this experiment.
-            if ~unmatchedDTPhy.isKey(ex_ri), unmatchedDTPhy(ex_ri) = []; end
-            unmatchedDTPhy(ex_ri) = [unmatchedDTPhy(ex_ri), tbl.phyID(ri)];
-        end
-    end
+if ~exist(params.dirTuningFile, 'file')                          % Figure 5 must have run first
+    error('analyzeStripeNeurons:noDirTuning', ...
+        'Figure 5 tuning table not found:\n  %s\nRun Fig5_DirectionTuning.m first.', params.dirTuningFile);
 end
-fprintf('  OSI/DSI assigned to %d MB rows.\n', sum(~isnan(tbl.OSI)));
+F5 = load(params.dirTuningFile, 'U');                            % per-unit table U
+U5 = F5.U(F5.U.stim == "MB", {'exp','phyID','OSI','DSIcorr','pDSI','responsive','present'});   % MB rows only
+assert(height(unique(U5(:, {'exp','phyID'}))) == height(U5), ...
+    'analyzeStripeNeurons: duplicate (exp, phyID) keys in the Figure 5 MB table.');   % one row per unit
+
+isMB  = tbl.stimulus == "linearlyMovingBall";                    % MB rows of the stripe table
+mbKey = table(str2double(string(tbl.experimentNum(isMB))), tbl.phyID(isMB), find(isMB), ...
+    'VariableNames', {'exp','phyID','row'});                     % categorical experimentNum -> number
+[J, ~, iU] = innerjoin(mbKey, U5, 'Keys', {'exp','phyID'});      % pair by key, not by row position
+tbl.OSI(J.row)     = J.OSI;                                      % copy the Figure 5 values
+tbl.DSIcorr(J.row) = J.DSIcorr;
+tbl.pDSI(J.row)    = J.pDSI;
+fprintf('  OSI/DSIcorr assigned to %d/%d MB rows (Figure 5 table).\n', height(J), height(mbKey));
+
+nSel = sum(~(U5.responsive(iU) & U5.present(iU)));               % joined units outside the Figure 5 unit set
+if nSel > 0                                                      % Figure 2 and Figure 5 selections disagree
+    warning('analyzeStripeNeurons:dirTuningSelection', ...
+        'OSI/DSI: %d MB unit(s) are not responsive+present in the Figure 5 table.', nSel);
+end
 
 % Loudly report every experiment with at least one unmatched phyID.
-unmatchedDTKeys = keys(unmatchedDTPhy);
-for ki = 1:numel(unmatchedDTKeys)
-    k = unmatchedDTKeys{ki};
-    warning('OSI/DSI: %d phyID(s) not found in DirectionTuning output for exp %d: %s', ...
-        numel(unmatchedDTPhy(k)), k, mat2str(unmatchedDTPhy(k)));
+unmatched = mbKey(~ismember(mbKey.row, J.row), :);               % MB rows without a Figure 5 match
+for ex_u = unique(unmatched.exp)'
+    warning('OSI/DSI: %d phyID(s) not found in the Figure 5 MB table for exp %d: %s', ...
+        sum(unmatched.exp == ex_u), ex_u, mat2str(unmatched.phyID(unmatched.exp == ex_u)'));
 end
 
 % =========================================================================
@@ -921,13 +912,15 @@ if params.plot && ~isempty(zData)
 end
 
 % =========================================================================
-% 9.  TUNING INDEX: MB stripe vs MB responsive non-stripe (OSI and DSI)
-%     MB-only — rectGrid has no direction tuning.
-%     Columns: [OSI stripe | OSI resp | DSI stripe | DSI resp]
+% 9.  TUNING INDEX: MB stripe vs MB responsive non-stripe (OSI and DSIcorr)
+%     MB-only — rectGrid has no direction tuning. Values from the Figure 5
+%     table (section 2c). Descriptive: group means with hierarchical-bootstrap
+%     95% CIs, no p-value (stripe groups are selected on the same RFs).
+%     Columns: [OSI stripe | OSI resp | DSIcorr stripe | DSIcorr resp]
 % =========================================================================
-tuneOrder  = {'OSI stripe', 'OSI resp', 'DSI stripe', 'DSI resp'};
-tuneSrc    = {mbStripe,     mbNonStr,   mbStripe,     mbNonStr};
-tuneMetric = {'OSI',        'OSI',      'DSI',        'DSI'};
+tuneOrder  = {'OSI stripe', 'OSI resp', 'DSIcorr stripe', 'DSIcorr resp'};
+tuneSrc    = {mbStripe,     mbNonStr,   mbStripe,         mbNonStr};
+tuneMetric = {'OSI',        'OSI',      'DSIcorr',        'DSIcorr'};
 
 tuneData = table([], categorical([]), categorical([]), categorical([]), [], ...
     'VariableNames', {'val','group','insertion','animal','NeurID'});
@@ -945,12 +938,28 @@ for gi = 1:numel(tuneOrder)
 end
 results.tuneData = tuneData;
 
-results.pTune.OSI = compareGroupsHB(tuneData, 'val', 'OSI stripe', 'OSI resp', params.nBoot);
-results.pTune.DSI = compareGroupsHB(tuneData, 'val', 'DSI stripe', 'DSI resp', params.nBoot);
-
-fprintf('\nTuning index (two-tailed hierBoot p):\n');
-fprintf('  OSI stripe vs resp : p = %.4f\n', results.pTune.OSI);
-fprintf('  DSI stripe vs resp : p = %.4f\n', results.pTune.DSI);
+% Descriptive only (as the Figure 2 header states): per-group observed mean
+% and 95% percentile CI of the hierarchical bootstrap (animal, then insertion).
+results.pTune.OSI     = NaN;                                     % no test
+results.pTune.DSIcorr = NaN;                                     % no test
+tuneCI = table('Size', [numel(tuneOrder), 6], 'VariableTypes', {'string','double','double','double','double','double'}, ...
+    'VariableNames', {'group','n','nAnimals','mean','ciLo95','ciHi95'});   % one row per group
+fprintf('\nTuning index (descriptive, hierarchical-bootstrap 95%% CI):\n');
+for gi = 1:numel(tuneOrder)
+    rows = tuneData(tuneData.group == tuneOrder{gi}, :);         % this group
+    tuneCI.group(gi) = tuneOrder{gi};                            % group label
+    tuneCI.n(gi)     = height(rows);                             % units
+    tuneCI.nAnimals(gi) = numel(unique(rows.animal));            % animals
+    tuneCI{gi, {'mean','ciLo95','ciHi95'}} = NaN;                % filled below when the group has units
+    if isempty(rows), continue; end
+    ins = str2double(string(rows.insertion));                    % recording number (globally unique)
+    an  = findgroups(string(rows.animal));                       % animal codes
+    bM  = hierBootMatchFreq(rows.val, params.nBoot, an, ins);    % (data, nrep, ANIMAL, INSERTION)
+    tuneCI{gi, {'mean','ciLo95','ciHi95'}} = [mean(rows.val), prctile(bM, [2.5 97.5])];   % observed mean, CI
+    fprintf('  %-15s n=%3d  mean %.3f [%.3f, %.3f]\n', tuneOrder{gi}, tuneCI.n(gi), ...
+        tuneCI.mean(gi), tuneCI.ciLo95(gi), tuneCI.ciHi95(gi));
+end
+results.tuneCI = tuneCI;
 
 if params.plot && ~isempty(tuneData)
     figTune = figure('Units','centimeters','Position',[5 5 12 8]);
@@ -967,34 +976,16 @@ if params.plot && ~isempty(tuneData)
         swarmchart(gi*ones(height(rows),1), rows.val, 16, animalCmap(aIdx,:), 'filled', ...
             'XJitter','density', 'XJitterWidth',0.35, ...
             'MarkerFaceAlpha',0.65, 'MarkerEdgeColor','none');
-        try
-            bM = hierBootMatchFreq(rows.val, params.nBoot, double(rows.animal), double(rows.insertion));   % levels: animal (top), then insertion
-            m = mean(bM);  ci = prctile(bM,[2.5 97.5]);
-            errorbar(gi, m, m-ci(1), ci(2)-m, 'k', 'LineWidth',1.5, 'CapSize',8);
-            plot(gi, m, 'ko', 'MarkerFaceColor','w', 'MarkerSize',7, 'LineWidth',1.5);
-        catch ME
-            warning('hierBoot failed for %s: %s', tuneOrder{gi}, ME.message);
-        end
+        m = tuneCI.mean(gi);                                     % observed group mean
+        errorbar(gi, m, m - tuneCI.ciLo95(gi), tuneCI.ciHi95(gi) - m, 'k', 'LineWidth',1.5, 'CapSize',8);   % 95% CI
+        plot(gi, m, 'ko', 'MarkerFaceColor','w', 'MarkerSize',7, 'LineWidth',1.5);
+        text(gi, min(tuneData.val), sprintf('n=%d', height(rows)), 'HorizontalAlignment','center', ...
+            'VerticalAlignment','top', 'FontSize',7);            % units per group
     end
 
-    % Brackets: 1 vs 2 (OSI), 3 vs 4 (DSI) — disjoint spans, both at level 1
+    % No comparison brackets: the stripe vs non-stripe comparison is descriptive
     yMax = max(tuneData.val);  yMin = min([0; tuneData.val]);  vR = yMax - yMin;
-    bStep = vR*0.10;  tickH = vR*0.025;
-    comps = { 1,2,results.pTune.OSI,1;  3,4,results.pTune.DSI,1 };
-    maxSig = 0;
-    for ci = 1:size(comps,1)
-        g1=comps{ci,1}; g2=comps{ci,2}; pV=comps{ci,3}; lv=comps{ci,4};
-        if isnan(pV) || pV >= 0.05, continue; end
-        yB = yMax + lv*bStep;
-        plot([g1 g2],[yB yB],        'k-','LineWidth',1);
-        plot([g1 g1],[yB, yB-tickH], 'k-','LineWidth',1);
-        plot([g2 g2],[yB, yB-tickH], 'k-','LineWidth',1);
-        text((g1+g2)/2, yB, sigStars(pV), ...
-            'HorizontalAlignment','center','VerticalAlignment','bottom', ...
-            'FontSize',11,'FontWeight','bold');
-        maxSig = max(maxSig, lv);
-    end
-    ylim([yMin, yMax + (maxSig+1.5)*bStep]);
+    ylim([yMin - 0.08*vR, yMax + 0.05*vR]);                      % room for the n labels
 
     if params.plotLegend
         lgdH = gobjects(nAnimals,1);

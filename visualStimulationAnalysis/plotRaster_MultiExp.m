@@ -2020,11 +2020,13 @@ for s = 1:nStim
     xlim(ax, [tAxisSec(1), tAxisSec(end)]);                              % per-stim x range
     ylim(ax, [0.5, size(data,1) + 0.5]);                                 % half-row margin
 
-    ticksSec     = linspace(tAxisSec(1), tAxisSec(end), 5);              % 5 equally spaced ticks
-    [~, iz]      = min(abs(ticksSec));                                   % tick nearest to 0
-    ticksSec(iz) = 0;                                                    % snap to exactly 0
+    spanSec  = tAxisSec(end) - tAxisSec(1);                              % panel duration (s)
+    steps    = [0.1 0.2 0.25 0.5 1 2];                                   % round tick steps (s)
+    stepSec  = steps(find(spanSec ./ steps <= 5, 1));                    % smallest step giving <= 5 intervals (narrow panels stay legible)
+    if isempty(stepSec), stepSec = steps(end); end                       % very long panels: 2 s steps
+    ticksSec = stepSec * (ceil(tAxisSec(1)/stepSec - 1e-9) : floor(tAxisSec(end)/stepSec + 1e-9));   % multiples of the step, 0 included
     xticks(ax, ticksSec);                                                % apply x tick positions
-    xticklabels(ax, arrayfun(@(v) sprintf('%.2g', v), ticksSec, 'UniformOutput', false)); % formatted labels
+    xticklabels(ax, arrayfun(@(v) sprintf('%g', round(v, 2) + 0), ticksSec, 'UniformOutput', false)); % round-number labels (+0 turns -0 into 0)
 
     if s == 1
         if params.sortBy == "preferredCategory" && strlength(params.splitCategory(s)) > 0
@@ -2101,7 +2103,9 @@ if params.MarkFPnFN && (nFNtotal + nFPtotal + nMismatchTotal) > 0
     lg.Layout.Tile = 'south';                                            % dedicated row below all panels — no overlap with data or colorbar
 end
 
-sgtitle(sprintf('N = %d experiments', numel(exList)), ...
+nContrib = numel(unique([expAll{:}]));                                  % recordings with >= 1 plotted unit (not the input list:
+                                                                        % recordings without the stimulus or units are skipped)
+sgtitle(sprintf('N = %d recordings', nContrib), ...
     'FontName', 'helvetica', 'FontSize', 10);                           % super-title
 
 % --- Export figure for publication if requested ---

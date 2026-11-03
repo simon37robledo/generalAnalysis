@@ -77,6 +77,12 @@ arguments
                                            % half fail, if available).
     params.stripeMinAngle  double = 20     % Lower bound of accepted stripe angle (deg), BL→TR
     params.stripeMaxAngle  double = 55     % Upper bound of accepted stripe angle (deg), BL→TR
+    params.unitSet (1,1) string {mustBeMember(params.unitSet, ["responsive", "nonResponsive"])} = "responsive"
+                                           % "responsive": p < 0.05 (default, Figure 2 units).
+                                           % "nonResponsive": p > 0.5, the empirical stripe
+                                           % baseline; p > 0.5 keeps near-threshold units out.
+                                           % Same p source, presence rule, per-unit speed and
+                                           % stripe settings; requires allResponsive=true.
 end
 
 % -------------------------------------------------------------------------
@@ -106,6 +112,13 @@ end
 % unionResponsive and allResponsive are mutually exclusive
 if params.unionResponsive && params.allResponsive
     error('unionResponsive and allResponsive cannot both be true — choose one neuron selection mode.');
+end
+
+% the non-responsive baseline is a per-stimulus unit set: pairing or a union of
+% non-responsive units across stimuli has no use, so only allResponsive is allowed
+if params.unitSet == "nonResponsive" && ~params.allResponsive
+    error('SpatialTuningIndex:unitSetMode', ...
+        'unitSet="nonResponsive" requires allResponsive=true (each stimulus uses its own unit set).');
 end
 
 if params.unionResponsive
@@ -145,8 +158,9 @@ prefLabel    = '';   if params.prefDir,       prefLabel    = '_prefDir';     end
 allRespLabel = '';   if params.allResponsive, allRespLabel = '_allResp';     end
 unionLabel   = '';   if params.unionResponsive, unionLabel = '_union'; end
 splitLabel   = '';   if params.splitHalf,       splitLabel = '_splitHalf'; end   % split-half index
-nameOfFile   = sprintf('\\Ex_%d-%d_SpatialTuningIndex_%s%s%s%s%s%s_presence.mat', ...
-    exList(1), exList(end), stimLabel, rfLabel, prefLabel, allRespLabel, unionLabel, splitLabel);  % '_presence': units present in the block (statsVersion 9 selection)
+unitSetLabel = '';   if params.unitSet == "nonResponsive", unitSetLabel = '_nonResp'; end   % baseline units: never overwrites the responsive cache
+nameOfFile   = sprintf('\\Ex_%d-%d_SpatialTuningIndex_%s%s%s%s%s%s%s_presence.mat', ...
+    exList(1), exList(end), stimLabel, rfLabel, prefLabel, allRespLabel, unionLabel, splitLabel, unitSetLabel);  % '_presence': units present in the block (statsVersion 9 selection)
 
 % -------------------------------------------------------------------------
 % Decide whether to compute or load from cache
@@ -267,13 +281,18 @@ if ~goto_plot
                     'Exp %d %s: statistics cover %d units, spike sorting has %d good units.', ...
                     ex, stimType, numel(pvals), numel(phy_IDg));             % unit universes must match
 
-                % Indices of responsive AND present neurons (into phy_IDg)
-                respU             = find(pvals < 0.05 & present);
+                % Indices of selected AND present neurons (into phy_IDg); "resp"
+                % names below hold the non-responsive set when unitSet="nonResponsive"
+                if params.unitSet == "nonResponsive"
+                    respU = find(pvals > 0.5 & present);                      % clearly non-responsive baseline units
+                else
+                    respU = find(pvals < 0.05 & present);                     % responsive units (default)
+                end
                 respU_all{s}      = respU;
                 respPhyIDs_all{s} = phy_IDg(respU);
                 presPhyIDs_all{s} = phy_IDg(present);                         % present units (union mode)
                 bestSpeed_all{s}  = bestSpeed;                                % per good unit
-                fprintf('  [%s] %d responsive neuron(s) (%d present of %d).\n', stimType, numel(respU), sum(present), numel(present));
+                fprintf('  [%s] %d %s neuron(s) (%d present of %d).\n', stimType, numel(respU), params.unitSet, sum(present), numel(present));   % count of the selected set
 
             catch ME
                 if strcmp(ME.identifier, 'StatisticsPerNeuron:staleCacheVersion')
@@ -1136,7 +1155,7 @@ if params.detectStripe && params.testStripeDetection
         end  % test neuron loop
 
         % Save test figure
-        testPdfPath = fullfile(saveDir, sprintf('StripeTest_%s.pdf', params.indexType));
+        testPdfPath = fullfile(saveDir, sprintf('StripeTest_%s%s.pdf', params.indexType, unitSetLabel));   % '_nonResp' tag for the baseline set
         exportgraphics(figTest, testPdfPath, 'ContentType', 'vector');
         fprintf('  Stripe test figure saved to:\n    %s\n', testPdfPath);
 
@@ -1332,6 +1351,7 @@ if params.plot
     statsName = sprintf('SpatialTuningIndex-%s-%s-RF%d-prefDir%d-allResp%d-tp-%d', ...
         params.indexType, strjoin(params.stimTypes, '-'), ...
         params.useRF, params.prefDir, params.allResponsive, params.topPercent);
+    statsName = [statsName unitSetLabel];    % '_nonResp' tag: baseline figure/stats never overwrite the responsive ones
 
     if params.PaperFig
         vs_first.printFig(fig, statsName, PaperFig = params.PaperFig);
@@ -1532,8 +1552,8 @@ if params.plotRFs
             end
 
             % Build the output PDF path inside the combined-analysis directory
-            pdfName = sprintf('RFpages_%s_%s%s%s.pdf', ...
-                stimLabel_file, params.indexType, shuffTag, unionTag);
+            pdfName = sprintf('RFpages_%s_%s%s%s%s.pdf', ...
+                stimLabel_file, params.indexType, shuffTag, unionTag, unitSetLabel);   % '_nonResp' tag for the baseline set
             pdfPath = fullfile(saveDir, [paperFigPrefix(), pdfName]);  % full path for the PDF file (figure-number prefix)
 
             % Flag: true until the first page is exported (create vs append)
