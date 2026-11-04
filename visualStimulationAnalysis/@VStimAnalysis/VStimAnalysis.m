@@ -268,6 +268,7 @@ classdef (Abstract) VStimAnalysis < handle
                 params.inputParams = false %if true - prints out the iput parameters so that it is clear what can be manipulated in the method
                 params.fallbackToDigitalTriggers logical = true
                 params.mismatchThreshold = 0.1
+                params.trialOnsetFromTTL logical = false %time trials by TTL + this recording's median TTL->diode lag on clean trials (SA5, 2023 protocol)
             end
             if params.inputParams,disp(params),return,end
 
@@ -282,6 +283,48 @@ classdef (Abstract) VStimAnalysis < handle
             fprintf('%d Trigger removed due to adjuscent intervals.\n',numel(diode.diodeUpCross)+numel(diode.diodeDownCross)-numel(allDiodeFlips));
             measuredFlips=numel(allDiodeFlips);
 
+            if params.trialOnsetFromTTL
+                % SA5 (2023 protocol): the per-trial diode pairing fails there (MB: the diode keeps flipping
+                % into ~40% of trial onsets; RG/SDG: missing or extra flips near some onsets). Each trial is then
+                % timed by its TTL plus this recording's TTL->diode lag, measured on clean trials only.
+                T = obj.dataObj.getTrigger;                                                % all digital triggers [ms]
+                ttlOn  = T{3}(T{3} > obj.sessionStartTime & T{3} < obj.sessionEndTime);    % trial-onset TTLs in this session
+                ttlOff = T{4}(T{4} > obj.sessionStartTime & T{4} < obj.sessionEndTime);    % trial-offset TTLs in this session
+                assert(numel(ttlOn) == obj.VST.nTotTrials && numel(ttlOff) == obj.VST.nTotTrials, ...
+                    'trialOnsetFromTTL: %d on / %d off TTLs in the session, expected %d trials.', numel(ttlOn), numel(ttlOff), obj.VST.nTotTrials);
+                assert(all(ttlOff > ttlOn) && all(ttlOn(2:end) > ttlOff(1:end-1)), 'trialOnsetFromTTL: on/off TTLs do not alternate.');
+                frameMs = obj.VST.ifi * 1000;                                              % one frame [ms]
+                [A, tA] = obj.dataObj.getAnalogData(1, obj.sessionStartTime, obj.sessionEndTime - obj.sessionStartTime);   % raw diode (analog ch 1) for the session
+                B = medfilt1(double(squeeze(A)), 15);                                      % median filter: removes single-sample spikes, keeps edges
+                tA = tA + obj.sessionStartTime;                                            % recording time [ms]
+                rangeB = prctile(B(1:10:end), 99) - prctile(B(1:10:end), 1);               % full diode swing (dark to bright)
+                [lagOn, cleanOn]   = ttlDiodeLags(B, tA, ttlOn, rangeB);                   % per-trial TTL->diode change at onset
+                [lagOff, cleanOff] = ttlDiodeLags(B, tA, ttlOff, rangeB);                  % same at offset
+                clean = cleanOn & ~isnan(lagOn);                                           % stable diode before the onset TTL and a change after it
+                assert(mean(clean) >= 0.5, 'trialOnsetFromTTL: only %d of %d trials have a stable diode before the onset TTL.', sum(clean), numel(clean));
+                medOn = median(lagOn(clean));                                              % this recording's TTL->display lag [ms]
+                inFrame = abs(lagOn(clean) - medOn) <= frameMs;                            % clean trials within 1 frame of the median lag
+                assert(mean(inFrame) >= 0.95, 'trialOnsetFromTTL: only %.0f%% of clean trials start within 1 frame of the median lag (%.1f ms).', 100*mean(inFrame), medOn);
+                if medOn < 0 || medOn > 200, warning('trialOnsetFromTTL: median TTL->diode lag %.1f ms is outside 0-200 ms.', medOn); end
+                cleanOff = cleanOff & ~isnan(lagOff);                                      % offsets with a stable diode before the offset TTL
+                if mean(cleanOff) >= 0.5                                                   % offset visible as a step (RG, FFF)
+                    medOff = median(lagOff(cleanOff));                                     % TTL->display lag at offset [ms]
+                else                                                                       % diode flickers up to the offset (MB, SDG)
+                    medOff = medOn;                                                        % same display latency as the onset
+                    fprintf('trialOnsetFromTTL: offset not visible as a step in %d of %d trials; offsets use the onset lag.\n', sum(~cleanOff), numel(cleanOff));
+                end
+                stimOnFlipTimes  = ttlOn(:)'  + medOn;                                     % trial onsets [ms]
+                stimOffFlipTimes = ttlOff(:)' + medOff;                                    % trial offsets [ms]
+                diodeFrameFlipTimes = [];                                                  % not computed in this mode
+                ttlSync = struct('medianOnLag', medOn, 'medianOffLag', medOff, 'cleanTrials', find(clean), ...
+                    'unstableTrials', find(~clean), 'lagOn', lagOn, 'lagOff', lagOff, 'fracCleanWithin1Frame', mean(inFrame));  % provenance
+                fprintf('trialOnsetFromTTL: %d/%d clean trials, TTL->diode onset lag %.1f ms (%.0f%% within 1 frame), offset lag %.1f ms; unstable trials: %s\n', ...
+                    sum(clean), numel(clean), medOn, 100*mean(inFrame), medOff, mat2str(find(~clean)));
+                fprintf('Saving results to file.\n');
+                save(obj.getAnalysisFileName,'params','diodeFrameFlipTimes','stimOnFlipTimes','stimOffFlipTimes','ttlSync');
+                results = load(obj.getAnalysisFileName);
+                return
+            end
 
             if isequal(obj.stimName,'StaticDriftingGrating')
                 params.analyzeOnlyOnFlips =true; %Weird case where flip onset and flip offset are the same and each of them contain both flips
@@ -336,7 +379,11 @@ classdef (Abstract) VStimAnalysis < handle
                         % overwrite=true REQUIRED: getDiodeTriggers caches per method-name only and does
                         % not validate params.extractionMethod on reload, so without it the cached analog
                         % result is returned. Side effect: the cache now holds the digital extraction.
-                        diode = obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);
+                        % Two-step call (as in the imageTrials branch): an overwrite=true call that asks for an
+                        % output returns false without computing (isOutputAnalysis), so this fallback never ran
+                        % before 2026-11-03 (found on SA5 SDG).
+                        obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode','overwrite',true);  % recompute + overwrite cache (no output)
+                        diode = obj.getDiodeTriggers('extractionMethod','digitalTriggerDiode');           % load the cached digital result
                     catch ME
                         fprintf('digitalTriggerDiode extraction failed (%s). Cant continue!!!\n', ME.message);
                         return;
@@ -1069,4 +1116,21 @@ tOut(ok) = cand(ok);                                                 % exact ana
 warning('snapToEdges:corrected', ...
     '%s: %s times from digitalTriggerDiode were %.1f ms off the analog diode edges - corrected (%d/%d trials snapped).', ...
     recName, label, -medShift, sum(ok), numel(ok));                  % explicit, never silent
+end
+
+function [lag, stable] = ttlDiodeLags(B, tA, ttl, rangeB)
+% ttlDiodeLags  Delay from each TTL to the first diode change (trialOnsetFromTTL mode).
+%   B: median-filtered diode trace, tA: its times [ms], ttl: TTL times [ms], rangeB: full diode swing.
+%   stable: the diode is flat in the 280 ms before the TTL (5-95% spread < 20% of the swing).
+%   lag: first time within 300 ms after the TTL at which the trace departs from that pre-TTL level by
+%   more than 40% of the swing (NaN if it never does).
+lag = nan(1, numel(ttl)); stable = false(1, numel(ttl));             % outputs, one per TTL
+for i = 1:numel(ttl)
+    pre = B(tA >= ttl(i) - 300 & tA < ttl(i) - 20);                  % diode just before the TTL
+    if isempty(pre), continue, end                                   % TTL at the session edge
+    stable(i) = prctile(pre, 95) - prctile(pre, 5) < 0.2 * rangeB;   % flat before the TTL
+    w = find(tA > ttl(i) & tA <= ttl(i) + 300);                      % 300 ms after the TTL
+    k = find(abs(B(w) - median(pre)) > 0.4 * rangeB, 1);             % first clear departure from the pre-TTL level
+    if ~isempty(k), lag(i) = tA(w(k)) - ttl(i); end                  % TTL -> diode change [ms]
+end
 end
