@@ -271,6 +271,9 @@ vs0 = linearlyMovingBallAnalysis(NP0, 'MultipleOffsets', false);   % paths only:
 rootPath = extractBefore(vs0.dataObj.recordingDir, 'lizards');  % path up to 'lizards'
 rootPath = [rootPath 'lizards'];                                 % include 'lizards' folder
 saveDir  = fullfile(rootPath, 'Combined_lizard_analysis');       % pooled data directory
+if ~isempty(analysisVariant())                                   % sensitivity run: separate pooled cache
+    saveDir = fullfile(saveDir, ['Sensitivity_' analysisVariant()]);
+end
 if ~exist(saveDir, 'dir')
     mkdir(saveDir);  % create if it does not exist
 end
@@ -1375,6 +1378,10 @@ if params.PaperFig
     rootPath = extractBefore(vs0.dataObj.recordingDir, 'lizards');  % 'W:\Large_scale_mapping_NP\'
 
     figSaveDir = [rootPath 'Paper_figs'];
+    if ~isempty(analysisVariant())                               % sensitivity run: separate struct folder
+        figSaveDir = fullfile(figSaveDir, ['Sensitivity_' analysisVariant()]);
+        if ~isfolder(figSaveDir), mkdir(figSaveDir); end
+    end
     % Use the same base name as the analysis cache, with a suffix
     [~, cacheName, ~] = fileparts(nameOfFile);
     figStructPath = fullfile(figSaveDir, [cacheName '_analysisStruct.mat']);

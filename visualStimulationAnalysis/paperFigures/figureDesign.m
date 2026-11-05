@@ -41,6 +41,9 @@ d.exps      = [1, 8, 40:43, 49:54, 64:66, 68:85, 87:97];          % all recordin
 % figure except Figure 2 (receptive-field maps need 9x9 coverage; Fig2 lists its recordings
 % and asserts 9 trajectories). Sensitivity without 1 and 8: Sensitivity_NoRecs1_8.m.
 d.paperFigs = 'W:\Large_scale_mapping_NP\Paper_figs';             % where AllExpAnalysis saves figures and structs
+if ~isempty(analysisVariant())                                    % sensitivity run (analysisVariant): its own subfolder
+    d.paperFigs = fullfile(d.paperFigs, ['Sensitivity_' analysisVariant()]);
+end
 
 d.statsArgs = { ...
     'overwrite',          true, ...                               % rebuild the pooled tables

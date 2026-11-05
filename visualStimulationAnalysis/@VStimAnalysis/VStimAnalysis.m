@@ -54,6 +54,27 @@ classdef (Abstract) VStimAnalysis < handle
             obj=setVisualStimulationFile(obj,'Session',StimSession);
             obj=getStimParams(obj);
             obj.spikeSortingFolder=obj.findFolderInExperiment(obj.dataObj.recordingDir,'kilosort');
+            v = analysisVariant();                                         % '' = main analysis, else a sensitivity variant
+            if ~isempty(v) && ~isempty(obj.spikeSortingFolder) && ~isempty(obj.visualStimAnalysisFolder)
+                [ksParent, ksName] = fileparts(obj.spikeSortingFolder);    % main sorting folder
+                obj.spikeSortingFolder = fullfile(ksParent, [v '_' ksName]); % variant labels, e.g. catgt\noPR_kilosort4
+                assert(isfile(fullfile(obj.spikeSortingFolder, 'cluster_bc_unitType.tsv')) && ...
+                    isfile(fullfile(obj.spikeSortingFolder, 'cluster_info.tsv')), 'VStimAnalysis:variantLabels', ...
+                    'Variant %s: no labels in %s (never falls back to the main labels).', v, obj.spikeSortingFolder);
+                if ~isfile(fullfile(obj.spikeSortingFolder, 'sorting_tIc.mat'))   % first use: build the label cache from the
+                    obj.dataObj.convertPhySorting2tIc(obj.spikeSortingFolder, 0, 1, 1);   % BombCell tsv (a bare call would use Phy labels)
+                end
+                mainCache = obj.visualStimAnalysisFolder;                  % main cache folder
+                obj.visualStimAnalysisFolder = [mainCache '_' v];          % variant caches
+                obj.visualStimPlotsFolder = [obj.visualStimPlotsFolder '_' v];   % variant plots
+                if ~isfolder(obj.visualStimAnalysisFolder), mkdir(obj.visualStimAnalysisFolder); end
+                if ~isfolder(obj.visualStimPlotsFolder), mkdir(obj.visualStimPlotsFolder); end
+                for f = {'getSessionTime.mat', 'getDiodeTriggers.mat', 'getSyncedDiodeTriggers.mat'}   % stimulus timing does not depend on labels
+                    if isfile(fullfile(mainCache, f{1})) && ~isfile(fullfile(obj.visualStimAnalysisFolder, f{1}))
+                        copyfile(fullfile(mainCache, f{1}), obj.visualStimAnalysisFolder);   % reuse the main sync, never recompute it
+                    end
+                end
+            end
         end
 
         function printFig(obj,f,figName,params)
@@ -72,6 +93,10 @@ classdef (Abstract) VStimAnalysis < handle
 
                 parts = split(obj.visualStimPlotsFolder, filesep);
                 out = [fullfile(parts{1:2}), filesep, 'Paper_figs'];
+                if ~isempty(analysisVariant())                           % sensitivity run: its own subfolder
+                    out = fullfile(out, ['Sensitivity_' analysisVariant()]);
+                    if ~isfolder(out), mkdir(out); end
+                end
 
                 %disp(['Printing fig: ',obj.visualStimPlotsFolder,filesep,figName]);
                 % '-vector' is a content-type flag only valid for vector formats (e.g. -dpdf);
