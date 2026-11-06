@@ -1,3 +1,5 @@
+% NOT IN THE PAPER (decided 2026-11-06): only 3 of 294 units responded to the natural images, so the
+% intact-scrambled comparison could not be made. Kept for the record; outputs in Paper_figs\Archive_NI_20261106.
 %% NATURAL IMAGES — intact vs scrambled (5 image pairs, PV51 and PV233)
 % Stimulus: 10 images (5 intact natural scenes + a texture-scrambled version of each, same
 % coarse layout and colours), 2 s on, 1 s ITI, 15 repetitions each, random order.

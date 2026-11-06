@@ -1,6 +1,6 @@
 function [fprTable, deltaTable, layouts] = checkLayoutNullFPR(params)
 % checkLayoutNullFPR  Null calibration of the fixed-window and segmented tests on
-%   the trial layouts of the other stimulus families (FFF, SDG, MBR, NI).
+%   the trial layouts of the other stimulus families (FFF, SDG, MBR).
 %
 %   [fprTable, deltaTable, layouts] = checkLayoutNullFPR()
 %
@@ -39,8 +39,9 @@ rng(params.seed);                                                  % reproducibl
 spec = {'FFF fixed',        52, @fullFieldFlashAnalysis,        '',       false, false; ...
         'SDGs fixed',       52, @StaticDriftingGratingAnalysis, 'Static', false, false; ...
         'SDGm fixed',       52, @StaticDriftingGratingAnalysis, 'Moving', false, false; ...
-        'MBR 9 segments',   70, @linearlyMovingBarAnalysis,     'Speed1', true,  false; ...
-        'NI fixed (lizards)', 92, @imageAnalysis,               '',       false, true};
+        'MBR 9 segments',   70, @linearlyMovingBarAnalysis,     'Speed1', true,  false};
+% Natural images ('NI fixed (lizards)', recording 92, @imageAnalysis, '', false, true) were removed
+% on 2026-11-06: NI is not in the paper. It was the last row, so the other layouts' draws are unchanged.
 layouts = struct('name', {}, 'nCats', {}, 'tc', {}, 'nWin', {}, 'winLen', {}, 'baseLen', {});   % filled below
 for k = 1:size(spec, 1)
     evalc('NP = loadNPclassFromTable(spec{k,2}); o = spec{k,3}(NP); rw = o.ResponseWindow;');  % cached, read-only

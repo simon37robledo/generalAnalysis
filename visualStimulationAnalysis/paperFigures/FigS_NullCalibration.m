@@ -4,7 +4,7 @@
 % trial layout of a real recording. A valid test flags ~5% of them at alpha = 0.05.
 % Reads the tables written by makeStatsSummaryTables (no re-simulation):
 %   Null_calibration_false_positive_rate.csv  (MB and SB designs, incl. discarded ones)
-%   Null_calibration_other_stimuli.csv        (FFF, SDGs, SDGm, MBR, NI)
+%   Null_calibration_other_stimuli.csv        (FFF, SDGs, SDGm, MBR)
 %   Null_calibration_delta_rate_bias.csv      (split-half delta firing rate)
 
 d = figureDesign();                                               % shared design (output folder)

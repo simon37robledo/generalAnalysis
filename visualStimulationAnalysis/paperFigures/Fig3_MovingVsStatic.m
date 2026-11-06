@@ -1,7 +1,7 @@
 %% FIGURE 3 — Moving vs static global stimuli (drifting vs static grating)
 % Statistics design: figureDesign.m. SDGm is tested against the blank pre-trial
 % baseline (not the static-grating phase). Category analyses (angles, temporal
-% and spatial frequency) and the natural-image postures come in the next round
+% and spatial frequency) come in the next round
 % (StatisticsPerNeuronPerCategory still needs the same fixes). NV is not in the paper.
 % Recordings: d.expsSDG (recordings 1 and 8 excluded: different grating protocol, figureDesign).
 

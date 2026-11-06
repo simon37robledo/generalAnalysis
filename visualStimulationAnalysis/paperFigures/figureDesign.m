@@ -16,7 +16,7 @@ function d = figureDesign()
 %     - MB: spatial-grid test (9 x 9 cells, window from each ball crossing).
 %     - RG: ON window plus OFF window from each recording's offset.
 %     - MBR: 9 equal segments across the sweep, matched-length baseline.
-%     - Others (FFF, NI): single 300 ms window from onset.
+%     - Others (FFF): single 300 ms window from onset. (Natural images and videos are not in the paper.)
 %     - Gratings: SDGs 1000 ms from static onset, SDGm 1923 ms from motion
 %       onset (one period of the slowest temporal frequency: 300 ms missed
 %       the slow, sustained drifting responses), both vs a blank pre-trial

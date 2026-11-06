@@ -19,7 +19,7 @@ function outPaths = makeStatsSummaryTables(params)
 %     Fig1_LOAO_fraction_responsive.csv         leave-one-animal-out, fraction responsive
 %     Null_calibration_false_positive_rate.csv  responsiveness tests under H0
 %     Null_calibration_delta_rate_bias.csv      split-half delta rate under H0
-%     Null_calibration_other_stimuli.csv        FFF, SDG, MBR, NI designs under H0
+%     Null_calibration_other_stimuli.csv        FFF, SDG, MBR designs under H0
 %
 %   Every number is read from the saved Figure 1 struct, the leave-one-animal-out
 %   spreadsheet (leaveOneAnimalOut) or recomputed by checkMovingWindowNullFPR; nothing is
@@ -252,7 +252,7 @@ if params.runNull
         x.name, x.nCats, x.tc, x.nWin, x.winLen, x.baseLen), L2, 'UniformOutput', false), '; ');  % layouts used
     hdr = ["Test","Firing rate (Hz)","Simulated neurons","False positives","False-positive rate","95% CI (Clopper-Pearson)"];
     outPaths{end+1} = writeTitledCsv(fullfile(params.outDir, 'Null_calibration_other_stimuli.csv'), ...
-        'Null calibration of the responsiveness tests for FFF, SB grating, drifting grating, moving bar and natural images', ...
+        'Null calibration of the responsiveness tests for FFF, static grating, drifting grating and moving bar', ...
         'False-positive rate at alpha = 0.05 for simulated units with no stimulus response; a valid test gives about 0.05.', ...
         hdr, R, {['Layouts (real recordings): ' lay], ...
         'Simulation: homogeneous Bernoulli spiking (1 ms bins); maximum over conditions x windows after the sign flip.'});
