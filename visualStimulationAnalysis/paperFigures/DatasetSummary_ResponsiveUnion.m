@@ -8,6 +8,7 @@ d = figureDesign();                                               % shared recor
 paperFigPrefix('summary');                                           % saved panels are named summary_<panel>
 [Tresp, Sresp] = AllExpResponsiveUnion(d.exps, ...
     Stimuli        = {'MB','RG','MBR','SDGm','SDGs','FFF'}, ...   % families in the paper
+    excludeStim    = struct('SDGm', setdiff(d.exps, d.expsSDG), 'SDGs', setdiff(d.exps, d.expsSDG)), ...   % gratings of recordings 1, 8 not analysed
     threshold      = 0.05, ...                                    % same cutoff as the figures
     useTtest       = false, ...                                   % permutation p
     computeMissing = false, ...                                   % cache-only: never writes stats

@@ -1,7 +1,8 @@
 %% FIGURE 4 — Local vs global stimuli
 % Statistics design: figureDesign.m.
 % Static: SB (RG) vs static grating (SDGs), paired within neurons in every
-%   recording holding both (24 recordings). FFF was dropped from this contrast:
+%   recording of d.expsSDG holding both (recordings 1 and 8 excluded from every grating
+%   comparison: different grating protocol, see figureDesign). FFF was dropped from this contrast:
 %   it exists in only 19 recordings and 3 units respond to it (chance level), so
 %   the 3-way design reduced the analysable set to 4 units.
 % Moving: MB vs moving bar (MBR) and MB vs drifting grating (SDGm) as the
@@ -14,12 +15,12 @@ paperFigPrefix('fig4');                                           % saved panels
 %% Static locality: RG vs SDGs (statistics)
 stimsS = {'RG', 'SDGs'};                                          % pairwise: more units than the 3-way with FFF
 args = [d.statsArgs, {'ComparePairs', stimsS, 'Lock', d.lock(stimsS)}];
-AllExpAnalysis(d.exps, args{:});
-leaveOneAnimalOut(d.structPath(d.exps, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs');
+AllExpAnalysis(d.expsSDG, args{:});
+leaveOneAnimalOut(d.structPath(d.expsSDG, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs');
 
 %% Static locality: PSTH and raster (RG ON period; interactive session for the raster)
-plotPSTH_MultiExp(d.exps, d.psthArgsStatic{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
-plotRaster_MultiExp(d.exps, d.rasterArgsStatic{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);   % 0-1 s
+plotPSTH_MultiExp(d.expsSDG, d.psthArgsStatic{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
+plotRaster_MultiExp(d.expsSDG, d.rasterArgsStatic{:}, overwrite=true, stimTypes=["RG","SDGs"], unionUnits=true);   % 0-1 s
 
 %% Moving locality: MB vs MBR (statistics)
 stimsB = {'MB', 'MBR'};
@@ -30,17 +31,17 @@ leaveOneAnimalOut(d.structPath(d.exps, stimsB), figLabel='Figure 4 MB-MBR', outN
 %% Moving locality: MB vs SDGm (statistics)
 stimsG = {'MB', 'SDGm'};
 args = [d.statsArgs, {'ComparePairs', stimsG, 'Lock', d.lock(stimsG)}];
-AllExpAnalysis(d.exps, args{:});
-leaveOneAnimalOut(d.structPath(d.exps, stimsG), figLabel='Figure 4 MB-SDGm', outName='LeaveOneAnimalOut_MB-SDGm');
+AllExpAnalysis(d.expsSDG, args{:});
+leaveOneAnimalOut(d.structPath(d.expsSDG, stimsG), figLabel='Figure 4 MB-SDGm', outName='LeaveOneAnimalOut_MB-SDGm');
 
 %% Moving locality: PSTHs and rasters
 % MB is aligned to the RF crossing; MBR and SDGm to stimulus onset. The bar
 % crosses each RF at a different time, so the MBR population PSTH is smeared;
 % the per-unit raster over the whole sweep (useCompleteWindow) shows it better.
 plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
-plotPSTH_MultiExp(d.exps, d.psthArgsSDG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
+plotPSTH_MultiExp(d.expsSDG, d.psthArgsSDG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);
-plotRaster_MultiExp(d.exps, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);      % SDGm 0-2 s, MB 500 ms after the crossing
+plotRaster_MultiExp(d.expsSDG, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);      % SDGm 0-2 s, MB 500 ms after the crossing
 
 %% Supplementary (descriptive, PV97 only): MBR vs SDGm
 expsPV97 = 49:54;                                                 % the only recordings with both MBR and SDG

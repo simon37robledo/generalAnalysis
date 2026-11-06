@@ -20,6 +20,7 @@ M = table();
 for ex = d.exps
     NP = loadNPclassFromTable(ex);                                % recording
     for s = stims
+        if ismember(s, ["SDGm", "SDGs"]) && ~ismember(ex, d.expsSDG), continue, end   % recordings 1, 8: grating protocol excluded
         m = unitStimMeasures(NP, s);                              % empty if the stimulus was not recorded
         if isempty(m), continue, end
         m.exp = repmat(ex, height(m), 1);                         % recording / insertion ID
@@ -32,6 +33,9 @@ save(cacheF, 'M', 'D', 'depthSource');
 
 %% Tests
 load(cacheF, 'M', 'D', 'depthSource');
+nOld = height(M);                                                 % rows in the cache
+M = M(~(ismember(M.stim, ["SDGm", "SDGs"]) & ~ismember(M.exp, d.expsSDG)), :);   % gratings only from d.expsSDG (cache may predate it)
+fprintf('Fig6: %d grating rows of recordings 1, 8 dropped.\n', nOld - height(M));   % report what was removed
 tests = table();                                                  % one row per test
 for s = stims
     a = M(M.stim == s & M.present, :);                            % units present during this stimulus

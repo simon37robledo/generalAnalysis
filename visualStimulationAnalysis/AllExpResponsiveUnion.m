@@ -69,6 +69,7 @@ arguments
 
     % --- Stimuli to union ---
     params.Stimuli          cell    = {'MB','RG','MBR','SDGm','SDGs','FFF'}  % stimulus families ORed together
+    params.excludeStim      struct  = struct()              % field = family, value = experiment IDs where that family is treated as absent
 
     % --- Responsiveness criterion ---
     params.threshold        double  = 0.05                  % per-stimulus p-value cutoff
@@ -109,6 +110,9 @@ for si = 1:nStim                                            % check each request
     assert(isfield(params.MissingBaseRespWindow, stims{si}), ...   % needed only for the missing-cache path
         'MissingBaseRespWindow has no field "%s" — add one before requesting that stimulus.', stims{si});
 end
+exclNames = fieldnames(params.excludeStim);                 % families with excluded recordings
+assert(all(ismember(exclNames, stims)), ...                 % a misspelt family would silently exclude nothing
+    'excludeStim names families not in Stimuli: %s', strjoin(setdiff(exclNames, stims), ', '));
 
 % Sanitised names for use as table variable suffixes (identical here, but explicit)
 stimVar = matlab.lang.makeValidName(stims);                 % e.g. 'SDGm' -> 'SDGm' (already valid)
@@ -137,7 +141,9 @@ runLoop = true;                                             % assume we must com
 if exist(savePath, 'file') == 2 && ~params.overwrite
     S = load(savePath);                                     % peek at the cached pooled result
     sameCrit = isfield(S, 'threshold') && isequal(S.threshold, params.threshold) && ...
-               isfield(S, 'useTtest')  && isequal(S.useTtest,  params.useTtest);
+               isfield(S, 'useTtest')  && isequal(S.useTtest,  params.useTtest) && ...
+               isfield(S, 'params') && isfield(S.params, 'excludeStim') && ...
+               isequal(S.params.excludeStim, params.excludeStim);   % same excluded recordings per family
     if isfield(S, 'expList') && isequal(S.expList, expList) && sameCrit
         runLoop = false;                                    % cache is valid for this call
         fprintf('Loaded pooled union from cache: %s\n', savePath);
@@ -312,6 +318,10 @@ if runLoop
             if isempty(obj) || isempty(obj.VST)              % stimulus was never recorded here
                 fprintf('  [%s] not present.\n', sn);
                 continue
+            end
+            if isfield(params.excludeStim, sn) && ismember(ex, params.excludeStim.(sn))   % excluded by design here
+                fprintf('  [%s] excluded in this recording (excludeStim).\n', sn);
+                continue                                     % counted as absent, like an unrecorded family
             end
 
             % Cache path must be built by hand: getAnalysisFileName derives

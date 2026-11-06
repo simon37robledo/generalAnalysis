@@ -28,6 +28,7 @@ function d = figureDesign()
 %
 %   Fields
 %     exps        recording list used by every figure
+%     expsSDG     recording list for grating (SDGm/SDGs) analyses: exps without 1 and 8
 %     paperFigs   figure / struct output folder
 %     statsArgs   name-value cell for AllExpAnalysis (append ComparePairs, Lock)
 %     lock        @(stims) per-stimulus Lock cell for AllExpAnalysis
@@ -40,6 +41,12 @@ d.exps      = [1, 8, 40:43, 49:54, 64:66, 68:85, 87:97];          % all recordin
 % Recordings 1 and 8 have only a single-trajectory MB (8 directions): it is used in every
 % figure except Figure 2 (receptive-field maps need 9x9 coverage; Fig2 lists its recordings
 % and asserts 9 trajectories). Sensitivity without 1 and 8: Sensitivity_NoRecs1_8.m.
+d.expsSDG   = setdiff(d.exps, [1 8]);                             % recordings for every grating analysis (Figs 3-6, dataset summary)
+% Recordings 1 and 8 (PV103, PV27) are excluded from all grating analyses: their gratings
+% used a different protocol (8 directions, 20% contrast, black background) from the
+% other recordings (decided 2026-11-06; no all-recordings grating result is reported).
+assert(~any(ismember([1 8], d.expsSDG)) && numel(d.expsSDG) == numel(d.exps) - 2, ...
+    'figureDesign: expsSDG must be exps without recordings 1 and 8.');   % both must have been in exps
 d.paperFigs = 'W:\Large_scale_mapping_NP\Paper_figs';             % where AllExpAnalysis saves figures and structs
 if ~isempty(analysisVariant())                                    % sensitivity run (analysisVariant): its own subfolder
     d.paperFigs = fullfile(d.paperFigs, ['Sensitivity_' analysisVariant()]);

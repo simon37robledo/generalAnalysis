@@ -2,8 +2,9 @@
 % Recordings 1 (PV103, insertion 1) and 8 (PV27, insertion 2) use the old protocol:
 % single-trajectory moving ball (8 directions, black background), 4x4 static-ball
 % grid, gratings at 20% contrast with an unsaved temporal frequency. They are kept
-% in the figures (MB everywhere except Figure 2); this script reports every
-% comparison with them removed. Each is its animal's only insertion, so removing
+% in the MB/SB/MBR figures (MB everywhere except Figure 2) and excluded from every
+% grating analysis (figureDesign expsSDG), so this script reports only the
+% non-grating comparisons with them removed. Each is its animal's only insertion, so removing
 % them = removing PV103 and PV27. Statistics are re-bootstrapped from the saved
 % figure structs (buildStatsTable, the routine behind the figures and the LOAO
 % table); per-recording statistics are not recomputed. Run after Figs 1, 3, 4, 5.
@@ -13,12 +14,9 @@ drop = ["PV103", "PV27"];                                         % animals of r
 nBoot = 1e4;                                                      % bootstrap replicates (as the LOAO table)
 outCsv = fullfile(d.paperFigs, 'Stats summary tables', 'Sensitivity_without_recordings_1_8.csv');   % output table
 
-%% Cross-animal comparisons (Figures 1, 3, 4)
+%% Cross-animal comparisons (Figure 1, Figure 4 MB-MBR; grating comparisons never include 1 and 8)
 spec = { ...                                                      % {label, struct, pairs}, as in the figure scripts
     'Figure 1',        d.structPath(d.exps, {'MB','RG'}),    "all"; ...
-    'Figure 3',        d.structPath(d.exps, {'SDGm','SDGs'}), "all"; ...
-    'Figure 4 static', d.structPath(d.exps, {'RG','SDGs'}),  "all"; ...
-    'Figure 4 MB-SDGm', d.structPath(d.exps, {'MB','SDGm'}), "all"; ...
     'Figure 4 MB-MBR', d.structPath(d.exps, {'MB','MBR'}),   "all"};
 metrics = {'Z-score', 'DeltaRate', 'FracResponsive'};             % the reported metrics
 R = table();                                                      % one row per comparison x metric
@@ -47,7 +45,7 @@ end
 load(fullfile(d.paperFigs, 'Fig5_directionTuning_units.mat'), 'U'); % per-unit tuning table (Figure 5 cache)
 A = U(U.responsive & U.present & ~isnan(U.DSI), :);               % analysable units, as in Figure 5
 rng(0);                                                           % same seed as Figure 5
-for s = ["MB", "SDGm", "MBR"]
+for s = ["MB", "MBR"]                                             % SDGm: recordings 1, 8 never analysed (expsSDG)
     a = A(A.stim == s, :);                                        % this stimulus, all recordings
     w = a(~ismember(a.exp, [1 8]), :);                            % without recordings 1 and 8
     [fa, ca, pa, na] = fracDS(a, nBoot);                          % all recordings

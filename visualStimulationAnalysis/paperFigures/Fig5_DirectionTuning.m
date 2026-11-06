@@ -19,6 +19,9 @@ for ex = d.exps
     NP = loadNPclassFromTable(ex);                                % recording
     animal = string(regexp(NP.recordingName, '(PV|SA)\d+', 'match', 'once'));   % animal ID
     for s = 1:numel(stims)
+        if stims(s) == "SDGm" && ~ismember(ex, d.expsSDG)         % recordings 1 and 8: grating protocol excluded
+            continue
+        end
         try
             o = ctor{s}(NP);                                      % stimulus object (errors if absent)
             o.ResponseWindow;                                     % cached response window must exist
@@ -34,6 +37,8 @@ save(cacheF, 'U');                                                % cache for th
 
 %% Fraction of direction-selective units (per insertion), vs 5% chance
 load(cacheF, 'U');
+assert(~any(U.stim == "SDGm" & ~ismember(U.exp, d.expsSDG)), ...
+    'Fig5: cache holds SDGm units from recordings outside d.expsSDG (1, 8): rebuild the cache.');   % stale cache
 A = U(U.responsive & U.present & ~isnan(U.DSI), :);               % analysable units
 rng(0);
 fr = table();                                                     % one row per stimulus
