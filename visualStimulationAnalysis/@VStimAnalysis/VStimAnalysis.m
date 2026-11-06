@@ -326,7 +326,10 @@ classdef (Abstract) VStimAnalysis < handle
                 [lagOn, cleanOn]   = ttlDiodeLags(B, tA, ttlOn, rangeB);                   % per-trial TTL->diode change at onset
                 [lagOff, cleanOff] = ttlDiodeLags(B, tA, ttlOff, rangeB);                  % same at offset
                 clean = cleanOn & ~isnan(lagOn);                                           % stable diode before the onset TTL and a change after it
-                assert(mean(clean) >= 0.5, 'trialOnsetFromTTL: only %d of %d trials have a stable diode before the onset TTL.', sum(clean), numel(clean));
+                % Gratings: the static onset only changes the diode when the previous trial ended on a bright
+                % frame (about every other trial), so half the trials carry no onset step; the TTL->screen
+                % latency is a hardware constant, measured on the trials where it is visible.
+                assert(mean(clean) >= 0.25, 'trialOnsetFromTTL: only %d of %d trials have a measurable diode onset.', sum(clean), numel(clean));
                 medOn = median(lagOn(clean));                                              % this recording's TTL->display lag [ms]
                 inFrame = abs(lagOn(clean) - medOn) <= frameMs;                            % clean trials within 1 frame of the median lag
                 assert(mean(inFrame) >= 0.95, 'trialOnsetFromTTL: only %.0f%% of clean trials start within 1 frame of the median lag (%.1f ms).', 100*mean(inFrame), medOn);

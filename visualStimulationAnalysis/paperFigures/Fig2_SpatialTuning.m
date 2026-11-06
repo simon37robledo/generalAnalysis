@@ -167,9 +167,9 @@ writetable(loao, fullfile(d.paperFigs, 'LeaveOneAnimalOut_Fig2_SpatialTuning.csv
 NP = loadNPclassFromTable(81);                                    % SB example recording
 vsRe = rectGridAnalysis(NP);
 vsRe.plotRaster(MergeNtrials=1, overwrite=true, AllResponsiveNeurons=false, exNeuronsPhyID=288, exNeurons=[], selectedLum=255, oneTrial=true, PaperFig=true)
-colorbarLimsRG = vsRe.PlotReceptiveFields(exNeurons=14, allStimParamsCombined=false, PaperFig=true, overwrite=true);
+colorbarLimsRG = vsRe.PlotReceptiveFields(exNeurons=15, allStimParamsCombined=false, PaperFig=true, overwrite=true);   % phy 288: position 15 with the 2026-11-05 labels (was 14)
 
 NP = loadNPclassFromTable(70);                                    % MB example recording
 vs = linearlyMovingBallAnalysis(NP);
 vs.plotRaster('exNeuronsPhyID', 180, 'overwrite', true, 'MergeNtrials', 2, 'PaperFig', true, OneLuminosity='white', OneDirection='down', bin=20)
-colorbarLims = vs.PlotReceptiveFields('exNeurons', 19, 'overwrite', true, 'OneDirection', 'down', 'OneLuminosity', 'white', 'PaperFig', true);
+colorbarLims = vs.PlotReceptiveFields('exNeurons', 23, 'overwrite', true, 'OneDirection', 'down', 'OneLuminosity', 'white', 'PaperFig', true);   % phy 180: position 23 with the 2026-11-05 labels (was 19)

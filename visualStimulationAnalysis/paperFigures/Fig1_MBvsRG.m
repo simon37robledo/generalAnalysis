@@ -9,8 +9,9 @@ stims = {'MB', 'RG'};                                             % compared sti
 fig1Struct = d.structPath(d.exps, stims);                         % analysis struct written by the stats cell
 
 %% Statistics (permutation test, swarm panels, analysis struct)
-markUnits = { 1, 'MB', 'PV233', 6 ;                               % -> X in the MB column
-             14, 'RG', 'PV140', 9 };                              % -> + in the RG column
+% Positions in the good-unit list (labels of 2026-11-05: BombCell without whole-recording presence):
+markUnits = { 1, 'MB', 'PV233', 6 ;                               % -> X in the MB column (phy 357, rec 97)
+             15, 'RG', 'PV140', 9 };                              % -> + in the RG column (phy 288, rec 81; was 14 with the old labels)
 args = [d.statsArgs, {'ComparePairs', stims, 'Lock', d.lock(stims), 'markUnits', markUnits}];  % full call
 [tempTableMW, summaryStats] = AllExpAnalysis(d.exps, args{:});    % per-recording stats + pooled comparison
 
@@ -43,12 +44,12 @@ plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes="RG", uni
 for ex = [74]                                                     % RG example recording
     NP = loadNPclassFromTable(ex);
     vsRe = rectGridAnalysis(NP);
-    vsRe.plotRaster(MergeNtrials=1, overwrite=true, AllResponsiveNeurons=false, exNeuronsPhyID=[], exNeurons=111, selectedLum=255, oneTrial=true, PaperFig=true)
-    colorbarLimsRG = vsRe.PlotReceptiveFields(exNeurons=111, allStimParamsCombined=false, PaperFig=true, overwrite=true);
+    vsRe.plotRaster(MergeNtrials=1, overwrite=true, AllResponsiveNeurons=false, exNeuronsPhyID=768, exNeurons=[], selectedLum=255, oneTrial=true, PaperFig=true)   % phy 768 (was position 111)
+    colorbarLimsRG = vsRe.PlotReceptiveFields(exNeurons=246, allStimParamsCombined=false, PaperFig=true, overwrite=true);   % phy 768: position 246 with the 2026-11-05 labels (was 111)
 end
 for ex = [97]                                                     % MB example recording
     NP = loadNPclassFromTable(ex);
     vs = linearlyMovingBallAnalysis(NP);
     vs.plotRaster('exNeuronsPhyID', 357, 'overwrite', true, 'MergeNtrials', 1, 'PaperFig', true, OneLuminosity='white', OneDirection='up', bin=20)
-    colorbarLims = vs.PlotReceptiveFields('exNeurons', 1, 'overwrite', true, 'OneDirection', 'up', 'OneLuminosity', 'white', 'PaperFig', true);
+    colorbarLims = vs.PlotReceptiveFields('exNeurons', 1, 'overwrite', true, 'OneDirection', 'up', 'OneLuminosity', 'white', 'PaperFig', true);   % phy 357: position 1 (unchanged)
 end
