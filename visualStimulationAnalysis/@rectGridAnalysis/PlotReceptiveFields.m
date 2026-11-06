@@ -77,7 +77,9 @@ pixel_size_cm = params.pixel_size / (params.resolution / RFs.params.reduceFactor
 
 % Build the visual-angle (degrees) coordinate arrays for the reduced grid
 monitor_resolution = [redCoorX, redCoorY];                        % [width height] in reduced pixels
-[theta_x, theta_y] = pixels2eyeDegrees(params.eye_to_monitor_distance, ...
+% Positions need eccentricity atan(d/D) (pixels2eyePosition), not the subtended size
+% 2*atan(d/2D) of pixels2eyeDegrees, which overestimates the edge (42.0 instead of 37.5 deg)
+[theta_x, theta_y] = pixels2eyePosition(params.eye_to_monitor_distance, ...
                                         pixel_size_cm, monitor_resolution);
 
 % Crop theta_x horizontally to be square (removes equal margins left and right)
@@ -91,17 +93,17 @@ theta_x = theta_x(:, 1 + (redCoorX - redCoorY)/2 : (redCoorX - redCoorY)/2 + red
 maxDeg_x  = max(abs(theta_x(1, :)));
 % Define params.tickNum tick positions in degrees, symmetric about 0, stopping 5° inside the edge
 tickDeg_x = linspace(-(maxDeg_x - 5), maxDeg_x - 5, params.tickNum);
-% Map degree values back to reduced-pixel column indices via linear interpolation
-tickPix_x = interp1(theta_x(1, :), 1:size(theta_x, 2), tickDeg_x, 'linear', 'extrap');
+% Round to whole degrees first, so each tick sits exactly at the angle its label shows
+tickLbl_x = round(tickDeg_x);
+% Map the rounded degree values back to reduced-pixel column indices via linear interpolation
+tickPix_x = interp1(theta_x(1, :), 1:size(theta_x, 2), tickLbl_x, 'linear', 'extrap');
 
 % Y-axis: same procedure on the first column of theta_y
 maxDeg_y  = max(abs(theta_y(:, 1)));
 tickDeg_y = linspace(-(maxDeg_y - 5), maxDeg_y - 5, params.tickNum);
-tickPix_y = interp1(theta_y(:, 1), 1:size(theta_y, 1), tickDeg_y, 'linear', 'extrap');
-
-% Pre-round degree labels so they are computed only once
-tickLbl_x = round(tickDeg_x);   % Rounded x-axis degree labels for display
-tickLbl_y = round(tickDeg_y);   % Rounded y-axis degree labels for display
+tickLbl_y = round(tickDeg_y);   % Rounded y-axis degree labels (tick positions use these values)
+tickPix_y = interp1(theta_y(:, 1), 1:size(theta_y, 1), tickLbl_y, 'linear', 'extrap');
+tickLbl_y = 0 - tickLbl_y;      % Screen y grows downwards: flip the label sign so up is positive (0 - x avoids a "-0" label)
 
 % Warn if requested tick range exceeds the actual RF map extent
 if maxDeg_x < 5 || maxDeg_y < 5

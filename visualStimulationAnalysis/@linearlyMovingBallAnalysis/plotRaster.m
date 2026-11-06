@@ -149,12 +149,10 @@ eye_to_monitor_distance = 21.5000;
 pixel_size = 33;
 resolution = 1080;
 pixel_size =  pixel_size/resolution;
-monitor_resolution = [1920 1080];
-[theta_x,theta_y] = pixels2eyeDegrees(eye_to_monitor_distance,pixel_size,monitor_resolution);
-
-for i = 1:sizeN
-    sizeBall(i) = round(abs(abs(theta_x(1,uSize(i)))-abs(theta_x(1,1))),2);
-end
+% Ball diameter is a SIZE: angle subtended at the screen centre, 2*atan(s/(2D)) (the
+% pixels2eyeDegrees formula). The old map lookup measured it from the left edge of a
+% virtual 1920-px screen, i.e. far in the periphery (6.9 instead of 9.75 deg for 120 px).
+sizeBall = round(2 * atand(uSize(:)' * pixel_size / (2 * eye_to_monitor_distance)), 2);   % Diameters in degrees, one per unique size
 
 sizesString = strjoin(string(sizeBall), "_");
 

@@ -5,6 +5,8 @@
 %%pixel_size = 33/(1080)
 
 function [theta_x theta_y] = pixels2eyeDegrees(eye_to_monitor_distance,pixel_size,monitor_resolution)
+% 2*atan(d/(2D)) is the angle SUBTENDED by an object of size d centred on the line of sight:
+% use it for sizes. For positions (eccentricity, RF axis ticks) use pixels2eyePosition (atan(d/D)).
 % Parameters
 % eye_to_monitor_distance = 21.5; % Distance from eye to monitor in cm
 % pixel_size = 33/1080; % Size of one pixel in cm (e.g., 25 micrometers)

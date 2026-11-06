@@ -32,11 +32,21 @@ classdef linearlyMovingBallAnalysis < VStimAnalysis
                     originalSession = params.Session;
                     params.Session = 1 + floor(1/params.Session); %converts 1 into 2 and 2 into 1. Only a maximum of two sessions per insertion.
 
-                    % Build the other session; it may not exist (one MB session in this insertion)
-                    try
-                        other = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'MultipleOffsets', false);
-                    catch
-                        other = [];                                   % no second MB session
+                    % Build the other session only if it exists. Count this stimulus's files with the
+                    % rule of setVisualStimulationFile (name contains stimName, not 'metadata'): building a
+                    % missing session fails inside the dataObj listener, which MATLAB reports as a warning
+                    % and cannot be caught.
+                    vsFiles = dir(fullfile(obj.visualStimFolder, '*.mat'));   % stimulation files of the insertion
+                    vsNames = {vsFiles.name};                         % their names
+                    nSessions = sum(contains(vsNames, obj.stimName, 'IgnoreCase', true) & ...
+                        ~contains(lower(vsNames), 'metadata'));       % MB sessions in this insertion
+                    other = [];                                       % default: no second MB session
+                    if nSessions >= params.Session                    % the other session exists
+                        try
+                            other = linearlyMovingBallAnalysis(dataObj, 'Session', params.Session, 'MultipleOffsets', false);
+                        catch
+                            other = [];                               % construction failed: treat as absent
+                        end
                     end
                     % No session with parallel trajectories (recs 1, 8): keep the single-trajectory
                     % session; the grid test only uses the cells the ball crosses. Analyses that

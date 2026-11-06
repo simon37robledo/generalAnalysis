@@ -2,8 +2,9 @@ function [crossingFrame, dwellFrames, validGridPerDirection, nTrialsPerCellDir] 
     computeBallGridCrossings(obj, speedIndx, params)
 % computeBallGridCrossings - Detect when ball centre crosses each grid cell.
 %
-% For each trial and each grid cell, finds the frame at which the ball centre
-% first enters the spatial bin corresponding to that grid cell. Grid cells are
+% For each trial and each grid cell the ball centre enters, finds the frame at
+% which the ball centre is closest to the centre of that grid cell (the start of
+% the response window in the spatial-grid test). Grid cells are
 % defined on the original screen coordinates (not the reduced coordinates used
 % elsewhere for receptive field plotting).
 %
@@ -13,8 +14,8 @@ function [crossingFrame, dwellFrames, validGridPerDirection, nTrialsPerCellDir] 
 %   params    - parameter struct containing GridSize (e.g. 9)
 %
 % Outputs:
-%   crossingFrame         : [nTrials × nGridCells] frame at which ball centre
-%                           first enters grid cell. NaN if ball never enters.
+%   crossingFrame         : [nTrials × nGridCells] frame at which ball centre is
+%                           closest to the cell centre. NaN if ball never enters.
 %   dwellFrames           : [nTrials × nGridCells] number of frames ball centre
 %                           remains in cell. 0 if never entered.
 %   validGridPerDirection : [nGridCells × nDirections] logical. True if at least
