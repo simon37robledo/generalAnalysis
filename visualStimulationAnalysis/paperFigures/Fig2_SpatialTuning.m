@@ -169,11 +169,13 @@ vsRe = rectGridAnalysis(NP);
 vsRe.plotRaster(MergeNtrials=1, overwrite=true, AllResponsiveNeurons=false, exNeuronsPhyID=288, exNeurons=[], selectedLum=255, oneTrial=true, PaperFig=true)
 colorbarLimsRG = vsRe.PlotReceptiveFields(exNeurons=15, allStimParamsCombined=false, PaperFig=true, overwrite=true);   % phy 288: position 15 with the 2026-11-05 labels (was 14)
 
-% MB example, representative by rule (decided 2026-11-06): among the 321 MB-responsive units of the
-% unpaired index (white) with MB z >= the median MB z (1.77), the unit whose tuning index is closest
-% to the population median (2.647): rec 74 phy 727 (PV140, index 2.647, z 2.08, preferred direction
-% 90 deg = left). Replaces rec 70 phy 180 (z 1.18 with the 2026-11-05 labels).
+% MB example by rule (decided 2026-11-07): among the 321 MB-responsive units of the unpaired index
+% (white) with a tuning index >= the median (2.647), no stripe RF, and a grid-test RF cell off the
+% 9x9 grid edge (as the Fig 5 example, Fig5_directionTuning_units.mat 'cell'), the unit with the
+% highest MB z: rec 74 phy 292 (PV140, index 3.77, z 34.9, preferred direction 180 deg = down, RF
+% right of centre). The legend must say "strongest unit by this rule". Replaces rec 74 phy 727
+% (median rule, too sparse) and rec 75 phy 66 (RF in the screen corner).
 NP = loadNPclassFromTable(74);                                    % MB example recording
 vs = linearlyMovingBallAnalysis(NP);
-vs.plotRaster('exNeuronsPhyID', 727, 'overwrite', true, 'MergeNtrials', 2, 'PaperFig', true, OneLuminosity='white', OneDirection='left', bin=20)
-colorbarLims = vs.PlotReceptiveFields('exNeurons', 242, 'overwrite', true, 'OneDirection', 'left', 'OneLuminosity', 'white', 'PaperFig', true);   % phy 727: good-unit position 242 (checked 2026-11-06)
+vs.plotRaster('exNeuronsPhyID', 292, 'overwrite', true, 'MergeNtrials', 2, 'PaperFig', true, OneLuminosity='white', OneDirection='down', bin=20)
+colorbarLims = vs.PlotReceptiveFields('exNeurons', 8, 'overwrite', true, 'OneDirection', 'down', 'OneLuminosity', 'white', 'PaperFig', true);   % phy 292: good-unit position 8 (checked 2026-11-07)
