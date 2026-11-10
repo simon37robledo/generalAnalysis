@@ -1,7 +1,7 @@
-function dlt = splitHalfDelta(X, grp, half)
+function [dlt, selIdx] = splitHalfDelta(X, grp, half)
 % splitHalfDelta  Split-half cross-validated peak response (spikes/s).
 %
-%   dlt = splitHalfDelta(X, grp, half)
+%   [dlt, selIdx] = splitHalfDelta(X, grp, half)
 %
 %   For each neuron, picks the (group, option) with the largest mean on one
 %   half of the trials and measures that same (group, option) on the other,
@@ -20,6 +20,11 @@ function dlt = splitHalfDelta(X, grp, half)
 %   OUTPUT
 %     dlt   [1 x nNeurons]  held-out mean at the selected (group, option), spikes/s.
 %           NaN if the selected option has no trials in the other half.
+%     selIdx [2 x nNeurons] (group, option) selected on half 1 (row 1) and on
+%           half 2 (row 2), as a linear index into [nGrp x nOpt]:
+%           group = mod(selIdx-1, nGrp)+1, option = ceil(selIdx/nGrp).
+%           Row h is measured on the trials of half 3-h (used to plot the
+%           held-out trials, splitHalfMR).
 
 [nTr, nU, nOpt] = size(X);                                         % dimensions
 assert(numel(grp) == nTr && numel(half) == nTr, ...
@@ -39,9 +44,11 @@ for h = 1:2
     M{h} = reshape(permute(reshape(sums ./ cnts, nGrp, nU, nOpt), [1 3 2]), nGrp*nOpt, nU);  % [nGrp*nOpt x nNeurons]
 end
 est = zeros(2, nU);                                                % held-out estimate per direction of the split
+selIdx = zeros(2, nU);                                             % selected (group, option) per half
 for h = 1:2
     sel = M{h}; sel(isnan(sel)) = -Inf;                            % unmeasurable options cannot be selected
     [~, idx] = max(sel, [], 1);                                    % selected (group, option) per neuron
+    selIdx(h, :) = idx;                                            % keep the selection (row of M = group + (option-1)*nGrp)
     est(h, :) = M{3-h}(idx + (0:nU-1) * nGrp * nOpt);              % measured on the other half
 end
 dlt = mean(est, 1) * 1000;                                         % average of both splits, spikes/ms -> spikes/s

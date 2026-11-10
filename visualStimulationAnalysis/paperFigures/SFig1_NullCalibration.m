@@ -8,7 +8,7 @@
 %   Null_calibration_delta_rate_bias.csv      (split-half delta firing rate)
 
 d = figureDesign();                                               % shared design (output folder)
-paperFigPrefix('figS');                                           % saved panels are named figS_<panel>
+paperFigPrefix('sfig1');                                          % Supplementary Figure 1 panels: sfig1_<panel>
 tblDir = fullfile(d.paperFigs, 'Stats summary tables');           % supplementary tables
 F1 = readTitledCsv(fullfile(tblDir, 'Null_calibration_false_positive_rate.csv'));   % MB / SB designs
 F2 = readTitledCsv(fullfile(tblDir, 'Null_calibration_other_stimuli.csv'));         % other stimuli

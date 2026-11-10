@@ -35,6 +35,7 @@ function d = figureDesign()
 %     structPath  @(exps, stims) path of the *_analysisStruct.mat AllExpAnalysis writes
 %     rasterArgs  name-value cell shared by the plotRaster_MultiExp calls
 %     psthArgs    name-value cell shared by the plotPSTH_MultiExp calls
+%     setArg      @(args, name, value) replace one name-value pair in such a cell
 
 d.exps      = [1, 8, 40:43, 49:54, 64:66, 68:85, 87:97];          % all recordings (stimuli absent from one are skipped)
 % MB = the 9x9 session (parallel trajectories) where one exists: 84, 88, 96 use session 2.
@@ -72,14 +73,21 @@ d.lock       = @lockFor;                                          % per-stimulus
 d.structPath = @(exps, stims) fullfile(d.paperFigs, ...
     sprintf('Ex_%d-%d_Combined_%s_analysisStruct.mat', exps(1), exps(end), strjoin(stims, '-')));  % AllExpAnalysis naming
 
+% Population PSTHs and rasters (decided 2026-11-10): per unit, the best condition is
+% chosen on one half of the repetitions and shown with the other half's trials, and
+% vice versa (trialSel="splitHalf": the split of DeltaRateCV, splitHalfMR), so the
+% panels are free of the selection bias of plotting the best condition on its own
+% trials. Main panels align MB to trial onset (mbAlign="onset"); the crossing-aligned
+% MB panels are supplementary (override with d.setArg(..., 'mbAlign', "crossing")).
 d.rasterArgs = { ...
     'TakeTopPercentTrials', [], 'PaperFig', true, 'zScore', true, 'postStim', 500, ...
-    'prefCatPSTH', false, 'statPrefCatPSTH', true, 'sdFloorPrctile', 25, 'speed', "best", ...
+    'prefCatPSTH', false, 'statPrefCatPSTH', false, 'sdFloorPrctile', 25, 'speed', "best", ...
     'useCompleteWindow', false, 'MarkFPnFN', false, 'useTtest', false, 'sortBy', "meanZScore", ...
-    'binWidth', 20};                                              % shared raster settings; 20 ms columns (10 ms rows were noisy)
+    'binWidth', 20, 'trialSel', "splitHalf", 'mbAlign', "onset"}; % shared raster settings; 20 ms columns (10 ms rows were noisy)
 d.psthArgs = { ...
     'zScore', true, 'TakeTopPercentTrials', [], 'PaperFig', true, 'byDepth', false, ...
-    'binWidth', 50, 'postStim', 500};                             % shared PSTH settings
+    'binWidth', 50, 'postStim', 500, 'trialSel', "splitHalf", 'mbAlign', "onset"};  % shared PSTH settings
+d.setArg = @setArg;                                               % replace one name-value pair (figure scripts: no duplicate names)
 % PSTH bin rule: 50 ms bins for windows <= 1 s, 100 ms for 2 s windows (fewer
 % recordings and slower responses: smaller bins are noise).
 sdgW = d.statsArgs{find(strcmp(d.statsArgs, 'sdgWindows')) + 1}; % [static drifting] test windows (ms)

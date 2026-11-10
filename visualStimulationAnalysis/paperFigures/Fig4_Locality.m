@@ -34,14 +34,30 @@ args = [d.statsArgs, {'ComparePairs', stimsG, 'Lock', d.lock(stimsG)}];
 AllExpAnalysis(d.expsSDG, args{:});
 leaveOneAnimalOut(d.structPath(d.expsSDG, stimsG), figLabel='Figure 4 MB-SDGm', outName='LeaveOneAnimalOut_MB-SDGm');
 
-%% Moving locality: PSTHs and rasters
-% MB is aligned to the RF crossing; MBR and SDGm to stimulus onset. The bar
-% crosses each RF at a different time, so the MBR population PSTH is smeared;
-% the per-unit raster over the whole sweep (useCompleteWindow) shows it better.
-plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
-plotPSTH_MultiExp(d.expsSDG, d.psthArgsSDG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
-plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);
-plotRaster_MultiExp(d.expsSDG, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);      % SDGm 0-2 s, MB 500 ms after the crossing
+%% Moving locality: PSTHs and rasters (all onset-aligned, split-half trials)
+% MB, MBR and SDGm aligned to stimulus onset (SDGm: motion onset). The ball and the
+% bar cross each RF at a different time, so population PSTHs are spread over the sweep;
+% the per-unit rasters show the timing.
+paperFigPrefix('fig4');                                           % main-figure panel names
+psthSweep = d.setArg(d.psthArgs, 'postStim', 2400);               % MB / MBR sweeps (~2.4 s)
+plotPSTH_MultiExp(d.exps, psthSweep{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
+psthMG = d.setArg(d.setArg(d.psthArgsSDG, 'postStim', 2400), 'capMs', struct('SDGs', 1000, 'SDGm', 2000));  % MB 0-2.4 s, MG 0-2 s
+plotPSTH_MultiExp(d.expsSDG, psthMG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
+plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);  % whole sweeps + 500 ms
+plotRaster_MultiExp(d.expsSDG, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true, ...
+    postStimPer=struct('MB', 2400));                              % MB 0-2.4 s, MG 0-2 s
+
+%% Supplementary Figure 4: MB aligned to the crossing of its selected grid cell (split-half)
+paperFigPrefix('sfig4');                                          % supplementary panel names
+psthCrossB = d.setArg(d.psthArgs, 'mbAlign', "crossing");         % as the 6 Nov panels, split-half trials
+psthCrossG = d.setArg(d.psthArgsSDG, 'mbAlign', "crossing");
+plotPSTH_MultiExp(d.exps, psthCrossB{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
+plotPSTH_MultiExp(d.expsSDG, psthCrossG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
+rasterCrossB = d.setArg(d.rasterArgs, 'mbAlign', "crossing");
+rasterCrossG = d.setArg(d.rasterArgsSDG, 'mbAlign', "crossing");
+plotRaster_MultiExp(d.exps, rasterCrossB{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);
+plotRaster_MultiExp(d.expsSDG, rasterCrossG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true);  % MB 500 ms after the crossing
+paperFigPrefix('fig4');                                           % back to main-figure names
 
 %% Supplementary (descriptive, PV97 only): MBR vs SDGm
 expsPV97 = 49:54;                                                 % the only recordings with both MBR and SDG

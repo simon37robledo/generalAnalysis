@@ -393,7 +393,7 @@ for s = 1:nSpeeds
     end
     halfID      = 2 - mod(repRank, 2);                 % 1 = odd repetition, 2 = even repetition
     [~, ~, dirID] = unique(directions);                % direction index per trial (selection group)
-    DeltaRateCV = splitHalfDelta(permute(gridDiff, [1 3 2]), dirID, halfID);  % [1 × nNeurons] spikes/s
+    [DeltaRateCV, cvSel] = splitHalfDelta(permute(gridDiff, [1 3 2]), dirID, halfID);  % [1 × nNeurons] spikes/s; cvSel [2 × nNeurons] direction x cell picked on each half
 
     % =========================================================================
     % Store results for this speed condition
@@ -413,6 +413,8 @@ for s = 1:nSpeeds
     S.(fieldName).gridSize              = params.GridSize;       % scalar, grid dimensions
     S.(fieldName).z_mean               = z_mean*1000;
     S.(fieldName).DeltaRateCV           = DeltaRateCV;           % [1 × nNeurons] split-half peak delta rate, spikes/s
+    S.(fieldName).cvSel                 = cvSel;                 % [2 × nNeurons] split-half selection: direction index (into unique(trialDirections)) + (cell-1)*nDirs, row h picked on half h
+    S.(fieldName).cvHalf                = halfID(:);             % [nTrials × 1] half of each trial (1 = odd repetition of its condition, 2 = even)
     S.(fieldName).trialOnsets           = trialTimes(:);         % [nTrials × 1] onset (ms) of each analysed (locked) trial
     S.(fieldName).trialDirections       = directions(:);         % [nTrials × 1] direction of each analysed trial
     S.(fieldName).crossingMs            = crossingMsInTrial;     % [nTrials × nCells] crossing time from onset (ms), NaN = not crossed

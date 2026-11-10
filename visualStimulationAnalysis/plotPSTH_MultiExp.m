@@ -73,7 +73,22 @@ arguments
     params.PaperFig        logical       = false                          % export publication-quality figure via printFig
     params.byDepth         logical       = false                          % stratify neurons into 3 cortical depth bins
     params.unionResponsive logical       = true                           % if true, include neurons responsive to ANY stimType (OR-union across stim types)
+    params.trialSel        string        = "stored"                       % "stored": all trials (MB: best cell x direction, gridAlignedMR);
+                                                                          %   "splitHalf": per unit, the best condition chosen on one half of the
+                                                                          %   repetitions, shown with the other half's trials (splitHalfMR)
+    params.mbAlign         string        = "crossing"                     % grid-tested MB with trialSel="splitHalf": "crossing" (closest approach
+                                                                          %   to the selected cell) or "onset" (trial onset)
+    params.splitPanels     logical       = false                          % one axes per stimulus (own time axis, cut at capMs), shared y-axis
 end
+assert(ismember(params.trialSel, ["stored","splitHalf"]), 'trialSel must be "stored" or "splitHalf".');  % valid selection mode
+assert(ismember(params.mbAlign, ["crossing","onset"]), 'mbAlign must be "crossing" or "onset".');        % valid MB alignment
+assert(params.trialSel == "splitHalf" || params.mbAlign == "crossing", ...
+    'mbAlign="onset" needs trialSel="splitHalf" (the stored path is crossing-aligned).');               % no silent mix
+cvCompatible = params.splitBy == "" && ...
+    (isempty(params.TakeTopPercentTrials) || params.TakeTopPercentTrials >= 1);   % no category split, no trial trimming
+assert(params.trialSel == "stored" || cvCompatible, ...
+    'trialSel="splitHalf" cannot be combined with splitBy or TakeTopPercentTrials < 1.');               % the split chooses the trials
+useCV = params.trialSel == "splitHalf";                                    % shorthand used below
 
 % -------------------------------------------------------------------------
 % NOTE ON TakeTopPercentTrials (default = 1 = all trials)
@@ -174,6 +189,12 @@ if params.requireAllStims; allStimSuffix = '_allStims'; end               % tag 
 assert(ismember(params.alignTo, ["onset","offset"]), 'alignTo must be "onset" or "offset".');  % valid alignment
 if params.alignTo == "offset"
     allStimSuffix = [allStimSuffix '_offset'];                             % offset alignment never overwrites the onset files
+end
+if useCV
+    allStimSuffix = [allStimSuffix '_cv'];                                 % split-half trials: never overwrite the stored-trial files
+    if params.mbAlign == "onset" && any(params.stimTypes == "MB")
+        allStimSuffix = [allStimSuffix '_mbOnset'];                        % MB onset-aligned
+    end
 end
 
 nameOfFile = sprintf('Ex_%d-%d_Combined_PSTHs_%s%s%s%s.mat', ...
@@ -659,12 +680,37 @@ if forloop
                 end
                 isGridMB = isfield(StatsMB, 'Speed1') && isfield(StatsMB.Speed1, 'prefGridCell');  % grid results carry prefGridCell
             end
+            isCrossAligned = isGridMB && ~(useCV && params.mbAlign == "onset");   % this line is aligned to the ball crossing
             if ~gridStimSeen(s)
-                gridAlignedStim(s) = isGridMB;                             % fix this line's alignment on its first recording
+                gridAlignedStim(s) = isCrossAligned;                       % fix this line's alignment on its first recording
                 gridStimSeen(s)    = true;
             end
-            assert(gridAlignedStim(s) == isGridMB, ...
+            assert(gridAlignedStim(s) == isCrossAligned, ...
                 'Grid-tested and onset-tested MB recordings cannot share one PSTH line.');  % mixed alignment guard
+            % ---- Split-half trials: stored split of DeltaRateCV, checked once here ----
+            subCV = [];                                                    % stats sub-struct for splitHalfMR (non-grid stimuli)
+            if useCV
+                if isGridMB
+                    StatsCV = StatsMB;                                     % already loaded above
+                elseif ~isempty(Stats)
+                    StatsCV = Stats;                                       % loaded for neuron selection
+                else
+                    StatsCV = obj.StatisticsPerNeuron;                     % bare call (union mode does not load Stats); stale caches error
+                end
+                if isGridMB
+                    spF = fieldnames(StatsCV); spF = spF(startsWith(string(spF), "Speed"));  % every speed of the grid result
+                    for k = 1:numel(spF)
+                        verifySplitHalfStore(StatsCV.(spF{k}), sprintf('exp %d %s %s', ex, stimType, spF{k}));  % stored split reproduces DeltaRateCV
+                    end
+                else
+                    if isfield(StatsCV, fieldName)
+                        subCV = StatsCV.(fieldName);                       % e.g. Stats.Moving for SDGm
+                    else
+                        subCV = StatsCV;                                   % flat struct (RG, FFF, ...)
+                    end
+                    verifySplitHalfStore(subCV, sprintf('exp %d %s', ex, stimType));  % stored split reproduces DeltaRateCV
+                end
+            end
             assert(params.alignTo == "onset" || ~isGridMB, ...
                 'alignTo="offset" applies to onset-tested stimuli, not grid-tested MB.');   % grid MB is crossing-aligned
             stimDurRec = NaN;                                              % this recording's stimulus duration (ms)
@@ -785,7 +831,7 @@ if forloop
                 % more stable than a per-category estimate and identical across
                 % the split levels). Matches sdBase in StatisticsPerNeuron and
                 % does NOT shrink with trial count, unlike the SD across PSTH bins.
-                if params.zScore && ~isGridMB                              % grid MB: baseline comes from gridAlignedMR below
+                if params.zScore && ~isGridMB && ~useCV                    % grid MB / split-half: baseline comes from the helpers below
                     MRbase = BuildBurstMatrix( ...
                         goodU(:, u), ...                                   % spike times for this unit
                         round(p_sort.t), ...                               % all sample times (rounded to ms)
@@ -815,6 +861,35 @@ if forloop
                     end
                 else
                     neuronBinIdx(ni) = 1;                                  % all neurons go to the single bin when byDepth is false
+                end
+
+                % ---- Split-half: the two held-out trial sets (splitHalfMR) ----
+                if useCV
+                    if isGridMB
+                        spF = fieldnames(StatsCV); spF = spF(startsWith(string(spF), "Speed"));  % speeds of the grid result
+                        pU  = cellfun(@(f) StatsCV.(f).pvalsResponse(u), spF);  % this unit's p-value per speed
+                        [~, kSp] = min(pU);                                % best speed (lowest p), as in AllExpAnalysis / gridAlignedMR
+                        subU   = StatsCV.(spF{kSp});                       % that speed's grid result
+                        alignU = params.mbAlign;                           % "crossing" or "onset"
+                    else
+                        subU   = subCV;                                    % this stimulus's stats
+                        alignU = params.alignTo;                           % "onset" or "offset"
+                    end
+                    [MRs, baseRatesU] = splitHalfMR(subU, u, goodU(:, u), p_sort.t, alignU, ...
+                        lockedPreBase, windowTotal - lockedPreBase);       % {selected on half 1 | half 2}, other half's trials
+                    if params.zScore
+                        baseMeanNeuron(ni) = mean(baseRatesU);             % across-trial baseline mean (all trials)
+                        baseStdNeuron(ni)  = std(baseRatesU);              % across-trial baseline SD (all trials)
+                    end
+                    rateH = zeros(2, lockedNBins);                         % held-out PSTH per selection half (spikes/s)
+                    for h = 1:2
+                        for bi = 1:lockedNBins
+                            rateH(h, bi) = sum(MRs{h}(:, lockedEdges(bi)+1 : lockedEdges(bi+1)), 'all');  % spikes in this bin
+                        end
+                        rateH(h, :) = (rateH(h, :) / size(MRs{h}, 1)) / (params.binWidth / 1000);  % spikes/s
+                    end
+                    psthRateNeurons(ni, :, 1) = mean(rateH, 1);            % average of the two held-out PSTHs (as DeltaRateCV)
+                    continue                                               % no category levels on this path
                 end
 
                 % ---- Grid-tested MB: one crossing-aligned PSTH ------------
@@ -1126,7 +1201,7 @@ baseColors = lines(nStim);                                                 % def
 % Map stimulus abbreviations to readable legend labels
 stimLegendMap = containers.Map( ...
     {'MB', 'MBR', 'RG', 'SDGm', 'SDGs', 'NV', 'NI', 'FFF'}, ...
-    {'MB', 'MBR', 'RG', 'SDGm', 'SDGs', 'NV', 'NI', 'FFF'});
+    {'MB', 'MBR', 'SB', 'MG', 'SG', 'NV', 'NI', 'FFF'});                   % paper names (as AllExpAnalysis: RG -> SB, SDGs -> SG, SDGm -> MG)
 
 depthShades = [0.05, 0.45, 0.78];                                         % brightness multipliers for depth bins (shallow = brightest)
 binLabels   = {'shallow', 'middle', 'deep'};                              % human-readable depth-bin labels
@@ -1203,11 +1278,32 @@ end
 % ---- Create figure -------------------------------------------------------
 fig = figure;
 set(fig, 'Units', 'centimeters', 'Position', [5 5 10 7]);                 % set figure size in cm for reproducible layout
-ax  = axes(fig);                                                           % create a single axes in the figure
-hold(ax, 'on');                                                            % allow multiple plot calls without clearing
+winEnd = repmat(lockedEdges(end) - lockedPreBase, 1, nStim);               % last ms shown per stimulus
+for s = 1:nStim
+    stimKey = char(params.stimTypes(s));                                   % stimulus label (struct field name)
+    if isfield(params.capMs, stimKey)
+        winEnd(s) = min(winEnd(s), params.capMs.(stimKey));                % display cap for this stimulus
+    end
+end
+if params.splitPanels && nStim > 1
+    % One axes per stimulus, widths proportional to the time shown, same y-axis
+    span = max(1, round((winEnd + lockedPreBase) / 100));                  % tile columns per stimulus (100 ms each)
+    tl   = tiledlayout(fig, 1, sum(span), 'TileSpacing', 'compact', 'Padding', 'compact');  % one row of panels
+    axS  = gobjects(1, nStim);                                             % axes per stimulus
+    for s = 1:nStim
+        axS(s) = nexttile(tl, [1 span(s)]);                                % panel for stimulus s
+        hold(axS(s), 'on');                                                % several plot calls per panel
+    end
+    set(fig, 'Position', [5 5 4 + 2*sum(span)/10 7]);                      % wider figure for the longer window
+else
+    ax  = axes(fig);                                                       % create a single axes in the figure
+    hold(ax, 'on');                                                        % allow multiple plot calls without clearing
+    axS = repmat(ax, 1, nStim);                                            % every stimulus on the same axes
+end
 
 legendHandles = [];                                                        % accumulate plot handles for the legend
 legendLabels  = {};                                                        % accumulate matching label strings
+legendAxes    = gobjects(0);                                               % axes of each legend entry (one legend per panel)
 
 % ---- Build per-stim colour maps for category splits --------------------
 catColorMaps = cell(nStim, 1);                                            % one [nCats × 3] colour matrix per stim type
@@ -1278,7 +1374,7 @@ for s = 1:nStim
                 lineColor   = baseColors(s,:);
                 legendLabel = sprintf('%s (n=%d)', shortName, nValid);
                 if gridAlignedStim(s)
-                    legendLabel = [legendLabel ', t=0: RF crossing'];      % this line is aligned to the ball crossing
+                    legendLabel = [legendLabel ', t=0: cell crossing'];    % aligned to the ball's closest approach to the selected grid cell (not an RF estimate)
                 end
             end
 
@@ -1292,51 +1388,73 @@ for s = 1:nStim
                 keep  = ~isnan(us) & ~isnan(ls);                          % skip capped (NaN) bins: a polygon cannot contain NaN
                 xFill = [xs(keep)', fliplr(xs(keep)')];                   % x coordinates: forward then backward for closed polygon
                 yFill = [us(keep)', fliplr(ls(keep)')];                   % y coordinates: upper then lower (reversed)
-                fill(ax, xFill, yFill, lineColor, ...
+                fill(axS(s), xFill, yFill, lineColor, ...
                     'FaceAlpha', 0.08, 'EdgeColor', 'none');              % semi-transparent filled polygon, no border
             end
 
             % ---- Mean PSTH line ----------------------------------------
             assert(numel(meanPSTH) == numel(lockedEdges) - 1, ...
                 'plotPSTH_MultiExp: %d PSTH bins for %d edges.', numel(meanPSTH), numel(lockedEdges));  % one value per bin
-            h = stairs(ax, lockedEdges - lockedPreBase, [meanPSTH(:)' meanPSTH(end)], ...
+            h = stairs(axS(s), lockedEdges - lockedPreBase, [meanPSTH(:)' meanPSTH(end)], ...
                 'Color', lineColor, 'LineWidth', 1.5);                    % step plot: each bin flat between its edges, so
                                                                           % no line segment carries post-onset spikes left of 0
 
             legendHandles(end+1) = h;                                     %#ok<AGROW> collect handle for legend
             legendLabels{end+1}  = legendLabel;                           %#ok<AGROW> collect label for legend
+            legendAxes(end+1)    = axS(s);                                %#ok<AGROW> panel this entry belongs to
 
         end % category loop
     end % depth-bin loop
 end % stim-type loop
 
-% ---- Reference lines at stimulus onset and offset -----------------------
-xline(ax, 0,               'k--', 'LineWidth', 1.2, 'HandleVisibility', 'off'); % vertical dashed line at t = 0 (stim onset)
-% (no line at postStim: it is only the end of the plotted window, not a stimulus
-%  offset -- RG runs 500 and 1000 ms protocols and MB lines are crossing-aligned)
-
-% ---- Axis labels and formatting -----------------------------------------
+% ---- Axis labels and formatting (per panel) ------------------------------
 if params.zScore
     yLabel = 'Z-score';                                                    % z-scored mode: dimensionless
 else
     yLabel = 'Firing rate [spk/s]';                                       % default: spikes per second
 end
-
-xlabel(ax, sprintf('Time re. stim %s [ms]', params.alignTo), 'FontName', 'Helvetica', 'FontSize', 8);
-ylabel(ax, yLabel,                      'FontName', 'Helvetica', 'FontSize', 8);
-xlim(ax, [lockedEdges(1), lockedEdges(end)] - lockedPreBase);               % full locked window (bin edges)
-ylim(ax, yLims);                                                          % apply the globally computed y limits
-
-legend(legendHandles, legendLabels, ...
-    'Location', 'best', ...
-    'FontName', 'Helvetica', ...
-    'FontSize', 7);
-
-ax.FontName       = 'Helvetica';                                           % set all axis text to Helvetica
-ax.FontSize       = 8;
-ax.YAxis.FontSize = 8;
-ax.XAxis.FontSize = 8;
-hold(ax, 'off');
+if params.splitPanels && nStim > 1
+    axU = axS;  stimOfAx = num2cell(1:nStim);                              % one panel per stimulus
+else
+    axU = axS(1);  stimOfAx = {1:nStim};                                   % one shared panel
+end
+for k = 1:numel(axU)
+    axK = axU(k);                                                          % this panel
+    sK  = stimOfAx{k};                                                     % stimuli drawn in it
+    % Reference line at t = 0 (onset, offset or crossing). No line at postStim: it is
+    % only the end of the plotted window, not a stimulus offset.
+    xline(axK, 0, 'k--', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+    if params.alignTo == "onset" && any(params.stimTypes(sK) == "RG")
+        for offMs = [500 1000]                                             % SB offsets of the two protocols (per-recording durations ~500 / ~1000 ms)
+            if offMs < max(winEnd(sK))
+                xline(axK, offMs, ':', 'Color', [0.4 0.4 0.4], 'LineWidth', 1, 'HandleVisibility', 'off');  % SB offset
+            end
+        end
+    end
+    if all(gridAlignedStim(sK))
+        xText = 'Time re. ball crossing [ms]';                             % MB crossing-aligned panel
+    else
+        xText = sprintf('Time re. stim %s [ms]', params.alignTo);          % onset / offset
+    end
+    xlabel(axK, xText, 'FontName', 'Helvetica', 'FontSize', 8);
+    if k == 1
+        ylabel(axK, yLabel, 'FontName', 'Helvetica', 'FontSize', 8);       % y label on the first panel only
+    end
+    xlim(axK, [lockedEdges(1) - lockedPreBase, max(winEnd(sK))]);         % this panel's window (bin edges)
+    ylim(axK, yLims);                                                      % same y limits in every panel
+    inK = legendAxes == axK;                                               % legend entries of this panel
+    legend(axK, legendHandles(inK), legendLabels(inK), ...
+        'Location', 'best', 'FontName', 'Helvetica', 'FontSize', 7);
+    axK.FontName       = 'Helvetica';                                      % set all axis text to Helvetica
+    axK.FontSize       = 8;
+    axK.YAxis.FontSize = 8;
+    axK.XAxis.FontSize = 8;
+    hold(axK, 'off');
+end
+ax = axU(1);                                                               % title goes on the first panel
+if numel(axU) > 1
+    linkaxes(axU, 'y');                                                    % shared y-axis across panels
+end
 
 % ---- Title: report the ACTUAL number of contributing experiments --------
 % nExpStore holds the true per-condition experiment counts; the maximum over

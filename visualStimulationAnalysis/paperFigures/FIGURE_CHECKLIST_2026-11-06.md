@@ -7,7 +7,7 @@ Times are file times on 6 Nov.
 ## Current — check these
 | Figure | Panels | Time |
 |---|---|---|
-| 1 MB vs SB | `fig1_Zscore-Swarm/-Scatter`, `fig1_DeltaRate-Swarm`, `fig1_ResponsiveUnits`, `fig1_SpkRate-*` (all `Ex_1-97_Combined_MB-RG`); `fig1_PSTH-MB-RG_allStims`, `fig1_PSTH-RG_offset`; rasters `fig1_Raster-MB-RG-all_union`, `fig1_Raster-RG-all_offset`; examples `fig1_PV140_..._2-*eNeuron-246*` (SB, phy 768) and `fig1_PV233_..._6-*eNeuron-1*` (MB, phy 357) | 10:27-10:43 |
+| 1 MB vs SB | `fig1_Zscore-Swarm/-Scatter`, `fig1_DeltaRate-Swarm/-Scatter`, `fig1_ResponsiveUnits` (all `Ex_1-97_Combined_MB-RG`; SpkRate panels removed 2026-11-10); `fig1_PSTH-MB-RG_allStims`, `fig1_PSTH-RG_offset`; rasters `fig1_Raster-MB-RG-all_union`, `fig1_Raster-RG-all_offset`; examples `fig1_PV140_..._2-*eNeuron-246*` (SB, phy 768) and `fig1_PV233_..._6-*eNeuron-1*` (MB, phy 357) | 10:27-10:43 |
 | 2 spatial tuning | `fig2_SpatialTuningIndex-...allResp1-tp-5` (unpaired), `...allResp0-tp-5` (paired); `fig2_StripeFraction_vs_baseline`; `fig2_StripeNeurons*` (8); SB example `fig2_PV140_..._9-*eNeuron-15*` (phy 288) | 09:33-10:37 |
 | 3 SDGm vs SDGs | `fig3_*-Ex_40-97_Combined_SDGm-SDGs` (6), `fig3_PSTH-SDGm-SDGs` | 18:10-18:11 |
 | 4 locality | SB vs SDGs: `fig4_*-Ex_40-97_Combined_RG-SDGs` (6), `fig4_PSTH-RG-SDGs_allStims`. MB vs MBR: `fig4_*-Ex_1-97_Combined_MB-MBR` (6), `fig4_PSTH-MB-MBR_allStims`, `fig4_Raster-MB-MBR-all_union` (10:45, unaffected). MB vs SDGm: `fig4_*-Ex_40-97_Combined_MB-SDGm` (6), `fig4_PSTH-MB-SDGm_allStims`. MBR vs SDGm (PV97, descriptive): `fig4_*-Ex_49-54_Combined_MBR-SDGm` | 18:12-18:25 |
@@ -17,6 +17,20 @@ Times are file times on 6 Nov.
 | Dataset | `summary_ResponsiveUnion-Ex_1-97_...` | 18:26 |
 | Supplementary | `figS_NullCalibration` (redrawn 22:53 without NI); `figS_SpatialTuningIndex-...tp-5` to `tp-30` (threshold sweep; tp-5 duplicates Fig 2); `figS_LfpSurface_vs_coorZ` (3 Nov, unaffected) | |
 | Numbers | `Stats summary tables\*.csv` (18:32-19:13) | |
+
+## 2026-11-10: population PSTHs/rasters redrawn (split-half trials, onset-aligned)
+- Main: `fig1_PSTH-MB-RG_allStims_cv_mbOnset` (two panels), `fig1_Raster-MB-RG-all_union_cv_mbOnset`;
+  `fig3_PSTH-SDGm-SDGs_cv`, `fig3_Raster-SDGs-SDGm-all_union_cv` (two tiles, replaces the combined SDG raster);
+  `fig4_PSTH-RG-SDGs_allStims_cv`, `fig4_Raster-RG-SDGs-all_union_cv`, `fig4_*-MB-MBR*_cv_mbOnset`, `fig4_*-MB-SDGm*_cv_mbOnset`.
+- Supplementary (named by main figure, `sfigN_`): `sfig1_` crossing-aligned MB vs SB PSTH/raster (`_cv`),
+  `sfig1_RG-OnOff-PSTH`, `sfig1_RG-OnOff-Raster`, `sfig1_PSTH-RG_offset_cv`, `sfig1_Raster-RG-all_offset_cv`; `sfig1_NullCalibration`;
+  `sfig2_SpatialTuningIndex-*` (threshold sweep); `sfig4_` crossing-aligned MB-MBR / MB-SDGm; `sfig6_LfpSurface_vs_coorZ`.
+- Scripts renamed: `SFig1_NullCalibration.m`, `SFig2_TuningIndexThreshold.m`; `FigS_LfpDepthCheck.m` keeps its name (prefix `sfig6`).
+- Fraction-responsive panels (Figs 1, 3, 4): y-label "Fraction responsive", two-line footer with paper names (SB, not RG).
+- MOVED to `Paper_figs\_superseded_2026-11-10` (32 files, list in its README): the 6 Nov `fig1_/fig3_/fig4_`
+  PSTH/raster files without `_cv`, `fig1_*RG*_offset` (now `sfig1_`), and every `*_SpkRate-*` panel
+  (SpkR = plain max inflated by the number of categories; replaced by `DeltaRate-Scatter`).
+- Fig 7 (SA) not rerun yet: it has no DeltaRate-Scatter and still has the old fraction-panel footer.
 
 ## Stale — MOVED to `Paper_figs\_superseded_2026-11-06` (65 files + `Sensitivity_noPR`; list in its README)
 - `fig3_*`, `fig4_*` and structs with `Ex_1-97_Combined_SDGm-SDGs`, `..._RG-SDGs`, `..._MB-SDGm` (00:35-01:10): include recordings 1 and 8.

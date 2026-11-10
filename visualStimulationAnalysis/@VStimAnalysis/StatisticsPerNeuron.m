@@ -563,6 +563,7 @@ for s = 1:x
         keptIdx            = find(keepMask);                              % original kept row indices
         [catIDsorted, ord] = sort(catID);                                % contiguous blocks per category
         rowOrder           = keptIdx(ord);                               % final row order into original trials
+        rowTrial           = rowOrder;                                   % original trial of each Diff row (stored for split-half plots)
 
         % Apply the same selection+order to every trial-indexed matrix.
         Diff      = Diff(rowOrder, :);                                    % [nKept × nNeurons]
@@ -578,6 +579,14 @@ for s = 1:x
         trialsCat = counts(1);                                           % trials per effective category
     else
         catTable = [];  sepNames = strings(1,0);                         % no focus -> empty decode table
+        rowTrial = (1:numel(directimesSorted))';                         % legacy blocks: Diff rows are the trials in C order
+    end
+    % Trial timing of each Diff row, stored so plots can rebuild the split-half trials
+    rowAlignMs = directimesSorted(rowTrial);                             % start of the test window (trial onset; motion onset for SDGm)
+    if isequal(obj.stimName, 'StaticDriftingGrating')
+        rowBaseMs = staticOnsets(rowTrial);                              % blank pre-trial baseline ends at the static onset
+    else
+        rowBaseMs = rowAlignMs;                                          % baseline ends at the trial onset
     end
 
     nNeurons = size(goodU, 2);
@@ -1007,12 +1016,25 @@ for s = 1:x
         end
         invalidRows = repmat(~repelem(validCats, trialsCat, 1), 1, 1, size(DiffCV, 3));  % invalid (category, neuron), every segment
         DiffCV(invalidRows) = NaN;                                 % exclude invalid (category, neuron) pairs
-        DeltaRateCV = splitHalfDelta(DiffCV, grpCat, halfCat);     % [1 × nNeurons] spikes/s
+        [DeltaRateCV, cvSel] = splitHalfDelta(DiffCV, grpCat, halfCat);  % [1 × nNeurons] spikes/s; cvSel [2 × nNeurons] category (+ segment) picked on each half
     else
         warning('%s: %d trial per category, split-half delta rate undefined (NaN).', ...
             obj.dataObj.recordingName, trialsCat);                 % a single repetition cannot be split
         DeltaRateCV = nan(1, nNeurons);                            % undefined without two halves
+        cvSel = []; grpCat = []; halfCat = [];                     % no split to store
     end
+    if segMode
+        ObsDiffSeg = DiffSeg;                                      % [nTrials × nNeurons × nSegs] per-segment response minus baseline (Diff-row order)
+    else
+        ObsDiffSeg = [];                                           % not segmented: ObsDiff is the only window
+    end
+    cvInfo = struct( ...                                           % everything needed to rebuild the split-half trials
+        'cvSel',     cvSel, ...                                    % [2 × nNeurons] category + (segment-1)*nCats picked on half 1 / half 2
+        'cvGrp',     grpCat, ...                                   % [nRows × 1] category of each Diff row
+        'cvHalf',    halfCat, ...                                  % [nRows × 1] half of each Diff row (1 odd, 2 even repetition)
+        'cvAlignMs', rowAlignMs(:), ...                            % [nRows × 1] start of the test window (ms)
+        'cvBaseMs',  rowBaseMs(:), ...                             % [nRows × 1] end of the pre-trial baseline (ms)
+        'cvStimDur', stimDur);                                     % stimulus duration (ms): offset = cvAlignMs + cvStimDur
 
     % -------------------------------------------------------------------------
     % Store results for this condition
@@ -1032,6 +1054,8 @@ for s = 1:x
         S.(fieldName).prefSeg            = prefSeg;      % [1 × nNeurons] preferred segment (ON=1, OFF=2 with OffWindow; empty if not segmented)
         S.(fieldName).z_mean             = z_mean.*1000;   % [1 × nNeurons] mean spikes/sec difference (resp-base) of preferred segment (empty if not segmented)
         S.(fieldName).DeltaRateCV        = DeltaRateCV;  % [1 × nNeurons] split-half peak delta rate, spikes/s
+        S.(fieldName).ObsDiffSeg         = ObsDiffSeg;   % [nTrials × nNeurons × nSegs] per-segment Diff (segmented mode only)
+        S.(fieldName).cvInfo             = cvInfo;       % split-half selection and trial timing (splitHalfMR)
         S.(fieldName).present            = presentU;     % [1 × nNeurons] present throughout this block
         S.(fieldName).presenceRatio      = presenceRatioU; % [1 × nNeurons] per-block presence ratio
         S.(fieldName).catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)
@@ -1052,6 +1076,8 @@ for s = 1:x
         S.tStat             = tStat;
         S.z_mean            = z_mean.*1000;
         S.DeltaRateCV       = DeltaRateCV;   % [1 × nNeurons] split-half peak delta rate, spikes/s
+        S.ObsDiffSeg        = ObsDiffSeg;    % [nTrials × nNeurons × nSegs] per-segment Diff (segmented mode only)
+        S.cvInfo            = cvInfo;        % split-half selection and trial timing (splitHalfMR)
         S.present           = presentU;      % [1 × nNeurons] present throughout this block
         S.presenceRatio     = presenceRatioU; % [1 × nNeurons] per-block presence ratio
         S.catTable    = catTable;    % [nCats × nSep] level combo per category (prefCat decoder)

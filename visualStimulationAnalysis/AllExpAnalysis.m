@@ -34,7 +34,8 @@ function [tempTable, summaryStats] = AllExpAnalysis(expList, params)
 %                        item), filtered to insertions containing all
 %                        compared items.
 %     summaryStats struct  Central-tendency summaries behind every swarm panel.
-%                        Fields: Zscore, SpkR, FracResponsive; each with
+%                        Fields: Zscore, DeltaRate, FracResponsive (SpkR is
+%                        kept empty: its panels were removed 2026-11-10); each with
 %                          .groups - one row per stimulus
 %                          .diffs  - one row per pair (stimA, stimB, p)
 %                        Columns: n, nAnimals, nInsertions, mean, median
@@ -1044,74 +1045,12 @@ if numel(compLabels) == 2
 end
 
 % =========================================================================
-% SECTION 9 — SPIKE-RATE PAIRWISE COMPARISON
+% SECTION 9 — (removed 2026-11-10) SPIKE-RATE (SpkR) PANELS
 % =========================================================================
-
-% Compute a hierarchical-bootstrap p-value for each pair (spike rate metric).
-% Re-seed: this loop runs after the z-score panels were drawn, so without it the
-% p-values would depend on how many random draws that plotting consumed.
-rng(params.pvalSeed);
-pValsSpk = zeros(1, size(pairsAll, 1));
-for pi = 1:size(pairsAll, 1)
-    pValsSpk(pi) = bootstrapPairDifference( ...
-        S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'SpkR');
-end
-
-% Upper y-limit for spike rate
-spkMax = max(S.TableStimComp.SpkR) +0.1*max(S.TableStimComp.SpkR);
-
-% Generate swarm + bootstrap plot for spike rates
-[fig,~,figAllDiffs,summaryStats.SpkR] = plotSwarmBootstrapWithComparisons( ...
-    S.TableStimComp, pairsAll, pValsSpk, {'SpkR'}, ...
-    yLegend = 'SpkR', yMaxVis = spkMax, pValRes = pValRes, ...
-    diff = true, plotMeanSem = true, Alpha = 0.7, markUnits = params.markUnits);
-
-% Echo the spike-rate summary (same layout as the z-score one)
-printStatsSummary('Spike rate', summaryStats.SpkR, pValRes);
-
-% Apply consistent font formatting
-ax = findobj(fig, 'Type', 'axes');
-for i = 1:numel(ax)
-    formatAxes(ax(i), 8, 'helvetica');
-end
-
-% Set figure size and colour map
-figure(fig);
-set(fig, 'Units', 'centimeters', 'Position', [20 20 10 6]);
-colormap(fig, sharedCmap);
-pause(2)
-% Save figure if PaperFig mode is active
-if params.PaperFig
-    vs.printFig(fig, sprintf('SpkRate-Swarm-%s', figTag), ...
-        PaperFig = params.PaperFig);
-end
-
-ax = findobj(figAllDiffs, 'Type', 'axes');
-for i = 1:numel(ax)
-    formatAxes(ax(i), 8, 'helvetica');
-end
-
-if ~isempty(figAllDiffs)
-    figure(figAllDiffs);
-    pause(2)
-
-    % Save figure if PaperFig mode is active
-    if params.PaperFig
-        vs.printFig(figAllDiffs, sprintf('AllDiff-SpkRate-Swarm-%s', figTag), ...
-            PaperFig = params.PaperFig);
-    end
-end
-
-% For exactly two items, produce a paired scatter plot
-if numel(compLabels) == 2
-    fig = plotPairScatter(S.TableStimComp, compLabels, ...
-        'SpkR', sharedCmap, animalIdxAll, labelMap);
-    title('Spk. rate');
-    if params.PaperFig
-        vs.printFig(fig, sprintf('SpkRate-Scatter-%s', figTag), ...
-            PaperFig = params.PaperFig);
-    end
-end
+% SpkR (z_mean) is a plain maximum over categories, so it is inflated by the
+% number of categories a stimulus offers. Its swarm and scatter panels were
+% replaced by the split-half DeltaRate panels in SECTION 9b. The SpkR column
+% stays in TableStimComp for diagnostics; summaryStats.SpkR stays empty.
 
 % =========================================================================
 % SECTION 9b — CROSS-VALIDATED DELTA-RATE PAIRWISE COMPARISON
@@ -1160,6 +1099,17 @@ else
     end
     if ~isempty(figAllDiffs) && params.PaperFig
         vs.printFig(figAllDiffs, sprintf('AllDiff-DeltaRate-Swarm-%s', figTag), PaperFig = params.PaperFig);
+    end
+
+    % For exactly two items, also a paired scatter plot (replaces the SpkR scatter)
+    if numel(compLabels) == 2
+        fig = plotPairScatter(S.TableStimComp, compLabels, ...
+            'DeltaRate', sharedCmap, animalIdxAll, labelMap);       % x = first item, y = second, units paired by key
+        title('Δ rate (spikes/s)');                                 % same metric as the DeltaRate swarm
+        if params.PaperFig
+            vs.printFig(fig, sprintf('DeltaRate-Scatter-%s', figTag), ...
+                PaperFig = params.PaperFig);                        % saved next to the Z-score scatter
+        end
     end
 end
 
@@ -1322,9 +1272,14 @@ end
 % Build annotation string with per-item responsive neuron counts
 perItemN  = arrayfun(@(s) sum(tempTable.respNeur(tempTable.stimulus == s)), ...
     categorical(compLabels));
-annotParts = arrayfun(@(i) sprintf('%s = %d', compLabels{i}, perItemN(i)), ...
-    1:numel(compLabels), 'UniformOutput', false);
-annotStr = ['TS=' num2str(totalSomatic) '-' 'TR=' num2str(totalResp) '-' strjoin(annotParts, '-')];
+dispLabels = compLabels;                                            % display names for the footer
+for li = 1:size(labelMap, 1)
+    dispLabels = strrep(dispLabels, labelMap{li,1}, labelMap{li,2}); % e.g. RG -> SB, as on the axes
+end
+annotParts = arrayfun(@(i) sprintf('%s %d', dispLabels{i}, perItemN(i)), ...
+    1:numel(compLabels), 'UniformOutput', false);                   % "MB 341", "SB 166"
+annotStr = {sprintf('%d units, %d responsive', totalSomatic, totalResp), ...
+    sprintf('(%s)', strjoin(annotParts, ', '))};                    % two lines, e.g. "1082 units, 413 responsive" / "(MB 341, SB 166)"
 
 % Apply consistent font formatting
 ax = findobj(fig, 'Type', 'axes');
@@ -1334,19 +1289,21 @@ end
 
 % Set figure size and labels
 figure(fig);
-set(fig, 'Units', 'centimeters', 'Position', [20 20 5 6]);
-ylabel('Responsive / Total responsive');
+set(fig, 'Units', 'centimeters', 'Position', [20 20 5 7]);         % 1 cm taller than before: room for the footer
+ylabel('Fraction responsive');                                      % responsive / units present in all compared blocks, per insertion
 title('');
 
-% % Shift axes up slightly to make room for the annotation
-% pos    = get(gca, 'Position');
-% pos(2) = pos(2) + 2;
-% set(gca, 'Position', pos);
+% Shift the axes up so the footer sits below the tick labels
+axFr = findobj(fig, 'Type', 'axes');                                % the fraction axes (one in this figure)
+axFr = axFr(1);
+axFr.Units = 'normalized';                                          % positions as fractions of the figure
+pos = axFr.Position;                                                % [left bottom width height]
+axFr.Position = [pos(1), pos(2) + 0.08, pos(3), pos(4) - 0.08];     % raise the bottom edge by 8% of the figure
 
-% Add bottom annotation with neuron counts
-annotation('textbox', [0.1, 0.01, 0.8, 0.04], ...
+% Add bottom annotation with neuron counts (two lines under the axes)
+annotation(fig, 'textbox', [0.05, 0.0, 0.9, 0.1], ...
     'String', annotStr, 'EdgeColor', 'none', ...
-    'FontSize', 5, 'FontWeight', 'bold', ...
+    'FontSize', 6, 'FontWeight', 'normal', ...                      % legible when printed
     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
     'FitBoxToText', false);
 
@@ -1955,12 +1912,23 @@ function fig = plotPairScatter(tbl, compLabels, metric, cmap, animalIdx, labelMa
 
     fig = figure;
 
-    % Separate data for each stimulus
+    % Rows of each stimulus
     mask1 = tbl.stimulus == compLabels{1};
     mask2 = tbl.stimulus == compLabels{2};
-    v1    = tbl.(metric)(mask1);            % x-axis values
-    v2    = tbl.(metric)(mask2);            % y-axis values
-    cIdx  = animalIdx(mask1);               % colour index per point
+    % Pair units by key (animal, insertion, NeurID), never by row position
+    keys = {'animal', 'insertion', 'NeurID'};                        % unit identity
+    sub1 = tbl(mask1, [keys, {metric}]);                             % first item: keys + metric
+    sub1.cIdx = animalIdx(mask1);                                    % colour index travels with its row
+    sub2 = tbl(mask2, [keys, {metric}]);                             % second item: keys + metric
+    sub2.Properties.VariableNames{end} = 'metricY';                  % avoid a name clash in the join
+    merged = innerjoin(sub1, sub2, 'Keys', keys);                    % one row per unit present in both
+    assert(height(merged) == sum(mask1) && height(merged) == sum(mask2), ...
+        'plotPairScatter:unpaired', ...
+        '%s scatter: %d %s rows and %d %s rows, but %d paired by key.', ...
+        metric, sum(mask1), compLabels{1}, sum(mask2), compLabels{2}, height(merged));  % every unit must pair
+    v1    = merged.(metric);                % x-axis values
+    v2    = merged.metricY;                 % y-axis values (same unit)
+    cIdx  = merged.cIdx;                    % colour index per point
 
     % Scatter with animal-coloured markers
     scatter(v1, v2, 7, cmap(cIdx,:), 'filled', 'MarkerFaceAlpha', 0.3);

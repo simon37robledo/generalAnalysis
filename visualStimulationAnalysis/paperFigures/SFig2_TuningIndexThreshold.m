@@ -15,7 +15,7 @@ pf  = fileparts(mfilename('fullpath'));                           % paperFigures
 txt = splitlines(string(fileread(fullfile(pf, 'Fig2_SpatialTuning.m'))));   % Figure 2 script
 c2  = find(startsWith(strtrim(txt), "%%"), 2);                     % first two cell headers
 eval(strjoin(txt(1:c2(2)-1), newline));                           % Figure 2 header: d, exps, tuneArgs
-paperFigPrefix('figS');                                           % sweep panels: figS_<panel> (not fig2_)
+paperFigPrefix('sfig2');                                          % Supplementary Figure 2 panels: sfig2_<panel>
 tps   = 5:5:30;                                                   % thresholds (% of grid cells)
 nBoot = 10000;                                                    % bootstrap replicates (as Figure 2)
 setArg = @(a, name, v) [a(1:find(strcmp(a(1:2:end), name))*2-1), {v}, a(find(strcmp(a(1:2:end), name))*2+1:end)];   % replace one name-value

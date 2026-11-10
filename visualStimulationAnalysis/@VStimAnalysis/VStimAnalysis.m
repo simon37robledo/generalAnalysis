@@ -103,10 +103,10 @@ classdef (Abstract) VStimAnalysis < handle
                 % JPEG is raster-only, and pairing it with '-djpeg' silently broke MATLAB's
                 % automatic filename-extension logic, saving files with no extension.
                 figName = [paperFigPrefix(), char(figName)];             % figure-number prefix set by the FigN script (e.g. 'fig1_')
-                print([out,filesep,figName],'-djpeg','-r300');
+                print(f, [out,filesep,figName],'-djpeg','-r300');        % print THIS figure (without f, print saved whichever figure was current)
             else
                 disp(['Printing fig: ',obj.visualStimPlotsFolder,filesep,figName]);
-                print([obj.visualStimPlotsFolder,filesep,figName],'-djpeg','-r300');
+                print(f, [obj.visualStimPlotsFolder,filesep,figName],'-djpeg','-r300');  % print THIS figure
             end
         end
 

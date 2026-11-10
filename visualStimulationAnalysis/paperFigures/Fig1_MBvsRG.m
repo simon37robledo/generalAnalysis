@@ -24,23 +24,47 @@ Tloao = leaveOneAnimalOut(fig1Struct);                            % writes Leave
 %% Supplementary CSV tables (Paper_figs\Stats summary tables\)
 statsTablePaths = makeStatsSummaryTables();                       % needs the struct and the LOAO .xlsx above
 
-%% Population PSTH (MB aligned to the RF crossing, RG to onset)
-plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"MB","RG"}, ...
-    unionResponsive=true, requireAllStims=true);
+%% Population PSTH: both aligned to stimulus onset, split-half trials (figureDesign)
+% Two panels with a shared z-score axis: MB over its ~2.4 s sweep, SB over 0-1.5 s
+% (ON plus OFF; the next trial starts 1.5-2 s after onset, so SB cannot go further).
+paperFigPrefix('fig1');                                           % main-figure panel names
+psthMB = d.setArg(d.psthArgs, 'postStim', 2400);                  % window after onset (ms), long enough for the MB sweep
+plotPSTH_MultiExp(d.exps, psthMB{:}, overwrite=true, stimTypes={"MB","RG"}, ...
+    unionResponsive=true, requireAllStims=true, splitPanels=true, capMs=struct('RG', 1500));
 
-%% Population raster (interactive session) — RG panel shows the ON period only
-plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","RG"], unionUnits=true);
+%% Population raster (interactive session): onset-aligned, split-half trials
+paperFigPrefix('fig1');                                           % main-figure panel names
+plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","RG"], unionUnits=true, ...
+    postStimPer=struct('MB', 2400, 'RG', 1500));                  % MB sweep 0-2.4 s, SB 0-1.5 s
 
-%% FP/FN screen on the raster cache
+%% FP/FN screen on the raster cache (diagnostic, not a panel)
+% Uses the stored-trial raster cache of 6 Nov (crossing-aligned MB, stored preferred
+% category), the one the screen was designed for.
 D = findFalseNegAndPos('W:\Large_scale_mapping_NP\lizards\Combined_lizard_analysis\Ex_1-97_n44_Raster_MB-RG_union.mat');
 Dfn = sortrows(D(D.FN_for ~= "", :), 'Severity', 'descend');      % strongest missed responses first
 plotFalseNegPosNeurons(Dfn(1:min(15, height(Dfn)), :));           % inspect the top candidates
 
-%% Supplementary: RG OFF responses, aligned to each recording's stimulus offset
+%% Supplementary Figure 1: MB aligned to the crossing of its selected grid cell (split-half)
+% The cell x direction is the one with the largest response on the other half of the
+% repetitions; t = 0 is the ball's closest approach to that cell's centre.
+paperFigPrefix('sfig1');                                          % supplementary panel names
+psthCross   = d.setArg(d.psthArgs, 'mbAlign', "crossing");        % MB crossing-aligned, SB onset-aligned (0-500 ms)
+rasterCross = d.setArg(d.rasterArgs, 'mbAlign', "crossing");
+plotPSTH_MultiExp(d.exps, psthCross{:}, overwrite=true, stimTypes={"MB","RG"}, ...
+    unionResponsive=true, requireAllStims=true);
+plotRaster_MultiExp(d.exps, rasterCross{:}, overwrite=true, stimTypes=["MB","RG"], unionUnits=true);  % interactive session
+
+%% Supplementary Figure 1: SB onset vs offset (SB-responsive units, split-half trials)
+paperFigPrefix('sfig1');                                          % supplementary panel names
+Tonoff = plotRG_OnOff(d.exps, PaperFig=true);                     % PSTH + raster sorted by ON - OFF (interactive session)
+
+%% Supplementary Figure 1: SB OFF responses, aligned to each recording's stimulus offset
+paperFigPrefix('sfig1');                                          % supplementary panel names
 plotPSTH_MultiExp(d.exps, d.psthArgs{:}, overwrite=true, stimTypes={"RG"}, alignTo="offset");
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes="RG", unionUnits=false, alignTo="offset");
 
 %% Example single-neuron rasters and receptive fields
+paperFigPrefix('fig1');                                           % main-figure panel names
 for ex = [74]                                                     % RG example recording
     NP = loadNPclassFromTable(ex);
     vsRe = rectGridAnalysis(NP);

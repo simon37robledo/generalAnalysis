@@ -99,8 +99,21 @@ arguments
                                                                          % compatible with unionUnits (content only, does not reorder rows)
     % --- Stats-driven preferred-category PSTH (matches the AllExpAnalysis swarm) ---
     params.statPrefCatPSTH  logical      = false                         % if true: build each neuron's PSTH from its STORED prefCat trials (StatisticsPerNeuron), so the PSTH shows exactly the category the swarm's ZScoreU came from
-   
+    % --- Split-half trial selection (as DeltaRateCV) ---
+    params.trialSel        string        = "stored"                      % "stored": as above; "splitHalf": per unit, the best condition chosen on one
+                                                                         %   half of the repetitions, shown with the other half's trials (splitHalfMR)
+    params.mbAlign         string        = "crossing"                    % grid-tested MB with trialSel="splitHalf": "crossing" or "onset"
+    params.postStimPer     struct        = struct()                      % per-stimulus window after t=0 (ms), e.g. struct('MB',2400,'RG',1500); others use postStim
 end
+assert(ismember(params.trialSel, ["stored","splitHalf"]), 'trialSel must be "stored" or "splitHalf".');  % valid selection mode
+assert(ismember(params.mbAlign, ["crossing","onset"]), 'mbAlign must be "crossing" or "onset".');        % valid MB alignment
+useCV = params.trialSel == "splitHalf";                                  % shorthand used below
+assert(useCV || params.mbAlign == "crossing", ...
+    'mbAlign="onset" needs trialSel="splitHalf" (the stored path is crossing-aligned).');               % no silent mix
+assert(~useCV || (~params.statPrefCatPSTH && ~params.prefCatPSTH && params.sortBy ~= "preferredCategory" && ...
+    all(params.splitCategory == "") && (isempty(params.TakeTopPercentTrials) || params.TakeTopPercentTrials == 0 || params.TakeTopPercentTrials >= 1)), ...
+    ['trialSel="splitHalf" chooses the trials itself: turn off statPrefCatPSTH, prefCatPSTH, ', ...
+     'category splits and TakeTopPercentTrials.']);                      % one trial-selection rule at a time
 
 % -------------------------------------------------------------------------
 % Sanity check: baseline must be an integer multiple of bin width
@@ -231,6 +244,12 @@ assert(params.alignTo == "onset" || ~params.useCompleteWindow, ...
     'alignTo="offset" needs useCompleteWindow=false (the window after the offset is postStim).');  % fixed post-offset window
 alignSuffix = '';                                                        % onset alignment: legacy file names
 if params.alignTo == "offset", alignSuffix = '_offset'; end              % offset alignment never overwrites the onset files
+if useCV
+    alignSuffix = [alignSuffix '_cv'];                                   % split-half trials: never overwrite the stored-trial files
+    if params.mbAlign == "onset" && any(params.stimTypes == "MB")
+        alignSuffix = [alignSuffix '_mbOnset'];                          % MB onset-aligned
+    end
+end
 nameOfFile = sprintf('\\Ex_%d-%d_n%d_Raster_%s%s%s%s.mat', ...
     exList(1), exList(end), numel(exList), stimLabel, catSuffix, unionSuffix, alignSuffix); % cache filename
 
@@ -475,6 +494,16 @@ if forloop
                 Stats = obj.StatisticsPerNeuron;                        % load cached permutation test (flags come from the cache's own S.params)
             end
             expStats{s} = Stats;                                         % store for later use
+            if useCV                                                     % split-half display: the stored split must reproduce DeltaRateCV
+                if stimType == "MB" || stimType == "MBR"
+                    spF = fieldnames(Stats); spF = spF(startsWith(string(spF), "Speed"));  % every speed
+                    for k = 1:numel(spF)
+                        verifySplitHalfStore(Stats.(spF{k}), sprintf('exp %d %s %s', ex, stimType, spF{k}));
+                    end
+                else
+                    verifySplitHalfStore(statSubStruct(Stats, stimType, 1), sprintf('exp %d %s', ex, stimType));
+                end
+            end
 
             % --- Resolve sub-field name and stim-onset offset ---
             fieldName = resolveFieldName(stimType, params.speed);        % sub-field key for this stim type
@@ -868,15 +897,20 @@ if forloop
             assert(params.alignTo == "onset" || (~isGridMB && ~isCatMode), ...
                 'alignTo="offset" applies to onset-tested stimuli without category mode.');      % offset path is the standard path only
 
-            if isGridMB
+            isCrossAligned = isGridMB && ~(useCV && params.mbAlign == "onset");  % panel aligned to the ball crossing
+            postS = params.postStim;                                     % window after t = 0 (ms)
+            if isfield(params.postStimPer, char(stimType))
+                postS = params.postStimPer.(char(stimType));             % per-stimulus window
+            end
+            if isCrossAligned
                 rawStimDur_ms = expStats{s}.gridParams.GridAnalysisWindow; % test window (ms): drawn as the offset line
                 windowTotal   = preBase + params.gridPostMs;              % baseline + time after the crossing
             elseif params.useCompleteWindow
                 rawStimDur_ms = minStimDur(s);                           % truncate to shortest duration
-                windowTotal   = preBase + rawStimDur_ms + params.postStim; % full window in ms
+                windowTotal   = preBase + rawStimDur_ms + postS;         % full window in ms
             else
-                rawStimDur_ms = params.postStim;                         % fixed window
-                windowTotal   = preBase + params.postStim;               % full window in ms
+                rawStimDur_ms = postS;                                   % fixed window
+                windowTotal   = preBase + postS;                         % full window in ms
             end
 
             % Lock baseline on first experiment
@@ -890,7 +924,7 @@ if forloop
                 lockedNBins(s) = numel(lockedEdges{s}) - 1;              % number of bins
                 tAxis{s}       = lockedEdges{s}(1:end-1);               % left edge per bin (ms)
                 stimDurAll(s)  = rawStimDur_ms;                          % for xline in plot
-                gridAlignedAll(s) = isGridMB;                            % alignment of this panel, fixed on first experiment
+                gridAlignedAll(s) = isCrossAligned;                      % alignment of this panel, fixed on first experiment
 
                 % Store moving-phase onset for SDG combined type.
                 % Use the pre-scanned minimum static duration across
@@ -903,7 +937,7 @@ if forloop
                 fprintf('  [%s] Locked window: preBase=%d ms, stimDur=%.0f ms, nBins=%d\n', ...
                     stimType, lockedPreBase, rawStimDur_ms, lockedNBins(s));
             end
-            assert(gridAlignedAll(s) == isGridMB, ...
+            assert(gridAlignedAll(s) == isCrossAligned, ...
                 ['[%s] exp %d: grid-tested and onset-tested MB recordings cannot share one panel; ', ...
                  'recompute all stats with the same SpatialGridMode.'], stimType, ex);  % mixed alignment would corrupt the panel
 
@@ -943,6 +977,7 @@ if forloop
                 % most stable baseline estimate.
                 bMean = NaN;                                             % sentinel: set in catMode block or lazily in standard mode
                 bStd  = NaN;
+                cvPSTH = [];                                             % split-half PSTH (set only with trialSel="splitHalf")
 
                 if isCatMode && params.zScore
 
@@ -1054,7 +1089,29 @@ if forloop
                     % ==================================================
                     prefLevel = NaN;                                     % not applicable in standard mode
 
-                  if isGridMB
+                  if useCV
+                    % Split-half: best condition chosen on one half, shown with the other half's trials
+                    subU = statSubStruct(expStats{s}, stimType, bestSpeed(u));   % this unit's stats (best speed for MB/MBR)
+                    if isGridMB
+                        alignU = params.mbAlign;                         % "crossing" or "onset"
+                    else
+                        alignU = params.alignTo;                         % "onset" or "offset"
+                    end
+                    [MRs, baseRatesU] = splitHalfMR(subU, u, goodU(:, u), p_sort.t, alignU, ...
+                        lockedPreBase, windowTotal - lockedPreBase);     % {selected on half 1 | half 2}, other half's trials
+                    if params.zScore
+                        bMean = mean(baseRatesU);                        % across-trial baseline mean (all trials)
+                        bStd  = std(baseRatesU);                         % across-trial baseline SD (all trials)
+                    end
+                    cvPSTH = zeros(2, lockedNBins(s));                   % held-out PSTH per selection half (spk/s)
+                    for h = 1:2
+                        st = repmat(1:size(MRs{h}, 2), size(MRs{h}, 1), 1);    % column index of every position
+                        cvPSTH(h, :) = histcounts(st(logical(MRs{h})), lockedEdges{s}) ...
+                            / (params.binWidth * size(MRs{h}, 1)) * 1000; % spikes/s
+                    end
+                    cvPSTH = mean(cvPSTH, 1);                            % average of the two held-out PSTHs (as DeltaRateCV)
+                    MRhist = [MRs{1}; MRs{2}];                           % kept for the shared code below (not used for the PSTH)
+                  elseif isGridMB
                     % Grid-tested MB: baseline | from the preferred-cell crossing,
                     % on the preferred direction's crossing trials (gridAlignedMR).
                     [MRhist, baseRatesU] = gridAlignedMR(expStats{s}, u, goodU(:, u), ...
@@ -1126,11 +1183,15 @@ if forloop
                     MRhist        = MRhist(takeTrials, :);                 % keep only top fraction
                 end
 
-                nTrials    = size(MRhist, 1);                            % number of trials used
-                spikeTimes = repmat((1:size(MRhist,2)), nTrials, 1);     % column index for every position
-                spikeTimes = spikeTimes(logical(MRhist));                % keep only spike positions
-                counts     = histcounts(spikeTimes, lockedEdges{s});     % spike count per bin
-                neuronPSTH = (counts / (params.binWidth * nTrials)) * 1000; % convert to spk/s
+                if isempty(cvPSTH)
+                    nTrials    = size(MRhist, 1);                        % number of trials used
+                    spikeTimes = repmat((1:size(MRhist,2)), nTrials, 1); % column index for every position
+                    spikeTimes = spikeTimes(logical(MRhist));            % keep only spike positions
+                    counts     = histcounts(spikeTimes, lockedEdges{s}); % spike count per bin
+                    neuronPSTH = (counts / (params.binWidth * nTrials)) * 1000; % convert to spk/s
+                else
+                    neuronPSTH = cvPSTH;                                 % split-half PSTH built above
+                end
 
                 % --- Baseline stats for the DEFERRED z-score ---
                 % Division is postponed to a post-loop block so the SD floor can
@@ -1736,7 +1797,7 @@ end
 % Short display labels for each stimulus type
 stimLegendMap = containers.Map( ...
     {'RG',  'MB',  'MBR', 'SDGs', 'SDGm', 'SDG', 'NI',  'NV',  'FFF'}, ...
-    {'RG',  'MB',  'MBR', 'SDGs', 'SDGm', 'SDG', 'NI',  'NV',  'FFF'});
+    {'SB',  'MB',  'MBR', 'SG',   'MG',   'SDG', 'NI',  'NV',  'FFF'});   % paper names (as AllExpAnalysis: RG -> SB, SDGs -> SG, SDGm -> MG)
 
 nStim = numel(params.stimTypes);
 
@@ -1985,6 +2046,9 @@ for s = 1:nStim
                 levelVal = extractAfter(rawLabel, '=');                   % e.g. "129"
             else
                 levelVal = rawLabel;                                     % plain label (e.g. "both", "static")
+                if isKey(stimLegendMap, char(levelVal))
+                    levelVal = stimLegendMap(char(levelVal));            % union group named by a stimulus: paper name (RG -> SB)
+                end
             end
             ytLabels{gi} = sprintf('%s (n=%d)', levelVal, nInGroup);     % label with count
 
@@ -2039,7 +2103,7 @@ for s = 1:nStim
 
     titleTxt = sprintf('%s  (n=%d)', shortName, size(data,1));           % tile title with neuron count
     if gridAlignedAll(s)
-        titleTxt = {titleTxt, 't = 0: RF crossing'};                     % short enough not to overrun the group labels
+        titleTxt = {titleTxt, 't = 0: cell crossing'};                   % closest approach to the selected grid cell (not an RF estimate)
     end
     title(ax, titleTxt, 'FontName', 'helvetica', 'FontSize', 8);
 
