@@ -163,7 +163,7 @@ function r = heldOutRate(MR, edges, binWidth)
 r = zeros(2, numel(edges) - 1);                                        % one PSTH per selection half
 for h = 1:2
     st = repmat(1:size(MR{h}, 2), size(MR{h}, 1), 1);                  % column index of every 1 ms position
-    r(h, :) = histcounts(st(logical(MR{h})), edges) / (binWidth * size(MR{h}, 1)) * 1000;  % spikes/s
+    r(h, :) = histcounts(st(logical(MR{h})), edges + 0.5) / (binWidth * size(MR{h}, 1)) * 1000;  % spikes/s (+0.5: bin k = columns (k-1)*bw+1 .. k*bw)
 end
 r = mean(r, 1);                                                        % average of the two
 end

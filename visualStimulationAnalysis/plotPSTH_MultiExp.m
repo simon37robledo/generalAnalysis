@@ -79,7 +79,13 @@ arguments
     params.mbAlign         string        = "crossing"                     % grid-tested MB with trialSel="splitHalf": "crossing" (closest approach
                                                                           %   to the selected cell) or "onset" (trial onset)
     params.splitPanels     logical       = false                          % one axes per stimulus (own time axis, cut at capMs), shared y-axis
+    params.offsetSegMs     double        = 0                              % > 0 (trialSel="splitHalf"): after the onset segment (cut at capMs), a segment
+                                                                          %   of this length aligned to each recording's stimulus OFFSET (same trials)
+    params.gapMs           double        = 100                            % blank gap drawn between the onset and offset segments (ms)
 end
+assert(params.offsetSegMs == 0 || (params.trialSel == "splitHalf" && params.alignTo == "onset" && ...
+    mod(params.offsetSegMs, params.binWidth) == 0 && mod(params.gapMs, params.binWidth) == 0), ...
+    'offsetSegMs needs trialSel="splitHalf", alignTo="onset", and offsetSegMs/gapMs multiples of binWidth.');  % segment layout on whole bins
 assert(ismember(params.trialSel, ["stored","splitHalf"]), 'trialSel must be "stored" or "splitHalf".');  % valid selection mode
 assert(ismember(params.mbAlign, ["crossing","onset"]), 'mbAlign must be "crossing" or "onset".');        % valid MB alignment
 assert(params.trialSel == "splitHalf" || params.mbAlign == "crossing", ...
@@ -195,6 +201,9 @@ if useCV
     if params.mbAlign == "onset" && any(params.stimTypes == "MB")
         allStimSuffix = [allStimSuffix '_mbOnset'];                        % MB onset-aligned
     end
+end
+if params.offsetSegMs > 0
+    allStimSuffix = [allStimSuffix '_onOff'];                              % onset | offset segments
 end
 
 nameOfFile = sprintf('Ex_%d-%d_Combined_PSTHs_%s%s%s%s.mat', ...
@@ -689,6 +698,9 @@ if forloop
                 'Grid-tested and onset-tested MB recordings cannot share one PSTH line.');  % mixed alignment guard
             % ---- Split-half trials: stored split of DeltaRateCV, checked once here ----
             subCV = [];                                                    % stats sub-struct for splitHalfMR (non-grid stimuli)
+            if params.offsetSegMs > 0 && isGridMB
+                NRoff = obj.ResponseWindow;                                % sweep durations per speed (for the offset segment), loaded once
+            end
             if useCV
                 if isGridMB
                     StatsCV = StatsMB;                                     % already loaded above
@@ -729,9 +741,11 @@ if forloop
             preBase     = params.preBase;                                  % pre-stimulus baseline window in ms
             windowTotal = preBase + params.postStim;                       % total window duration per trial in ms
 
+            edgesOn = 0 : params.binWidth : windowTotal;                   % bins of baseline + onset segment (computation)
             if isempty(lockedPreBase)
                 lockedPreBase = preBase;                                   % store the baseline duration for this analysis run
-                lockedEdges   = 0 : params.binWidth : windowTotal;         % bin edges from 0 to windowTotal in steps of binWidth
+                % Stored row: [baseline | onset segment | gap | offset segment] when offsetSegMs > 0
+                lockedEdges   = 0 : params.binWidth : windowTotal + (params.offsetSegMs > 0) * (params.gapMs + params.offsetSegMs);
                 lockedNBins   = numel(lockedEdges) - 1;                   % number of time bins
                 fprintf('  Locked window: preBase=%d ms, postStim=%d ms, nBins=%d\n', ...
                     lockedPreBase, params.postStim, lockedNBins);
@@ -881,12 +895,46 @@ if forloop
                         baseMeanNeuron(ni) = mean(baseRatesU);             % across-trial baseline mean (all trials)
                         baseStdNeuron(ni)  = std(baseRatesU);              % across-trial baseline SD (all trials)
                     end
-                    rateH = zeros(2, lockedNBins);                         % held-out PSTH per selection half (spikes/s)
+                    nOn   = numel(edgesOn) - 1;                            % bins of baseline + onset window
+                    rateH = zeros(2, nOn);                                 % held-out PSTH per selection half (spikes/s)
                     for h = 1:2
-                        for bi = 1:lockedNBins
-                            rateH(h, bi) = sum(MRs{h}(:, lockedEdges(bi)+1 : lockedEdges(bi+1)), 'all');  % spikes in this bin
+                        for bi = 1:nOn
+                            rateH(h, bi) = sum(MRs{h}(:, edgesOn(bi)+1 : edgesOn(bi+1)), 'all');  % spikes in this bin
                         end
                         rateH(h, :) = (rateH(h, :) / size(MRs{h}, 1)) / (params.binWidth / 1000);  % spikes/s
+                    end
+                    if params.offsetSegMs > 0
+                        % Onset segment cut at this stimulus's cap, then a blank gap, then the
+                        % same held-out trials aligned to the recording's stimulus offset.
+                        onLen = params.postStim;                           % onset segment length (ms)
+                        if isfield(params.capMs, char(stimType))
+                            onLen = min(onLen, params.capMs.(char(stimType)));  % e.g. SB 500 ms
+                        end
+                        nKeep = (lockedPreBase + onLen) / params.binWidth; % baseline + onset bins kept
+                        assert(nKeep == round(nKeep), 'plotPSTH_MultiExp: onset segment (%g ms) not on whole bins.', onLen);
+                        if isGridMB
+                            durU = NRoff.(spF{kSp}).stimDur;               % sweep duration of this unit's speed (ms)
+                        else
+                            durU = [];                                     % non-MB: splitHalfMR uses the stored stimulus duration
+                        end
+                        if isGridMB
+                            MRo = splitHalfMR(subU, u, goodU(:, u), p_sort.t, "offset", lockedPreBase, params.offsetSegMs, durU);
+                        else
+                            MRo = splitHalfMR(subU, u, goodU(:, u), p_sort.t, "offset", lockedPreBase, params.offsetSegMs);
+                        end
+                        nOff  = params.offsetSegMs / params.binWidth;      % offset bins
+                        rateO = zeros(2, nOff);                            % held-out offset PSTH per selection half
+                        for h = 1:2
+                            for bi = 1:nOff
+                                cols = lockedPreBase + (bi-1)*params.binWidth + (1:params.binWidth);  % ms after the offset (after the baseline columns)
+                                rateO(h, bi) = sum(MRo{h}(:, cols), 'all');   % spikes in this bin
+                            end
+                            rateO(h, :) = (rateO(h, :) / size(MRo{h}, 1)) / (params.binWidth / 1000);  % spikes/s
+                        end
+                        nGap = params.gapMs / params.binWidth;             % blank bins between the segments
+                        row = [mean(rateH(:, 1:nKeep), 1), nan(1, nGap), mean(rateO, 1)];  % [baseline | onset | gap | offset]
+                        psthRateNeurons(ni, :, 1) = [row, nan(1, lockedNBins - numel(row))];  % pad to the common row length
+                        continue                                           % done with this unit
                     end
                     psthRateNeurons(ni, :, 1) = mean(rateH, 1);            % average of the two held-out PSTHs (as DeltaRateCV)
                     continue                                               % no category levels on this path
@@ -1244,7 +1292,7 @@ for s = 1:nStim
             % Display cap: blank bins that start after this stimulus's test window
             % (e.g. SDGs: the static grating starts drifting at 1000 ms)
             stimKey = char(params.stimTypes{s});                          % stimulus label (struct field name)
-            if isfield(params.capMs, stimKey)
+            if isfield(params.capMs, stimKey) && params.offsetSegMs == 0  % onset|offset rows are already cut at the cap
                 binLeft = lockedEdges(1:end-1) - lockedPreBase;           % left edge of each bin from onset (ms)
                 cut = binLeft >= params.capMs.(stimKey);                  % bins outside the stimulus window
                 meanTrace(cut) = NaN; semTrace(cut) = NaN;                % not drawn
@@ -1279,10 +1327,16 @@ end
 fig = figure;
 set(fig, 'Units', 'centimeters', 'Position', [5 5 10 7]);                 % set figure size in cm for reproducible layout
 winEnd = repmat(lockedEdges(end) - lockedPreBase, 1, nStim);               % last ms shown per stimulus
+onEnd  = repmat(params.postStim, 1, nStim);                                % end of the onset segment per stimulus (ms)
 for s = 1:nStim
     stimKey = char(params.stimTypes(s));                                   % stimulus label (struct field name)
     if isfield(params.capMs, stimKey)
-        winEnd(s) = min(winEnd(s), params.capMs.(stimKey));                % display cap for this stimulus
+        onEnd(s) = min(onEnd(s), params.capMs.(stimKey));                  % display cap for this stimulus
+    end
+    if params.offsetSegMs > 0
+        winEnd(s) = onEnd(s) + params.gapMs + params.offsetSegMs;          % onset segment | gap | offset segment
+    else
+        winEnd(s) = min(winEnd(s), onEnd(s));                              % onset only, cut at the cap
     end
 end
 if params.splitPanels && nStim > 1
@@ -1385,11 +1439,15 @@ for s = 1:nStim
                 xE = lockedEdges - lockedPreBase;                         % bin edges (ms): steps change only at edges
                 [xs, us] = stairs(xE, [upper(:)' upper(end)]);            % step outline of the upper bound
                 [~,  ls] = stairs(xE, [lower(:)' lower(end)]);            % step outline of the lower bound
-                keep  = ~isnan(us) & ~isnan(ls);                          % skip capped (NaN) bins: a polygon cannot contain NaN
-                xFill = [xs(keep)', fliplr(xs(keep)')];                   % x coordinates: forward then backward for closed polygon
-                yFill = [us(keep)', fliplr(ls(keep)')];                   % y coordinates: upper then lower (reversed)
-                fill(axS(s), xFill, yFill, lineColor, ...
-                    'FaceAlpha', 0.08, 'EdgeColor', 'none');              % semi-transparent filled polygon, no border
+                keep  = ~isnan(us) & ~isnan(ls);                          % skip capped / gap (NaN) bins: a polygon cannot contain NaN
+                runId = cumsum([1; diff(keep(:)) ~= 0]);                  % contiguous runs of kept / skipped points
+                for rk = unique(runId(keep(:)))'                          % one polygon per segment, so the band never bridges a gap
+                    in = runId == rk;                                     % points of this segment
+                    xFill = [xs(in)', fliplr(xs(in)')];                   % x coordinates: forward then backward for closed polygon
+                    yFill = [us(in)', fliplr(ls(in)')];                   % y coordinates: upper then lower (reversed)
+                    fill(axS(s), xFill, yFill, lineColor, ...
+                        'FaceAlpha', 0.08, 'EdgeColor', 'none');          % semi-transparent filled polygon, no border
+                end
             end
 
             % ---- Mean PSTH line ----------------------------------------
@@ -1424,7 +1482,19 @@ for k = 1:numel(axU)
     % Reference line at t = 0 (onset, offset or crossing). No line at postStim: it is
     % only the end of the plotted window, not a stimulus offset.
     xline(axK, 0, 'k--', 'LineWidth', 1.2, 'HandleVisibility', 'off');
-    if params.alignTo == "onset" && any(params.stimTypes(sK) == "RG")
+    if params.offsetSegMs > 0
+        % Onset | offset layout: one offset line (each recording aligned to its own offset)
+        offX = max(onEnd(sK)) + params.gapMs;                              % where the offset segment starts on this axis
+        xline(axK, offX, 'k--', 'offset', 'LineWidth', 1.2, 'HandleVisibility', 'off', ...
+            'LabelVerticalAlignment', 'top', 'LabelOrientation', 'horizontal', 'FontSize', 7);  % stimulus offset, labelled
+        stepOn  = 1000 * (max(onEnd(sK)) > 1000) + 500 * (max(onEnd(sK)) <= 1000);  % onset tick step (ms): few ticks in narrow panels
+        ticksOn = 0 : stepOn : max(onEnd(sK));                             % onset-segment ticks (ms re. onset)
+        ticksOn = ticksOn(ticksOn <= offX - 250 | ticksOn == 0);           % drop ticks that would collide with the offset labels
+        ticksOff = [0 params.offsetSegMs];                                 % offset-segment ticks (ms re. offset)
+        xticks(axK, [-lockedPreBase, ticksOn, offX + ticksOff]);           % positions on the joined axis
+        xticklabels(axK, string([-lockedPreBase, ticksOn, ticksOff]));     % labels re. onset, then re. offset
+        axK.XTickLabelRotation = 0;                                        % keep labels horizontal
+    elseif params.alignTo == "onset" && any(params.stimTypes(sK) == "RG")
         for offMs = [500 1000]                                             % SB offsets of the two protocols (per-recording durations ~500 / ~1000 ms)
             if offMs < max(winEnd(sK))
                 xline(axK, offMs, ':', 'Color', [0.4 0.4 0.4], 'LineWidth', 1, 'HandleVisibility', 'off');  % SB offset
@@ -1433,6 +1503,8 @@ for k = 1:numel(axU)
     end
     if all(gridAlignedStim(sK))
         xText = 'Time re. ball crossing [ms]';                             % MB crossing-aligned panel
+    elseif params.offsetSegMs > 0
+        xText = 'Time re. onset | offset [ms]';                            % two aligned segments
     else
         xText = sprintf('Time re. stim %s [ms]', params.alignTo);          % onset / offset
     end

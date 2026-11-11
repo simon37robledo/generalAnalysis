@@ -104,7 +104,14 @@ arguments
                                                                          %   half of the repetitions, shown with the other half's trials (splitHalfMR)
     params.mbAlign         string        = "crossing"                    % grid-tested MB with trialSel="splitHalf": "crossing" or "onset"
     params.postStimPer     struct        = struct()                      % per-stimulus window after t=0 (ms), e.g. struct('MB',2400,'RG',1500); others use postStim
+    params.offsetSegMs     double        = 0                             % > 0 (trialSel="splitHalf"): after the onset window, a gap and a segment of this
+                                                                         %   length aligned to each recording's stimulus OFFSET (same held-out trials)
+    params.gapMs           double        = 100                           % blank gap between the onset and offset segments (ms)
 end
+assert(params.offsetSegMs == 0 || (params.trialSel == "splitHalf" && params.alignTo == "onset" && ...
+    ~params.useCompleteWindow && mod(params.offsetSegMs, params.binWidth) == 0 && mod(params.gapMs, params.binWidth) == 0), ...
+    ['offsetSegMs needs trialSel="splitHalf", alignTo="onset", useCompleteWindow=false, and ', ...
+     'offsetSegMs/gapMs multiples of binWidth.']);                       % segment layout on whole bins
 assert(ismember(params.trialSel, ["stored","splitHalf"]), 'trialSel must be "stored" or "splitHalf".');  % valid selection mode
 assert(ismember(params.mbAlign, ["crossing","onset"]), 'mbAlign must be "crossing" or "onset".');        % valid MB alignment
 useCV = params.trialSel == "splitHalf";                                  % shorthand used below
@@ -250,6 +257,9 @@ if useCV
         alignSuffix = [alignSuffix '_mbOnset'];                          % MB onset-aligned
     end
 end
+if params.offsetSegMs > 0
+    alignSuffix = [alignSuffix '_onOff'];                                % onset | offset segments
+end
 nameOfFile = sprintf('\\Ex_%d-%d_n%d_Raster_%s%s%s%s.mat', ...
     exList(1), exList(end), numel(exList), stimLabel, catSuffix, unionSuffix, alignSuffix); % cache filename
 
@@ -331,6 +341,7 @@ if forloop
     lockedNBins   = zeros(1, nStim);                                     % bin count per stimulus
     tAxis         = cell(1, nStim);                                      % left bin edge (ms) per stimulus
     stimDurAll    = zeros(1, nStim);                                     % stim duration (ms) per stim for xline
+    offStartAll   = nan(1, nStim);                                       % onset|offset layout: where the offset segment starts (ms re. onset axis)
     movingOnsetAll = nan(1, nStim);                                      % ms from stim onset to moving phase (SDG only; NaN elsewhere)
     gridAlignedAll = false(1, nStim);                                    % true: panel aligned to the RF crossing (grid-tested MB)
 
@@ -427,6 +438,7 @@ if forloop
         expFieldNames  = strings(1, nStim);                              % resolved sub-field names
         expStartStim   = zeros(1, nStim);                                % ms offset for stim onset
         expStimDur     = nan(1, nStim);                                  % measured stimulus duration (ms), for alignTo="offset"
+        expRespWin     = cell(1, nStim);                                 % response-window structs (MB sweep duration per speed, offset segment)
         expStats       = cell(1, nStim);                                 % statistics structs
         expPvals       = cell(1, nStim);                                 % p-value vectors
         expC           = cell(1, nStim);                                 % condition matrices
@@ -577,6 +589,7 @@ if forloop
             expPvals{s} = pvals;                                         % store p-value vector
             expC{s} = C;                                                 % store representative condition matrix
             expDirectimes{s} = C(:, 1)' + startStim;                    % representative onsets (best speed applied per-neuron in PSTH loop)
+            expRespWin{s} = NeuronResp;                                  % keep: MB sweep duration per speed for the offset segment
             if params.alignTo == "offset"
                 try,   expStimDur(s) = NeuronResp.(fieldName).stimDur;  % sub-field stimulus duration (ms)
                 catch, expStimDur(s) = NeuronResp.stimDur; end         % flat struct (RG, FFF, ...)
@@ -919,9 +932,14 @@ if forloop
             end
 
             % Lock bin edges per stim on first encounter
+            edgesOnS = 0 : params.binWidth : windowTotal;                % bins of baseline + onset window (computation)
             if isempty(lockedEdges{s})
-                lockedEdges{s} = 0 : params.binWidth : windowTotal;      % bin edges from 0 to windowTotal
+                % Row layout: [baseline | onset window | gap | offset segment] when offsetSegMs > 0
+                lockedEdges{s} = 0 : params.binWidth : windowTotal + (params.offsetSegMs > 0) * (params.gapMs + params.offsetSegMs);
                 lockedNBins(s) = numel(lockedEdges{s}) - 1;              % number of bins
+                if params.offsetSegMs > 0
+                    offStartAll(s) = windowTotal - preBase + params.gapMs;   % offset segment starts here (ms on the onset axis)
+                end
                 tAxis{s}       = lockedEdges{s}(1:end-1);               % left edge per bin (ms)
                 stimDurAll(s)  = rawStimDur_ms;                          % for xline in plot
                 gridAlignedAll(s) = isCrossAligned;                      % alignment of this panel, fixed on first experiment
@@ -1103,13 +1121,32 @@ if forloop
                         bMean = mean(baseRatesU);                        % across-trial baseline mean (all trials)
                         bStd  = std(baseRatesU);                         % across-trial baseline SD (all trials)
                     end
-                    cvPSTH = zeros(2, lockedNBins(s));                   % held-out PSTH per selection half (spk/s)
+                    cvPSTH = zeros(2, numel(edgesOnS) - 1);              % held-out PSTH per selection half (spk/s), baseline + onset
                     for h = 1:2
                         st = repmat(1:size(MRs{h}, 2), size(MRs{h}, 1), 1);    % column index of every position
-                        cvPSTH(h, :) = histcounts(st(logical(MRs{h})), lockedEdges{s}) ...
+                        cvPSTH(h, :) = histcounts(st(logical(MRs{h})), edgesOnS + 0.5) ... % +0.5: bin k = columns (k-1)*bw+1 .. k*bw
                             / (params.binWidth * size(MRs{h}, 1)) * 1000; % spikes/s
                     end
                     cvPSTH = mean(cvPSTH, 1);                            % average of the two held-out PSTHs (as DeltaRateCV)
+                    if params.offsetSegMs > 0
+                        % Same held-out trials aligned to this recording's stimulus offset
+                        if isGridMB
+                            durU = expRespWin{s}.(sprintf('Speed%d', bestSpeed(u))).stimDur;   % sweep duration of this unit's speed (ms)
+                            MRo = splitHalfMR(subU, u, goodU(:, u), p_sort.t, "offset", lockedPreBase, params.offsetSegMs, durU);
+                        else
+                            MRo = splitHalfMR(subU, u, goodU(:, u), p_sort.t, "offset", lockedPreBase, params.offsetSegMs);  % stored duration
+                        end
+                        edgesOff = lockedPreBase + (0 : params.binWidth : params.offsetSegMs);  % bins after the offset (columns after the baseline)
+                        offPSTH = zeros(2, numel(edgesOff) - 1);         % held-out offset PSTH per selection half
+                        for h = 1:2
+                            st = repmat(1:size(MRo{h}, 2), size(MRo{h}, 1), 1);  % column index of every position
+                            offPSTH(h, :) = histcounts(st(logical(MRo{h})), edgesOff + 0.5) ... % +0.5: whole-ms columns per bin
+                                / (params.binWidth * size(MRo{h}, 1)) * 1000;   % spikes/s
+                        end
+                        cvPSTH = [cvPSTH, nan(1, params.gapMs / params.binWidth), mean(offPSTH, 1)];  % [baseline | onset | gap | offset]
+                        assert(numel(cvPSTH) == lockedNBins(s), 'plotRaster_MultiExp: onset|offset row has %d bins, expected %d.', ...
+                            numel(cvPSTH), lockedNBins(s));              % layout invariant
+                    end
                     MRhist = [MRs{1}; MRs{2}];                           % kept for the shared code below (not used for the PSTH)
                   elseif isGridMB
                     % Grid-tested MB: baseline | from the preferred-cell crossing,
@@ -1187,7 +1224,7 @@ if forloop
                     nTrials    = size(MRhist, 1);                        % number of trials used
                     spikeTimes = repmat((1:size(MRhist,2)), nTrials, 1); % column index for every position
                     spikeTimes = spikeTimes(logical(MRhist));            % keep only spike positions
-                    counts     = histcounts(spikeTimes, lockedEdges{s}); % spike count per bin
+                    counts     = histcounts(spikeTimes, lockedEdges{s} + 0.5); % spike count per bin (+0.5: bin k = columns (k-1)*bw+1 .. k*bw, was shifted 1 ms)
                     neuronPSTH = (counts / (params.binWidth * nTrials)) * 1000; % convert to spk/s
                 else
                     neuronPSTH = cvPSTH;                                 % split-half PSTH built above
@@ -1365,6 +1402,7 @@ if forloop
     S.lockedEdges     = lockedEdges;                                     % per-stim bin edges
     S.lockedPreBase   = lockedPreBase;                                   % shared baseline
     S.stimDurAll      = stimDurAll;                                      % per-stim duration for xline
+    S.offStartAll     = offStartAll;                                     % onset|offset layout: start of the offset segment (ms)
     S.movingOnsetAll  = movingOnsetAll;                                  % static-to-moving transition (SDG only)
     S.gridAlignedAll  = gridAlignedAll;                                  % panels aligned to the RF crossing (grid-tested MB)
     S.sdFloor         = sdFloor;                                         % data-driven z-score SD floor (spk/s) for reproducibility
@@ -1391,6 +1429,7 @@ else
     lockedEdges    = S.lockedEdges;                                      % restore bin edges
     lockedPreBase  = S.lockedPreBase;                                    % restore baseline
     stimDurAll     = S.stimDurAll;                                       % restore stim durations
+    if isfield(S, 'offStartAll'), offStartAll = S.offStartAll; else, offStartAll = nan(1, numel(params.stimTypes)); end  % older caches: no offset segment
 
     % Restore movingOnsetAll if present, otherwise NaN (old cache)
     if isfield(S, 'movingOnsetAll')
@@ -2091,6 +2130,19 @@ for s = 1:nStim
     ticksSec = stepSec * (ceil(tAxisSec(1)/stepSec - 1e-9) : floor(tAxisSec(end)/stepSec + 1e-9));   % multiples of the step, 0 included
     xticks(ax, ticksSec);                                                % apply x tick positions
     xticklabels(ax, arrayfun(@(v) sprintf('%g', round(v, 2) + 0), ticksSec, 'UniformOutput', false)); % round-number labels (+0 turns -0 into 0)
+    if ~isnan(offStartAll(s))
+        % Onset | offset layout: the right segment is aligned to each recording's offset
+        offX = offStartAll(s) / 1000;                                    % start of the offset segment on this axis (s)
+        xline(ax, offX, 'k', 'offset', 'LineWidth', 1.5, 'LabelVerticalAlignment', 'top', ...
+            'LabelOrientation', 'horizontal', 'FontSize', 7);             % stimulus offset
+        onEndSec = offX - params.gapMs / 1000;                           % end of the onset segment (s)
+        stepOn   = 1 * (onEndSec > 1) + 0.5 * (onEndSec <= 1);           % few ticks in narrow panels
+        ticksOn  = 0 : stepOn : onEndSec;                                % onset-segment ticks (s re. onset)
+        ticksOn  = ticksOn(ticksOn <= offX - 0.25 | ticksOn == 0);       % drop ticks that would collide with the offset labels
+        ticksOff = [0, params.offsetSegMs / 1000];                       % offset-segment ticks (s re. offset)
+        xticks(ax, [ticksOn, offX + ticksOff]);                          % positions on the joined axis
+        xticklabels(ax, string([ticksOn, ticksOff]));                    % labels re. onset, then re. offset
+    end
 
     if s == 1
         if params.sortBy == "preferredCategory" && strlength(params.splitCategory(s)) > 0
@@ -2118,8 +2170,12 @@ end
 % ------------------------------------------------------------------
 % Shared x-label
 % ------------------------------------------------------------------
-xlabel(tl, sprintf('Time relative to stimulus %s (s)', params.alignTo), ...
-    'FontName', 'helvetica', 'FontSize', 8);
+if all(isnan(offStartAll))
+    xText = sprintf('Time relative to stimulus %s (s)', params.alignTo); % single alignment
+else
+    xText = 'Time relative to stimulus onset | offset (s)';              % onset segment, then offset segment
+end
+xlabel(tl, xText, 'FontName', 'helvetica', 'FontSize', 8);
 
 % ------------------------------------------------------------------
 % Single colorbar on the rightmost tile

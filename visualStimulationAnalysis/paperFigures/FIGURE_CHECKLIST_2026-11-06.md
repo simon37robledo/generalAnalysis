@@ -19,7 +19,8 @@ Times are file times on 6 Nov.
 | Numbers | `Stats summary tables\*.csv` (18:32-19:13) | |
 
 ## 2026-11-10: population PSTHs/rasters redrawn (split-half trials, onset-aligned)
-- Main: `fig1_PSTH-MB-RG_allStims_cv_mbOnset` (two panels), `fig1_Raster-MB-RG-all_union_cv_mbOnset`;
+- Main: `fig1_PSTH-MB-RG_allStims_cv_mbOnset_onOff` (two panels), `fig1_Raster-MB-RG-all_union_cv_mbOnset_onOff`
+  (11 Nov: onset | offset axis, MB 0-2.3 s and SB 0-500 ms from onset, then 0-500 ms from each recording's offset);
   `fig3_PSTH-SDGm-SDGs_cv`, `fig3_Raster-SDGs-SDGm-all_union_cv` (two tiles, replaces the combined SDG raster);
   `fig4_PSTH-RG-SDGs_allStims_cv`, `fig4_Raster-RG-SDGs-all_union_cv`, `fig4_*-MB-MBR*_cv_mbOnset`, `fig4_*-MB-SDGm*_cv_mbOnset`.
 - Supplementary (named by main figure, `sfigN_`): `sfig1_` crossing-aligned MB vs SB PSTH/raster (`_cv`),
@@ -30,7 +31,8 @@ Times are file times on 6 Nov.
 - MOVED to `Paper_figs\_superseded_2026-11-10` (32 files, list in its README): the 6 Nov `fig1_/fig3_/fig4_`
   PSTH/raster files without `_cv`, `fig1_*RG*_offset` (now `sfig1_`), and every `*_SpkRate-*` panel
   (SpkR = plain max inflated by the number of categories; replaced by `DeltaRate-Scatter`).
-- Fig 7 (SA) not rerun yet: it has no DeltaRate-Scatter and still has the old fraction-panel footer.
+- Fig 7 (SA) rerun 2026-11-10 21:06-21:08: `fig7_DeltaRate-Scatter-*` added (4 comparisons), new fraction-panel
+  footer; SA leave-one-animal-out tables byte-identical to before.
 
 ## Stale — MOVED to `Paper_figs\_superseded_2026-11-06` (65 files + `Sensitivity_noPR`; list in its README)
 - `fig3_*`, `fig4_*` and structs with `Ex_1-97_Combined_SDGm-SDGs`, `..._RG-SDGs`, `..._MB-SDGm` (00:35-01:10): include recordings 1 and 8.

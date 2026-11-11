@@ -1,4 +1,4 @@
-function [MR, baseRates, info] = splitHalfMR(sub, u, spikeCol, tMs, alignTo, preBase, postLen)
+function [MR, baseRates, info] = splitHalfMR(sub, u, spikeCol, tMs, alignTo, preBase, postLen, stimDurMs)
 % splitHalfMR  Held-out trial spike matrices of one unit, split-half selection.
 %
 %   [MR, baseRates, info] = splitHalfMR(sub, u, spikeCol, tMs, alignTo, preBase, postLen)
@@ -23,9 +23,11 @@ function [MR, baseRates, info] = splitHalfMR(sub, u, spikeCol, tMs, alignTo, pre
 %     tMs       spike times p_sort.t (ms)
 %     alignTo   "onset"    trial onset (motion onset for SDGm = start of its test window)
 %               "crossing" grid-tested MB only: closest approach to the selected cell
-%               "offset"   onset-tested stimuli only: onset + stimulus duration
+%               "offset"   onset + stimulus duration (moving ball: pass stimDurMs, the
+%                          sweep duration of that speed; others: the stored cvStimDur)
 %     preBase   baseline length (ms)
 %     postLen   length after the event (ms)
+%     stimDurMs (optional) stimulus duration (ms) for alignTo="offset" with the moving ball
 %
 %   OUTPUTS
 %     MR        {1 x 2} [nTrials_h x (preBase + postLen)] spike counts per 1 ms:
@@ -49,7 +51,10 @@ if isGrid
     assert(all(isfield(sub, {'cvSel','cvHalf','trialOnsets','trialDirections','crossingMs'})), ...
         'splitHalfMR:noCV', ['MB stats lack the stored split (cvSel/cvHalf): rerun ', ...
         'AllExpAnalysis with overwriteStats=true.']);              % fail loudly on an old cache
-    assert(alignTo ~= "offset", 'splitHalfMR: "offset" is not defined for the moving ball.');  % no single offset per cell
+    if alignTo == "offset"
+        assert(nargin >= 8 && isscalar(stimDurMs) && stimDurMs > 0, ...
+            'splitHalfMR: moving-ball offset needs stimDurMs (sweep duration of this speed, ms).');  % no stored duration in grid stats
+    end
     dirs  = unique(sub.trialDirections);                           % direction levels, same order as dirID in the test
     nGrp  = numel(dirs);                                           % groups of the split
     for h = 1:2
@@ -61,6 +66,8 @@ if isGrid
         ons  = sub.trialOnsets(rows);                              % their onsets (ms)
         if alignTo == "crossing"
             ev = ons(:) + sub.crossingMs(rows, c);                 % closest approach to the cell (ms)
+        elseif alignTo == "offset"
+            ev = ons(:) + stimDurMs;                               % end of the sweep (ms)
         else
             ev = ons(:);                                           % trial onset
         end

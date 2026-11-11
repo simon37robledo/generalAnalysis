@@ -24,18 +24,21 @@ Tloao = leaveOneAnimalOut(fig1Struct);                            % writes Leave
 %% Supplementary CSV tables (Paper_figs\Stats summary tables\)
 statsTablePaths = makeStatsSummaryTables();                       % needs the struct and the LOAO .xlsx above
 
-%% Population PSTH: both aligned to stimulus onset, split-half trials (figureDesign)
-% Two panels with a shared z-score axis: MB over its ~2.4 s sweep, SB over 0-1.5 s
-% (ON plus OFF; the next trial starts 1.5-2 s after onset, so SB cannot go further).
+%% Population PSTH: onset | offset, split-half trials (figureDesign)
+% Two panels with a shared z-score axis. Each panel: aligned to stimulus onset (MB 0-2.3 s,
+% the shortest sweep is 2.34 s; SB 0-500 ms, the shortest SB is ~490 ms), a 100 ms gap,
+% then 500 ms aligned to each recording's own measured offset (SB lasts ~500 ms in 24
+% recordings and ~1000 ms in 20; MB sweeps 2.34-2.39 s, 9.6 s at the slow speed of recs
+% 49/51/53). Same held-out trials in both segments.
 paperFigPrefix('fig1');                                           % main-figure panel names
-psthMB = d.setArg(d.psthArgs, 'postStim', 2400);                  % window after onset (ms), long enough for the MB sweep
+psthMB = d.setArg(d.psthArgs, 'postStim', 2300);                  % onset segment (ms), within every MB sweep
 plotPSTH_MultiExp(d.exps, psthMB{:}, overwrite=true, stimTypes={"MB","RG"}, ...
-    unionResponsive=true, requireAllStims=true, splitPanels=true, capMs=struct('RG', 1500));
+    unionResponsive=true, requireAllStims=true, splitPanels=true, capMs=struct('RG', 500), offsetSegMs=500);
 
-%% Population raster (interactive session): onset-aligned, split-half trials
+%% Population raster (interactive session): onset | offset, split-half trials
 paperFigPrefix('fig1');                                           % main-figure panel names
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","RG"], unionUnits=true, ...
-    postStimPer=struct('MB', 2400, 'RG', 1500));                  % MB sweep 0-2.4 s, SB 0-1.5 s
+    postStimPer=struct('MB', 2300, 'RG', 500), offsetSegMs=500);  % onset segments as the PSTH, then 500 ms after each offset
 
 %% FP/FN screen on the raster cache (diagnostic, not a panel)
 % Uses the stored-trial raster cache of 6 Nov (crossing-aligned MB, stored preferred
