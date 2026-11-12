@@ -185,8 +185,18 @@ if params.noEyeMoves
     % Load the no-eye-movement RF (previously saved per-recording)
     RFu = squeeze(load(sprintf('NEM-RFuST-Q1-Div-X-%s', NP.recordingName)).RFuST);
 else
-    RFu            = RFs.RFuST;              % Direction-summed RF map [y × x × unit]
-    RFuDirSizeLum  = RFs.RFuDirSizeLumFilt; % RF array split by [dir × size × lum × y × x × unit]
+    RFu            = RFs.RFuST;              % Direction-summed RF map [y × x × unit] (allCombined only; NOT in spk/s)
+    % The cached per-direction maps sum, over every frame the ball covers a pixel, the rate
+    % 250 ms later, divided by the conditions per direction. Pixels are covered for different
+    % numbers of frames (8-18 in rec 97), so those maps are not spk/s. rfRateMaps rescales them
+    % to the mean rate while the ball covered each pixel (checked 2026-11-12 on rec 97 unit 1
+    % against a rate map built directly from spikes and ball positions: slope 0.99-1.01,
+    % r 0.83-0.97 per direction). Display only: the cached struct is not changed.
+    RFuDirSizeLum  = rfRateMaps(obj, RFs, responses.(fieldName).C, params.speed);  % [dir × size × lum × y × x × unit] in spk/s
+end
+if params.allCombined                                                     % direction-summed map is not rescaled
+    warning('PlotReceptiveFields:allCombinedUnits', ...
+        'allCombined plots RFuST, which is not in spk/s; its colour-bar label is wrong.');  % flag the wrong unit label
 end
 
 % Build a 2-D Gaussian smoothing kernel scaled to the RF map size
@@ -427,3 +437,68 @@ for u = eNeuron
 end % neuron loop
 
 end % function
+
+
+function R = rfRateMaps(obj, RFs, C, speed)
+% rfRateMaps  Moving-ball RF maps in spk/s: the mean firing rate (250 ms after the
+% ball) while the ball covered each pixel.
+%   raw (RFuSTDirSizeLum) = sum over conditions and covered frames of (mask x rate) / nCondDir
+%   rate                  = smooth(raw x nCondDir) ./ smooth(coverage frames)
+% Coverage is rebuilt from the ball trajectories with the geometry of
+% CalculateReceptiveFields (true screen orientation, which the cached maps follow).
+raw = RFs.RFuSTDirSizeLum;                                                % [dir × size × lum × y × x × unit], unsmoothed
+uDirC = unique(C(:, 2));                                                  % directions (C column 2)
+uOffC = unique(C(:, 3));                                                  % trajectory offsets (column 3)
+uSzC  = unique(C(:, 4));                                                  % ball sizes in px (column 4)
+uSpdC = unique(C(:, 5));                                                  % speeds (column 5)
+uLumC = unique(C(:, 6));                                                  % luminances (column 6)
+assert(isscalar(uSpdC), 'rfRateMaps: %d speeds in one speed field.', numel(uSpdC));   % coverage below assumes one speed
+reps = size(C, 1) / numel(uDirC) / numel(uOffC) / numel(uSzC) / numel(uLumC);       % repetitions per condition
+assert(reps == round(reps), 'rfRateMaps: %d trials do not split into whole conditions.', size(C, 1));  % balanced design
+nCondDir = size(C, 1) / numel(uDirC) / reps;                              % conditions per direction: the divisor of the cached maps
+assert(isequal(size(raw, 1:3), [numel(uDirC), numel(uSzC), numel(uLumC)]), ...
+    'rfRateMaps: cached maps are %s (dir x size x lum), trials give %d x %d x %d.', ...
+    mat2str(size(raw, 1:3)), numel(uDirC), numel(uSzC), numel(uLumC));  % cache must describe these trials
+
+Xp  = obj.VST.ballTrajectoriesX;                                          % ball x [speed × offset × direction × frame] (px)
+Yp  = obj.VST.ballTrajectoriesY;                                          % ball y, same layout
+nFr = sort(unique(obj.VST.nFrames), 'descend');                           % frames per speed, slowest first (as CalculateReceptiveFields)
+if size(Xp, 1) > 1                                                        % several speeds: keep the analysed one
+    sp = min(speed, numel(nFr));                                          % same fallback as CalculateReceptiveFields (last speed)
+    Xp = Xp(sp, :, :, 1:nFr(sp));                                         % that speed's frames only
+    Yp = Yp(sp, :, :, 1:nFr(sp));                                         % same for y
+end
+assert(size(Xp, 2) == numel(uOffC) && size(Xp, 3) == numel(uDirC), ...
+    'rfRateMaps: %d offsets x %d directions in the trajectories, %d x %d in the trials.', ...
+    size(Xp, 2), size(Xp, 3), numel(uOffC), numel(uDirC));               % trajectory index = sorted condition index (cache convention)
+
+sY    = size(raw, 4);                                                     % map side (reduced px)
+rF    = min(RFs.params.reduceFactor, min(uSzC));                          % reduction factor of CalculateReceptiveFields
+assert(round(obj.VST.rect(4) / rF) == sY, 'rfRateMaps: map side %d does not match the screen height / %g.', sY, rF);  % same grid as the cache
+cropX = (round(obj.VST.rect(3) / rF) - sY) / 2;                           % left margin cropped to make the map square
+[xg, yg] = meshgrid(1:sY, 1:sY);                                          % pixel coordinates of the map
+
+G = fspecial('gaussian', floor(sY / (numel(uOffC) / 2)), sY / numel(uOffC));   % smoothing kernel of CalculateReceptiveFields
+R = nan(size(raw));                                                       % output maps in spk/s
+for d = 1:numel(uDirC)                                                    % each direction
+    for s = 1:numel(uSzC)                                                 % each ball size
+        rad = uSzC(s) / 2 / rF + 0.5;                                     % ball radius in reduced px (+0.5 as in the cache videos)
+        cov = zeros(sY);                                                  % frames the ball covers each pixel, summed over trajectories
+        for of = 1:numel(uOffC)                                           % each trajectory
+            for t = 1:size(Xp, 4)                                         % each frame
+                cov = cov + (hypot(xg - (Xp(1, of, d, t) / rF - cropX), ...
+                                   yg -  Yp(1, of, d, t) / rF) <= rad);   % add this frame's ball disk
+            end
+        end
+        covS = conv2(cov, G, 'same');                                     % smoothed coverage (denominator)
+        for l = 1:numel(uLumC)                                            % each luminance (same coverage)
+            for u = 1:size(raw, 6)                                        % each unit
+                num = conv2(squeeze(raw(d, s, l, :, :, u)) * nCondDir, G, 'same');   % smoothed sum of mask x rate
+                rate = num ./ covS;                                       % mean rate while covered (spk/s)
+                rate(covS <= eps) = NaN;                                  % never covered: no estimate
+                R(d, s, l, :, :, u) = rate;                               % store
+            end
+        end
+    end
+end
+end

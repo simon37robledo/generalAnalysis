@@ -2133,8 +2133,7 @@ for s = 1:nStim
     if ~isnan(offStartAll(s))
         % Onset | offset layout: the right segment is aligned to each recording's offset
         offX = offStartAll(s) / 1000;                                    % start of the offset segment on this axis (s)
-        xline(ax, offX, 'k', 'offset', 'LineWidth', 1.5, 'LabelVerticalAlignment', 'top', ...
-            'LabelOrientation', 'horizontal', 'FontSize', 7);             % stimulus offset
+        xline(ax, offX, 'k', 'LineWidth', 1.5);                          % stimulus offset line, no text label (it covered the data; ticks and xlabel already read "onset | offset")
         onEndSec = offX - params.gapMs / 1000;                           % end of the onset segment (s)
         stepOn   = 1 * (onEndSec > 1) + 0.5 * (onEndSec <= 1);           % few ticks in narrow panels
         ticksOn  = 0 : stepOn : onEndSec;                                % onset-segment ticks (s re. onset)

@@ -117,8 +117,28 @@ if params.noEyeMoves
     % BUG: this branch leaves RFu and RFuFilt undefined; implement or error out.
     error('PlotReceptiveFields: noEyeMoves mode is not yet implemented for this stimulus.');
 else
-    RFu     = RFs.RFu;      % Fully-combined RF map [on/off × lum × size × y × x × unit]
-    RFuFilt = RFs.RFuFilt;  % RF array before dimension averaging [on/off × lum × size × y × x × unit]
+    % CalculateReceptiveFields averages (ball mask x rate) over ALL nCond conditions
+    % (positions x sizes x luminances; mean over its dim 6), so its maps are rate / nCond,
+    % not spk/s. The balls do not overlap (tiling ratio 1), so multiplying by nCond gives
+    % the rate (spk/s) of the position covering each pixel (checked 2026-11-12: rec 74,
+    % unit 246, peak 0.04367 x 81 = 3.537 spk/s = its best position's on-rate).
+    % Display only: the cached struct (used by SpatialTuningIndex) is not changed.
+    nSizeRF    = numel(unique(obj.VST.tilingRatios));                                 % sizes, counted as in CalculateReceptiveFields
+    nLumsRF    = numel(unique(obj.VST.rectLuminosity(obj.VST.luminosities)));         % luminances, counted as in CalculateReceptiveFields
+    trialDivRF = numel(obj.VST.pos) / numel(unique(obj.VST.pos)) / nSizeRF / nLumsRF; % repetitions per condition, as there
+    nCondRF    = size(responses.C, 1) / trialDivRF;                                   % conditions the maps were averaged over
+    assert(trialDivRF == round(trialDivRF) && nCondRF == round(nCondRF), ...
+        'PlotReceptiveFields: %d trials do not split into whole conditions (%.3f repetitions each).', ...
+        size(responses.C, 1), trialDivRF);                                            % unbalanced design: the scale would be wrong
+    assert(size(RFs.RFu, 2) == nLumsRF && size(RFs.RFu, 3) == nSizeRF, ...
+        'PlotReceptiveFields: RF maps have %d luminances x %d sizes, stimulus has %d x %d.', ...
+        size(RFs.RFu, 2), size(RFs.RFu, 3), nLumsRF, nSizeRF);                        % cached maps must describe this stimulus
+    if any(unique(obj.VST.tilingRatios) > 1)                                          % balls larger than their tile overlap
+        warning('PlotReceptiveFields:overlappingBalls', ...
+            'Tiling ratio > 1: where balls overlap the rescaled map sums rates, so it is not exactly spk/s there.');  % flag inexact units
+    end
+    RFu     = RFs.RFu     * nCondRF;   % Fully-combined RF map in spk/s [on/off × lum × size × y × x × unit]
+    RFuFilt = RFs.RFuFilt * nCondRF;   % Smoothed RF map in spk/s (smoothing is linear, so the scale carries over)
 end
 
 % Compute the number of spatial offset positions (used to scale the Gaussian kernel)
