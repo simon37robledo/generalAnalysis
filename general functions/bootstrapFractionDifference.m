@@ -43,15 +43,18 @@ for ins = unique(tbl.insertion)'
         continue
     end
 
-    total = tbl.totalSomaticN(idx1);            % somatic units recorded (shared denominator)
-    if total == 0                               % no analysable unit (none present in both blocks)
+    total1 = tbl.totalSomaticN(idx1);           % analysable units for stimulus 1
+    total2 = tbl.totalSomaticN(idx2);           % analysable units for stimulus 2 (equal to total1 in the paired
+                                                % design; per block with presence="perStimulus", 2026-11-18: the
+                                                % old code divided both by total1)
+    if total1 == 0 || total2 == 0               % no analysable unit in a block
         warning('bootstrapFractionDifference:noUnits', ...
             'Insertion %s has no analysable units for %s vs %s - excluded (fraction undefined).', ...
             string(ins), pair{1}, pair{2});     % explicit: a NaN here would bias both tails of the p-value
         continue
     end
-    f1    = tbl.respNeur(idx1) / total;         % responsive fraction, stimulus 1
-    f2    = tbl.respNeur(idx2) / total;         % responsive fraction, stimulus 2
+    f1    = tbl.respNeur(idx1) / total1;        % responsive fraction, stimulus 1
+    f2    = tbl.respNeur(idx2) / total2;        % responsive fraction, stimulus 2
 
     diffs      = [diffs;      f1 - f2];                        %#ok<AGROW>
     insLabels  = [insLabels;  double(ins)];                    %#ok<AGROW>

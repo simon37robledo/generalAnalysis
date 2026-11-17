@@ -122,8 +122,7 @@ stimVar = matlab.lang.makeValidName(stims);                 % e.g. 'SDGm' -> 'SD
 % =========================================================================
 
 NP0      = loadNPclassFromTable(expList(end));              % load one recording just to resolve the data root
-rootPath = extractBefore(NP0.recordingDir, 'lizards');      % path up to (excluding) the 'lizards' folder
-rootPath = [rootPath 'lizards'];                            % include the 'lizards' folder itself
+rootPath = fullfile(npDataRoot(), 'lizards');              % W:\...\lizards for every recording (sil3, 2026-11-18)
 saveDir  = fullfile(rootPath, 'Combined_lizard_analysis');  % pooled-analysis directory (same as AllExpAnalysis)
 if ~exist(saveDir, 'dir')                                   % create it on first use
     mkdir(saveDir);

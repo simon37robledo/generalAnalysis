@@ -196,6 +196,9 @@ end
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'StripeDiagonal_original_vs_mirror.jpg']), 'Resolution', 300);   % fig2_ panel
 
 %% Stripe units vs responsive non-stripe units (depth, z, OSI/DSI, direction)
+% Includes the per-direction stripe score (fig2_StripeNeurons_perDirectionScore.jpg, 2026-11-18): every MB
+% unit's score per direction / its 95th-percentile max-statistic null, and the fraction above 1 per direction
+% (descriptive, CIs only). Replaces the best-direction bar count (StripeNeurons_dirDist).
 stripeArgs ={'indexType', "L_amplitude_diff", 'onOff', 1, 'sizeIdx', 1, 'lumValue', 255, 'useRF', true, ...
     'prefDir', true, 'unionResponsive', false, 'allResponsive', true, 'splitHalf', true};   % must match the call above
 resStripe = analyzeStripeNeurons(exps, stripeArgs{:}, PaperFig=true);

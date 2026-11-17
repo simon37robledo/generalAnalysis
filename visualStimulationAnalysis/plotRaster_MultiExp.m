@@ -219,8 +219,8 @@ end
 NP_first = loadNPclassFromTable(exList(end));                              % load NP object for path info
 vs_first = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);  % analysis object for filesystem path (any MB session)
 
-p = extractBefore(vs_first.getAnalysisFileName, 'lizards');              % root up to 'lizards' token
-p = [p 'lizards'];                                                      % include 'lizards' folder
+p = fullfile(npDataRoot(), 'lizards');                                  % W:\...\lizards for every recording (2026-11-18; the old cut at
+                                                                        % 'lizards' gave a relative path for SA5, whose data is on Y:)
 
 if ~exist([p '\Combined_lizard_analysis'], 'dir')                        % create output dir if absent
     cd(p)                                                                % change to parent dir

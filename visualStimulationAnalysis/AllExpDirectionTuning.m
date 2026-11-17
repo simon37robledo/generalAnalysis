@@ -85,8 +85,7 @@ NP_first    = loadNPclassFromTable(expList(1));             % load first experim
 firstObj    = createStimulusObject(NP_first, params.stimuli{1}, 0);
 
 % Extract the shared analysis directory from the first experiment
-pathStr = extractBefore(firstObj.getAnalysisFileName, 'lizards');
-saveDir = fullfile([pathStr 'lizards'], 'Combined_lizard_analysis');
+saveDir = fullfile(npDataRoot(), 'lizards', 'Combined_lizard_analysis');   % W: (sil3) for every recording, 2026-11-18
 
 % Create directory if it does not exist
 if ~exist(saveDir, 'dir')

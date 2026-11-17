@@ -94,6 +94,16 @@ arguments
                                                     %   which builds part of an A > B difference into the unit set.
                                                     %   All outputs get an '_allPresent' suffix (never overwrite
                                                     %   the main run). The fraction panel is unaffected.
+    params.presence (1,1) string {mustBeMember(params.presence, ["allBlocks","perStimulus"])} = "allBlocks"
+                                                    % Unit presence (2026-11-18, sensitivity analysis):
+                                                    %   "allBlocks"   units present during EVERY compared block,
+                                                    %                 compared paired by unit (primary design);
+                                                    %   "perStimulus" each stimulus keeps the units present during
+                                                    %                 ITS block (probe drift loses units between
+                                                    %                 blocks); groups are compared UNPAIRED with a
+                                                    %                 two-sample hierarchical bootstrap
+                                                    %                 (hierBootTwoSample), no difference / scatter
+                                                    %                 panels. Outputs get a '_perStimPresence' suffix.
 
     % --- ResponseWindow parameters ---
     params.RespDurationWin  double          = 100   % Duration window (ms) for ResponseWindow computation
@@ -275,8 +285,8 @@ NP0 = loadNPclassFromTable(expList(end));
 vs0 = linearlyMovingBallAnalysis(NP0, 'MultipleOffsets', false);   % paths only: any MB session
 
 % Build the root path and combined-analysis save directory
-rootPath = extractBefore(vs0.dataObj.recordingDir, 'lizards');  % path up to 'lizards'
-rootPath = [rootPath 'lizards'];                                 % include 'lizards' folder
+rootPath = fullfile(npDataRoot(), 'lizards');                   % W:\Large_scale_mapping_NP\lizards for every recording (was cut
+                                                                 % from the last recording's path: no 'lizards' in SA5's Y: path)
 saveDir  = fullfile(rootPath, 'Combined_lizard_analysis');       % pooled data directory
 if ~isempty(analysisVariant())                                   % sensitivity run: separate pooled cache
     saveDir = fullfile(saveDir, ['Sensitivity_' analysisVariant()]);
@@ -316,6 +326,12 @@ switch mode
 end
 if params.allPresentUnits                                       % selection-free run: separate cache, panels and struct
     nameOfFile = strrep(nameOfFile, '.mat', '_allPresent.mat');  % figTag and the analysis struct inherit the suffix
+end
+isPerStim = params.presence == "perStimulus";                   % unpaired, per-block presence (sensitivity analysis)
+if isPerStim
+    assert(mode == 1, 'AllExpAnalysis:perStimMode', ...
+        'presence="perStimulus" is implemented for across-stimulus comparisons (mode 1) only.');   % other modes pair levels within a unit
+    nameOfFile = strrep(nameOfFile, '.mat', '_perStimPresence.mat');   % separate cache, panels and struct
 end
 savePath = fullfile(saveDir, nameOfFile);  % full path for the cache .mat
 
@@ -776,27 +792,51 @@ if runLoop
         if params.allPresentUnits
             orMask = true(nUnits, 1);  % selection-free check: no responsiveness filter (presence still required below)
         end
-        orMask  = orMask & presAll; % only units present during every compared block
+        % Per-stimulus unit masks. allBlocks (primary): the same units for every item,
+        % present in every block. perStimulus (sensitivity): each item keeps the units
+        % present during its own block that pass the filter; a unit counts as responsive
+        % when it responds to any compared stimulus during whose block it was present.
+        itemMask = struct();                                        % logical unit mask per comparison item
+        if isPerStim
+            orPS = false(nUnits, 1);                                % responsive while present, any stimulus
+            for ci = 1:numel(compLabels)
+                cl = compLabels{ci};
+                orPS = orPS | (stimData.(cl).p < params.threshold & presentByStim.(cl)(:));   % responsive in a block it was present for
+            end
+            if params.allPresentUnits
+                orPS = true(nUnits, 1);                             % selection-free: presence only
+            end
+            for ci = 1:numel(compLabels)
+                cl = compLabels{ci};
+                itemMask.(cl) = orPS & presentByStim.(cl)(:);       % present during this block and passing the filter
+            end
+        else
+            for ci = 1:numel(compLabels)
+                itemMask.(compLabels{ci}) = orMask & presAll;       % same units for every item (paired design)
+            end
+        end
+        orMask  = orMask & presAll; % only units present during every compared block (allBlocks report count)
         unitIDs = find(orMask);     % indices of neurons passing the filter
         nSig    = numel(unitIDs);   % count of significant neurons
 
         % ---- 4g: Append to TableStimComp ----
-        % Add one block of rows per comparison item (only significant neurons).
-        if nSig > 0
-            for ci = 1:numel(compLabels)
-                cl = compLabels{ci};
-                newRows = table( ...
-                    repmat(categorical(cellstr(animalID)), nSig, 1), ...   % animal column
-                    repmat(categorical(insertionCount),    nSig, 1), ...   % insertion column
-                    repmat(categorical(realInsertionID),   nSig, 1), ...   %Real Insertion ID
-                    repmat(categorical(cellstr(cl)),       nSig, 1), ...   % stimulus/item column
-                    categorical(unitIDs), ...                                          % neuron ID column
-                    stimData.(cl).z(orMask), ...                            % z-score column
-                    stimData.(cl).spkR(orMask), ...                         % spike rate column
-                    stimData.(cl).dRate(orMask), ...                        % split-half delta rate column
-                    'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR','DeltaRate'});
-                TableStimComp = [TableStimComp; newRows];                   %#ok<AGROW>
-            end
+        % Add one block of rows per comparison item (the units of that item's mask).
+        for ci = 1:numel(compLabels)
+            cl = compLabels{ci};
+            mk = itemMask.(cl);                                     % units of this item
+            nk = sum(mk);                                           % how many
+            if nk == 0, continue; end                               % nothing to append for this item
+            newRows = table( ...
+                repmat(categorical(cellstr(animalID)), nk, 1), ...  % animal column
+                repmat(categorical(insertionCount),    nk, 1), ...  % insertion column
+                repmat(categorical(realInsertionID),   nk, 1), ...  % real insertion ID
+                repmat(categorical(cellstr(cl)),       nk, 1), ...  % stimulus/item column
+                categorical(find(mk)), ...                          % neuron ID column (unit index in the recording)
+                stimData.(cl).z(mk), ...                            % z-score column
+                stimData.(cl).spkR(mk), ...                         % spike rate column
+                stimData.(cl).dRate(mk), ...                        % split-half delta rate column
+                'VariableNames', {'animal','insertion','realInsertion','stimulus','NeurID','Z-score','SpkR','DeltaRate'});
+            TableStimComp = [TableStimComp; newRows];               %#ok<AGROW>
         end
 
         % ---- 4h: Append to TableRespNeurs ----
@@ -804,18 +844,25 @@ if runLoop
         % neuron count and total somatic neuron count.
         for ci = 1:numel(compLabels)
             cl    = compLabels{ci};
-            nResp = sum(stimData.(cl).p < params.threshold & presAll);  % responsive among analysable units
+            if isPerStim
+                presK = presentByStim.(cl)(:);                  % analysable = present during this block
+            else
+                presK = presAll;                                % analysable = present during every block
+            end
+            nResp = sum(stimData.(cl).p < params.threshold & presK);  % responsive among analysable units
             newRow = table( ...
                 categorical(cellstr(animalID)), ...             % animal
                 categorical(insertionCount), ...                % insertion
                 categorical(cellstr(cl)), ...                   % stimulus/item
-                nResp, sum(presAll), nUnits, ...                % responsive, analysable (present), recorded
+                nResp, sum(presK), nUnits, ...                  % responsive, analysable (present), recorded
                 'VariableNames', TableRespNeurs.Properties.VariableNames);
             TableRespNeurs = [TableRespNeurs; newRow];          %#ok<AGROW>
         end
 
         fprintf('  -> %d / %d analysable units pass filter (%d recorded; %d absent during a compared block).\n', ...
             nSig, sum(presAll), nUnits, nUnits - sum(presAll));
+        presParts = cellfun(@(c) sprintf('%s %d', c, sum(presentByStim.(c))), fieldnames(presentByStim), 'UniformOutput', false);
+        fprintf('     present per block: %s; in all blocks %d (drift check)\n', strjoin(presParts, ', '), sum(presAll));   % units lost between blocks
 
     end  % end for ex
 
@@ -946,7 +993,7 @@ vs = linearlyMovingBallAnalysis(NP, 'MultipleOffsets', false, 'Multiplesizes', f
 % Build a consistent colour map: one colour per animal, shared across all plots
 animalOrder  = categories(S.TableStimComp.animal);      % sorted unique animal names
 nAnimals     = numel(animalOrder);                       % number of animals
-sharedCmap   = lines(nAnimals);                          % Nx3 colour matrix
+sharedCmap   = animalColours(animalOrder);               % Nx3, fixed colour per animal name (same in every figure)
 animalIdxAll = double(S.TableStimComp.animal);           % per-row animal index (for scatter colouring)
 
 if (mode == 3 || mode == 2) && ...
@@ -991,21 +1038,30 @@ labelMap = {'RG','SB'; 'SDGs','SG'; 'SDGm','MG'};
 rng(params.pvalSeed);
 pValsZ = zeros(1, size(pairsAll, 1));
 for pi = 1:size(pairsAll, 1)
-    pValsZ(pi) = bootstrapPairDifference( ...
-        S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'Z-score');
+    if isPerStim
+        pValsZ(pi) = bootstrapTwoSampleDifference( ...
+            S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'Z-score');   % unpaired: different unit sets per stimulus
+    else
+        pValsZ(pi) = bootstrapPairDifference( ...
+            S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'Z-score');   % paired by (insertion, NeurID)
+    end
 end
 
 % Upper y-limit: ceiling of max z-score plus headroom for significance brackets
 ZscoreYlim = ceil(max(S.TableStimComp.('Z-score'))) +0.1*ceil(max(S.TableStimComp.('Z-score')));
 
-% Generate swarm + bootstrap plot for z-scores
+% Generate swarm + bootstrap plot for z-scores (perStimulus: groups only, no paired difference tile)
 [fig,~,figAllDiffs,summaryStats.Zscore] = plotSwarmBootstrapWithComparisons( ...
     S.TableStimComp, pairsAll, pValsZ, {'Z-score'}, ...
     yLegend = 'Z-score', yMaxVis = ZscoreYlim, pValRes = pValRes, ...
-    diff = true, plotMeanSem = true, Alpha = 0.7,   markUnits = params.markUnits)  ;        % N×4 {NeurID,stimulus,animal,insertion}; row1->X, row2->+);
+    diff = ~isPerStim, showBothAndDiff = ~isPerStim, ...
+    plotMeanSem = true, Alpha = 0.7,   markUnits = params.markUnits)  ;        % N×4 {NeurID,stimulus,animal,insertion}; row1->X, row2->+);
 
 % Echo the numbers behind the panel: mean/median, the plotted 95% CI, and the
 % effect sizes with their bootstrap CIs, per stimulus and per pair.
+if isPerStim                                                  % difference rows from the unpaired bootstrap, not a paired subset
+    summaryStats.Zscore.diffs = unpairedDiffRows(S.TableStimComp, pairsAll, params, 'Z-score', summaryStats.Zscore.diffs);
+end
 printStatsSummary('Z-score', summaryStats.Zscore, pValRes);
 
 % Apply consistent font formatting to all axes in the figure
@@ -1045,8 +1101,8 @@ end
 groupcounts(S.TableStimComp, 'stimulus')                       % pooled rows per stimulus: are MB and MBR equal?
 g = groupcounts(S.TableStimComp, {'insertion','stimulus'});    % rows per (insertion, stimulus)
 unstack(g, 'GroupCount', 'stimulus')                           % one row per insertion; spot where MB ~= MBR
-% For exactly two items, also produce a paired scatter plot
-if numel(compLabels) == 2
+% For exactly two items, also produce a paired scatter plot (not for unpaired unit sets)
+if numel(compLabels) == 2 && ~isPerStim
     fig = plotPairScatter(S.TableStimComp, compLabels, ...
         'Z-score', sharedCmap, animalIdxAll, labelMap);
     title('Z-score');
@@ -1083,8 +1139,13 @@ else
     rng(params.pvalSeed);
     pValsDR = zeros(1, size(pairsAll, 1));                         % one p-value per pair
     for pi = 1:size(pairsAll, 1)
-        pValsDR(pi) = bootstrapPairDifference( ...
-            S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'DeltaRate');
+        if isPerStim
+            pValsDR(pi) = bootstrapTwoSampleDifference( ...
+                S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'DeltaRate');   % unpaired
+        else
+            pValsDR(pi) = bootstrapPairDifference( ...
+                S.TableStimComp, pairsAll(pi,:), params.nBootPval, 'DeltaRate');   % paired
+        end
     end
 
     drMax = max(S.TableStimComp.DeltaRate) + 0.1*abs(max(S.TableStimComp.DeltaRate));  % upper y-limit
@@ -1094,8 +1155,12 @@ else
     [fig,~,figAllDiffs,summaryStats.DeltaRate] = plotSwarmBootstrapWithComparisons( ...
         S.TableStimComp, pairsAll, pValsDR, {'DeltaRate'}, ...
         yLegend = 'Δ rate (spikes/s)', yMaxVis = drMax, pValRes = pValRes, ...
-        diff = true, plotMeanSem = true, Alpha = 0.7, markUnits = params.markUnits);
+        diff = ~isPerStim, showBothAndDiff = ~isPerStim, ...
+        plotMeanSem = true, Alpha = 0.7, markUnits = params.markUnits);   % perStimulus: groups only
 
+    if isPerStim                                               % difference rows from the unpaired bootstrap
+        summaryStats.DeltaRate.diffs = unpairedDiffRows(S.TableStimComp, pairsAll, params, 'DeltaRate', summaryStats.DeltaRate.diffs);
+    end
     printStatsSummary('Delta rate (split-half)', summaryStats.DeltaRate, pValRes);  % echo the numbers
 
     ax = findobj(fig, 'Type', 'axes');                             % consistent font formatting
@@ -1113,8 +1178,8 @@ else
         vs.printFig(figAllDiffs, sprintf('AllDiff-DeltaRate-Swarm-%s', figTag), PaperFig = params.PaperFig);
     end
 
-    % For exactly two items, also a paired scatter plot (replaces the SpkR scatter)
-    if numel(compLabels) == 2
+    % For exactly two items, also a paired scatter plot (replaces the SpkR scatter; not for unpaired sets)
+    if numel(compLabels) == 2 && ~isPerStim
         fig = plotPairScatter(S.TableStimComp, compLabels, ...
             'DeltaRate', sharedCmap, animalIdxAll, labelMap);       % x = first item, y = second, units paired by key
         title('Δ rate (spikes/s)');                                 % same metric as the DeltaRate swarm
@@ -1319,19 +1384,9 @@ axFr.Position = [pos(1), pos(2) + 0.08, pos(3), pos(4) - 0.08];     % raise the 
 % Ring colours = the animal colours of the z-score / delta-rate swarms (2026-11-13; the
 % fraction panel used its own lines() order before), plus an animal legend.
 fracAnimals = categories(removecats(tempTable.animal));             % animals plotted here, sorted (as plotRawSwarm sees them)
-cmapFrac    = zeros(numel(fracAnimals), 3);                         % one colour per plotted animal
-extraCols   = lines(nAnimals + numel(fracAnimals));                 % spare colours for animals absent from the swarms
-for ka = 1:numel(fracAnimals)
-    ks = find(strcmp(animalOrder, fracAnimals{ka}));                % position in the swarm colour order
-    if isscalar(ks)
-        cmapFrac(ka, :) = sharedCmap(ks, :);                        % same colour as in the swarms
-    else
-        cmapFrac(ka, :) = extraCols(nAnimals + ka, :);              % animal with no responsive unit: distinct colour
-        warning('AllExpAnalysis:fracAnimalColour', ...
-            'Animal %s is in the fraction panel but not in the swarms: given a separate colour.', fracAnimals{ka});
-    end
-end
+cmapFrac    = animalColours(fracAnimals);                           % fixed colour per animal (same as the swarms, 2026-11-17)
 colormap(axFr, cmapFrac);                                           % recolour the rings by animal
+clim(axFr, [0.5, numel(fracAnimals) + 0.5]);                        % index k -> colormap row k
 hold(axFr, 'on');                                                   % add legend swatches without clearing
 hLeg = gobjects(1, numel(fracAnimals));                             % one swatch per animal
 for ka = 1:numel(fracAnimals)
@@ -1372,9 +1427,7 @@ end
 if params.PaperFig
     % Retrieve the figure save directory from the analysis object
     % NOTE: adjust this path if vs.printFig uses a different convention
-    rootPath = extractBefore(vs0.dataObj.recordingDir, 'lizards');  % 'W:\Large_scale_mapping_NP\'
-
-    figSaveDir = [rootPath 'Paper_figs'];
+    figSaveDir = fullfile(npDataRoot(), 'Paper_figs');           % same folder printFig writes to (sil3, 2026-11-18)
     if ~isempty(analysisVariant())                               % sensitivity run: separate struct folder
         figSaveDir = fullfile(figSaveDir, ['Sensitivity_' analysisVariant()]);
         if ~isfolder(figSaveDir), mkdir(figSaveDir); end
@@ -1400,6 +1453,27 @@ end  % end function AllExpAnalysis
 % #########################################################################
 %                       LOCAL HELPER FUNCTIONS
 % #########################################################################
+
+function diffs = unpairedDiffRows(tbl, pairsAll, params, metric, diffs)
+% unpairedDiffRows  Replace paired-subset difference rows with the unpaired estimate
+% (presence="perStimulus"): observed mean(A) - mean(B) over each group's own units and
+% the 2.5/97.5 percentiles of the joint hierarchical bootstrap. The p column was already
+% set from the same routine; for a single pair the seed equals the p's, so CI and p share draws.
+assert(height(diffs) == size(pairsAll, 1), 'unpairedDiffRows: %d rows for %d pairs.', height(diffs), size(pairsAll, 1));   % alignment
+for k = 1:size(pairsAll, 1)
+    rng(params.pvalSeed + k - 1);                                   % reproducible, distinct per pair
+    [~, bootDiff] = bootstrapTwoSampleDifference(tbl, pairsAll(k,:), params.nBootPval, metric);   % unpaired bootstrap
+    a = tbl.(metric)(tbl.stimulus == pairsAll{k,1});                % group A values (own units)
+    b = tbl.(metric)(tbl.stimulus == pairsAll{k,2});                % group B values (own units)
+    diffs.n(k)        = NaN;                                        % no paired n: groups differ (see the group rows)
+    diffs.mean(k)     = mean(a) - mean(b);                          % observed unpaired difference
+    diffs.median(k)   = NaN;                                        % not defined for unpaired groups
+    diffs.bootMean(k) = mean(bootDiff, 'omitnan');                  % bootstrap mean (bias diagnostic)
+    diffs.ciLo(k)     = prctile(bootDiff, 2.5);                     % 95% CI from the joint bootstrap
+    diffs.ciHi(k)     = prctile(bootDiff, 97.5);
+    diffs{k, {'effect','effectLo','effectHi','propPos','propPosLo','propPosHi'}} = NaN;   % paired effect sizes undefined
+end
+end
 
 function printStatsSummary(label, stats, pValRes)
 % printStatsSummary  Console report of one metric's swarm-panel statistics.

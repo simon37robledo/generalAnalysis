@@ -166,8 +166,8 @@ end
 NP_first  = loadNPclassFromTable(exList(end));                               % load NP class for the first experiment to extract paths
 vs_first  = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);  % ball-analysis object just to access getAnalysisFileName (any MB session)
 
-basePath  = extractBefore(vs_first.getAnalysisFileName, 'lizards');        % trim the path at 'lizards' to get the shared root
-basePath  = [basePath 'lizards'];                                           % re-append 'lizards' to form the correct base
+basePath  = fullfile(npDataRoot(), 'lizards');                             % W:\...\lizards for every recording (2026-11-18; the old cut at
+                                                                            % 'lizards' gave a relative path for SA5, whose data is on Y:)
 saveDir   = fullfile(basePath, 'Combined_lizard_analysis');                % combined output directory
 if ~exist(saveDir, 'dir')
     mkdir(saveDir);                                                        % create directory if it doesn't already exist

@@ -100,8 +100,7 @@ fprintf('  Bin 3 (deep)    : %.0f - %.0f um\n', result.depthBinEdges(3), result.
 % Save to disk
 % ------------------------------------------------------------------
 
-n = extractBefore(obj.getAnalysisFileName,'lizards');
-saveName = [n 'lizards' filesep 'Combined_lizard_analysis' filesep 'NeuronDepths.mat'];
+saveName = fullfile(npDataRoot(), 'lizards', 'Combined_lizard_analysis', 'NeuronDepths.mat');   % W: (sil3), 2026-11-18
 save(saveName, '-struct', 'result');
 fprintf('\nSaved to: %s\n', saveName);
 end

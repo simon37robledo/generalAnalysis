@@ -43,7 +43,10 @@ arguments
 end
 
 assert(isfile(structPath), 'leaveOneAnimalOut: struct not found:\n  %s', structPath);  % fail loudly
-S       = load(structPath, 'TableStimComp');                     % only the animal list is needed here
+S       = load(structPath, 'TableStimComp', 'params');           % animal list + design of the struct
+assert(~(isfield(S, 'params') && isfield(S.params, 'presence') && S.params.presence == "perStimulus"), ...
+    'leaveOneAnimalOut:unpaired', ...
+    'Struct %s holds unpaired per-block unit sets; buildStatsTable would pair them by key.', structPath);   % never pair unpaired sets
 animals = unique(string(S.TableStimComp.animal))';               % every animal in the comparison
 drops   = ["", animals];                                         % "" = keep all animals, then drop each in turn
 spec    = {params.figLabel, structPath, params.pairs};           % one comparison, buildStatsTable format

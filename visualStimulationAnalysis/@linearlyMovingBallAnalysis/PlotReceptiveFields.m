@@ -29,7 +29,8 @@ arguments (Input)
     params.OneLuminosity       string  = "all"           % Restrict plot to one luminance ("black","white","all")
     params.OneSize             string  = "all"           % Restrict plot to one size ("small","middle","big","all")
     params.colorbarLims                = []              % Optional manual colorbar limits [cMin cMax]
-    params.tickNum                     = 3               % Number of ticks per axis   
+    params.tickNum                     = 3               % Number of ticks per axis
+    params.smooth              logical = false           % true: old Gaussian-smoothed pixel map; false: unsmoothed 9x9 stimulus-grid map (paper, 2026-11-17)
 end
 
 % ── Debug helper: print parameter struct and exit ────────────────────────────
@@ -192,7 +193,22 @@ else
     % to the mean rate while the ball covered each pixel (checked 2026-11-12 on rec 97 unit 1
     % against a rate map built directly from spikes and ball positions: slope 0.99-1.01,
     % r 0.83-0.97 per direction). Display only: the cached struct is not changed.
-    RFuDirSizeLum  = rfRateMaps(obj, RFs, responses.(fieldName).C, params.speed);  % [dir × size × lum × y × x × unit] in spk/s
+    RFuDirSizeLum  = rfRateMaps(obj, RFs, responses.(fieldName).C, params.speed, params.smooth);  % [dir × size × lum × y × x × unit] in spk/s (y, x = 9x9 cells unless smooth)
+end
+
+% ── Tick positions of the RF tiles ───────────────────────────────────────────
+tilePix_x = tickPix_x;  tileLbl_x = tickLbl_x;                            % smoothed map: reduced-pixel ticks from above
+tilePix_y = tickPix_y;  tileLbl_y = tickLbl_y;                            % same for y
+if ~params.smooth && ~params.noEyeMoves                                   % grid map: ticks at cell centres
+    nGridT = size(RFuDirSizeLum, 4);                                      % cells per side (9)
+    bsT    = size(theta_x, 2) / nGridT;                                   % reduced pixels per cell (6)
+    cenPix = ((1:nGridT) - 0.5) * bsT + 0.5;                              % cell centres in reduced-pixel coordinates
+    degX   = interp1(1:size(theta_x, 2), theta_x(1, :), cenPix);          % horizontal angle at each cell centre (deg)
+    degY   = interp1(1:size(theta_y, 1), theta_y(:, 1)', cenPix);         % vertical angle at each cell centre (deg)
+    tilePix_x = round(linspace(1, nGridT, params.tickNum));               % tick cells: first, middle, last (for 3 ticks)
+    tilePix_y = tilePix_x;                                                % same cells on y
+    tileLbl_x = round(degX(tilePix_x));                                   % label = rounded angle of that cell's centre
+    tileLbl_y = 0 - round(degY(tilePix_y));                               % screen y grows downwards: flip so up is positive (0 - x avoids "-0")
 end
 if params.allCombined                                                     % direction-summed map is not rescaled
     warning('PlotReceptiveFields:allCombinedUnits', ...
@@ -363,10 +379,10 @@ for u = eNeuron
                       'FontSize', 4)
 
                 % ── Apply symmetric degree-based ticks ──────────────────────
-                xticks(tickPix_x);         % Set x tick positions (reduced-pixel units)
-                xticklabels(tickLbl_x);    % Label with rounded degree values
-                yticks(tickPix_y);         % Set y tick positions (reduced-pixel units)
-                yticklabels(tickLbl_y);    % Label with rounded degree values
+                xticks(tilePix_x);         % Set x tick positions (grid cells, or reduced pixels if smooth)
+                xticklabels(tileLbl_x);    % Label with rounded degree values
+                yticks(tilePix_y);         % Set y tick positions (grid cells, or reduced pixels if smooth)
+                yticklabels(tileLbl_y);    % Label with rounded degree values
 
                 j = j + 1;   % Increment tile counter
 
@@ -439,11 +455,13 @@ end % neuron loop
 end % function
 
 
-function R = rfRateMaps(obj, RFs, C, speed)
+function R = rfRateMaps(obj, RFs, C, speed, doSmooth)
 % rfRateMaps  Moving-ball RF maps in spk/s: the mean firing rate (250 ms after the
-% ball) while the ball covered each pixel.
+% ball) while the ball covered each pixel (doSmooth) or each 9x9 stimulus-grid cell.
 %   raw (RFuSTDirSizeLum) = sum over conditions and covered frames of (mask x rate) / nCondDir
-%   rate                  = smooth(raw x nCondDir) ./ smooth(coverage frames)
+%   doSmooth = true : rate = smooth(raw x nCondDir) ./ smooth(coverage frames)   [pixel map]
+%   doSmooth = false: rate = cellSum(raw x nCondDir) ./ cellSum(coverage frames) [9x9 map, no smoothing;
+%                     the grid of the stripe test in SpatialTuningIndex]
 % Coverage is rebuilt from the ball trajectories with the geometry of
 % CalculateReceptiveFields (true screen orientation, which the cached maps follow).
 raw = RFs.RFuSTDirSizeLum;                                                % [dir × size × lum × y × x × unit], unsmoothed
@@ -479,7 +497,12 @@ cropX = (round(obj.VST.rect(3) / rF) - sY) / 2;                           % left
 [xg, yg] = meshgrid(1:sY, 1:sY);                                          % pixel coordinates of the map
 
 G = fspecial('gaussian', floor(sY / (numel(uOffC) / 2)), sY / numel(uOffC));   % smoothing kernel of CalculateReceptiveFields
-R = nan(size(raw));                                                       % output maps in spk/s
+nGrid = 9;                                                                % stimulus grid (9 trajectories), as SpatialTuningIndex
+if doSmooth                                                               % pixel map
+    R = nan(size(raw));                                                   % output maps in spk/s
+else                                                                      % grid map
+    R = nan([size(raw, 1:3), nGrid, nGrid, size(raw, 6)]);                % [dir × size × lum × 9 × 9 × unit] in spk/s
+end
 for d = 1:numel(uDirC)                                                    % each direction
     for s = 1:numel(uSzC)                                                 % each ball size
         rad = uSzC(s) / 2 / rF + 0.5;                                     % ball radius in reduced px (+0.5 as in the cache videos)
@@ -490,11 +513,19 @@ for d = 1:numel(uDirC)                                                    % each
                                    yg -  Yp(1, of, d, t) / rF) <= rad);   % add this frame's ball disk
             end
         end
-        covS = conv2(cov, G, 'same');                                     % smoothed coverage (denominator)
+        if doSmooth                                                       % pixel map
+            covS = conv2(cov, G, 'same');                                 % smoothed coverage (denominator)
+        else                                                              % grid map
+            covS = toGrid(cov, nGrid);                                    % mean coverage frames per pixel of each cell (sum / 36)
+        end
         for l = 1:numel(uLumC)                                            % each luminance (same coverage)
             for u = 1:size(raw, 6)                                        % each unit
-                num = conv2(squeeze(raw(d, s, l, :, :, u)) * nCondDir, G, 'same');   % smoothed sum of mask x rate
-                rate = num ./ covS;                                       % mean rate while covered (spk/s)
+                if doSmooth                                               % pixel map
+                    num = conv2(squeeze(raw(d, s, l, :, :, u)) * nCondDir, G, 'same');   % smoothed sum of mask x rate
+                else                                                      % grid map
+                    num = toGrid(squeeze(raw(d, s, l, :, :, u)) * nCondDir, nGrid);      % cell mean of mask x rate (sum / 36)
+                end
+                rate = num ./ covS;                                       % mean rate while covered (spk/s); cell: sum ratio = mean ratio
                 rate(covS <= eps) = NaN;                                  % never covered: no estimate
                 R(d, s, l, :, :, u) = rate;                               % store
             end

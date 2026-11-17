@@ -144,8 +144,7 @@ switch params.stimTypes(1)
 end
 
 % Extract base path up to 'lizards' folder
-p = extractBefore(vs_first.getAnalysisFileName, 'lizards');
-p = [p 'lizards'];
+p = fullfile(npDataRoot(), 'lizards');   % W:\...\lizards for every recording (sil3, 2026-11-18)
 
 % Create combined analysis directory if it does not exist
 if ~exist([p '\Combined_lizard_analysis'], 'dir')
@@ -708,6 +707,10 @@ if ~goto_plot
             stripeBestPval   = ones(nN, 1);   % p-value at the best direction
             stripeBestAngle  = nan(nN, 1);    % stripe orientation at best dir (degrees)
             stripeBestDir    = nan(nN, 1);    % direction index with strongest stripe (MB only)
+            maxDirStore      = 8;             % fixed column count for per-direction stripe columns (max directions in any recording: 8 in recs 1, 8)
+            stripeDirScores  = nan(nN, maxDirStore);  % stripe score of every direction map (MB only; NaN-padded beyond nDir)
+            stripeDirDeg     = nan(nN, maxDirStore);  % direction (deg) of each stripeDirScores column (MB only)
+            stripeNullThr    = nan(nN, 1);    % 95th percentile of the max-over-directions null (MB only)
 
             if params.detectStripe
 
@@ -726,6 +729,15 @@ if ~goto_plot
                         % RFuShuffST:      [rfY, rfX, nN_rf]
                         % -------------------------------------------------
                         nDirRF = size(S_rf.RFuSTDirSizeLum, 1);                 % number of directions
+                        assert(nDirRF <= maxDirStore, ...
+                            'Exp %d: %d MB directions exceed the %d stripeDirScores columns.', ex, nDirRF, maxDirStore);   % columns must hold every map
+                        dirDegRow = nan(1, maxDirStore);                        % direction (deg) of each map, NaN if unknown
+                        if params.useRF && params.prefDir && exist('uDirs', 'var') && numel(uDirs) == nDirRF   % sorted direction labels of this recording (prefDir path)
+                            dirDegRow(1:nDirRF) = rad2deg(uDirs);               % map d = d-th sorted direction (RF direction axis is unique()-sorted)
+                        else
+                            warning('SpatialTuningIndex:noStripeDirLabels', ...
+                                'Exp %d: no direction labels for the stripe maps (prefDir=false?): stripeDirDeg left NaN.', ex);
+                        end
 
                         for u = 1:nN
                             uRF = neuronIdx(u);                                 % unit in the good-unit dimension
@@ -752,7 +764,14 @@ if ~goto_plot
                             stripeBestPval(u)   = res.stripePval;               % p of the max (max-statistic null)
                             stripeBestAngle(u)  = res.stripeAngle;              % orientation at the best direction
                             stripeBestDir(u)    = res.bestDir;                  % best direction index
+                            assert(numel(res.dirScores) == nDirRF, ...
+                                'Exp %d unit %d: %d direction scores for %d maps.', ex, u, numel(res.dirScores), nDirRF);   % one score per map
+                            stripeDirScores(u, 1:nDirRF) = res.dirScores(:)';   % score of every direction map
+                            stripeDirDeg(u, :)  = dirDegRow;                    % direction of each column
+                            stripeNullThr(u)    = prctile(res.nullScores, 95);  % alpha = 0.05 threshold of the max-statistic null
                         end
+                        assert(size(stripeDirScores, 1) == nN && numel(stripeNullThr) == nN, ...
+                            'Exp %d: per-direction stripe columns do not match the %d units.', ex, nN);   % alignment invariant
 
                     case "rectGrid"
                         % -------------------------------------------------
@@ -867,6 +886,9 @@ if ~goto_plot
                     rows.stripeBestPval   = stripeBestPval;         % p-value at best direction
                     rows.stripeBestAngle  = stripeBestAngle;        % stripe orientation (degrees)
                     rows.stripeBestDir    = stripeBestDir;          % best direction index (MB only)
+                    rows.stripeDirScores  = stripeDirScores;        % [nN x 8] score of every direction map (MB only, NaN-padded)
+                    rows.stripeDirDeg     = stripeDirDeg;           % [nN x 8] direction (deg) of each score column (MB only)
+                    rows.stripeNullThr    = stripeNullThr;          % 95th percentile of the max-statistic null (MB only)
                     rows.stripeDiagonal   = repmat("", nN, 1);     % diagonal of each stripe ("" = not a stripe)
                     rows.stripeDiagonal(stripeIsAny & stripeBestAngle < 90)  = "BLtoTR";   % 20-55 deg: bottom-left to top-right
                     rows.stripeDiagonal(stripeIsAny & stripeBestAngle >= 90) = "BRtoTL";   % 125-160 deg: bottom-right to top-left

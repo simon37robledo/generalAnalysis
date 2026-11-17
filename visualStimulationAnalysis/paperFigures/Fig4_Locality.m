@@ -17,6 +17,9 @@ stimsS = {'RG', 'SDGs'};                                          % pairwise: mo
 args = [d.statsArgs, {'ComparePairs', stimsS, 'Lock', d.lock(stimsS)}];
 AllExpAnalysis(d.expsSDG, args{:});
 leaveOneAnimalOut(d.structPath(d.expsSDG, stimsS), figLabel='Figure 4 static', outName='LeaveOneAnimalOut_RG-SDGs');
+AllExpAnalysis(d.expsSDG, args{:}, allPresentUnits=true);       % selection-free check (2026-11-17): every unit present in both blocks
+leaveOneAnimalOut(strrep(d.structPath(d.expsSDG, stimsS), '_analysisStruct.mat', '_allPresent_analysisStruct.mat'), ...
+    figLabel='Figure 4 static (all present units)', outName='LeaveOneAnimalOut_RG-SDGs_allPresent');   % its own LOAO file
 
 %% Static locality: PSTH and raster (RG ON period; interactive session for the raster)
 plotPSTH_MultiExp(d.expsSDG, d.psthArgsStatic{:}, overwrite=true, stimTypes={"RG","SDGs"}, unionResponsive=true, requireAllStims=true);
@@ -27,12 +30,18 @@ stimsB = {'MB', 'MBR'};
 args = [d.statsArgs, {'ComparePairs', stimsB, 'Lock', d.lock(stimsB)}];
 AllExpAnalysis(d.exps, args{:});
 leaveOneAnimalOut(d.structPath(d.exps, stimsB), figLabel='Figure 4 MB-MBR', outName='LeaveOneAnimalOut_MB-MBR');
+AllExpAnalysis(d.exps, args{:}, allPresentUnits=true);          % selection-free check (2026-11-17)
+leaveOneAnimalOut(strrep(d.structPath(d.exps, stimsB), '_analysisStruct.mat', '_allPresent_analysisStruct.mat'), ...
+    figLabel='Figure 4 MB-MBR (all present units)', outName='LeaveOneAnimalOut_MB-MBR_allPresent');   % its own LOAO file
 
 %% Moving locality: MB vs SDGm (statistics)
 stimsG = {'MB', 'SDGm'};
 args = [d.statsArgs, {'ComparePairs', stimsG, 'Lock', d.lock(stimsG)}];
 AllExpAnalysis(d.expsSDG, args{:});
 leaveOneAnimalOut(d.structPath(d.expsSDG, stimsG), figLabel='Figure 4 MB-SDGm', outName='LeaveOneAnimalOut_MB-SDGm');
+AllExpAnalysis(d.expsSDG, args{:}, allPresentUnits=true);       % selection-free check (2026-11-17)
+leaveOneAnimalOut(strrep(d.structPath(d.expsSDG, stimsG), '_analysisStruct.mat', '_allPresent_analysisStruct.mat'), ...
+    figLabel='Figure 4 MB-SDGm (all present units)', outName='LeaveOneAnimalOut_MB-SDGm_allPresent');   % its own LOAO file
 
 %% Moving locality: PSTHs and rasters (all onset-aligned, split-half trials)
 % MB, MBR and SDGm aligned to stimulus onset (SDGm: motion onset). The ball and the
@@ -41,11 +50,12 @@ leaveOneAnimalOut(d.structPath(d.expsSDG, stimsG), figLabel='Figure 4 MB-SDGm', 
 paperFigPrefix('fig4');                                           % main-figure panel names
 psthSweep = d.setArg(d.psthArgs, 'postStim', 2400);               % MB / MBR sweeps (~2.4 s)
 plotPSTH_MultiExp(d.exps, psthSweep{:}, overwrite=true, stimTypes={"MB","MBR"}, unionResponsive=true, requireAllStims=true);
-psthMG = d.setArg(d.setArg(d.psthArgsSDG, 'postStim', 2400), 'capMs', struct('SDGs', 1000, 'SDGm', 2000));  % MB 0-2.4 s, MG 0-2 s
+sdgW = d.statsArgs{find(strcmp(d.statsArgs, 'sdgWindows')) + 1};   % [static drifting] test windows (ms)
+psthMG = d.setArg(d.setArg(d.psthArgsSDG, 'postStim', 2400), 'capMs', struct('SDGs', sdgW(1), 'SDGm', sdgW(2)));  % MB 0-2.4 s, MG over its 1923 ms test window (was 2000)
 plotPSTH_MultiExp(d.expsSDG, psthMG{:}, overwrite=true, stimTypes={"MB","SDGm"}, unionResponsive=true, requireAllStims=true);
 plotRaster_MultiExp(d.exps, d.rasterArgs{:}, overwrite=true, stimTypes=["MB","MBR"], unionUnits=true, useCompleteWindow=true);  % whole sweeps + 500 ms
 plotRaster_MultiExp(d.expsSDG, d.rasterArgsSDG{:}, overwrite=true, stimTypes=["MB","SDGm"], unionUnits=true, ...
-    postStimPer=struct('MB', 2400));                              % MB 0-2.4 s, MG 0-2 s
+    postStimPer=struct('MB', 2400, 'SDGm', sdgW(2)));              % MB 0-2.4 s, MG over its 1923 ms test window (was 2000)
 
 %% Supplementary Figure 4: MB aligned to the crossing of its selected grid cell (split-half)
 paperFigPrefix('sfig4');                                          % supplementary panel names

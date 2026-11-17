@@ -27,6 +27,7 @@ arguments (Input)
     params.PaperFig                    = false           % Apply paper-quality rendering settings
     params.colorbarLims                = []              % Optional manual colorbar limits [cMin cMax]
     params.tickNum                     = 3               % Number of ticks per axis
+    params.smooth             logical  = false           % true: old Gaussian-smoothed pixel map (RFuFilt); false: unsmoothed 9x9 stimulus-grid map (paper, 2026-11-17)
 end
 
 % ── Debug helper: print parameter struct and exit ─────────────────────────────
@@ -141,6 +142,43 @@ else
     RFuFilt = RFs.RFuFilt * nCondRF;   % Smoothed RF map in spk/s (smoothing is linear, so the scale carries over)
 end
 
+% ── Map shown in the tiles: smoothed pixel map, or unsmoothed 9x9 grid map ────
+tilePix_x = tickPix_x;  tileLbl_x = tickLbl_x;   % smoothed map: reduced-pixel ticks from above
+tilePix_y = tickPix_y;  tileLbl_y = tickLbl_y;   % same for y
+if params.smooth
+    RFuShow = RFuFilt;                           % old display: Gaussian-smoothed pixel map
+else
+    % Grid map: each cell shows the rate of the position presented there = the mean of RFu*nCondRF
+    % over that position's disk (exact spk/s). Block means of RFu*nCondRF are not: they scale each
+    % cell by the fraction the disk covers (23-28 of 36 px, ~0.72), and the rounded disks spill
+    % 1-3 px into neighbouring cells (up to 7% of the peak mixed in; checked 2026-11-18, recs 74, 81).
+    nGrid = 9;                                                                         % 9x9 stimulus grid, as SpatialTuningIndex
+    [masks, cellRC, sizeSlot] = rgPositionMasks(obj, responses.C, RFs.params.reduceFactor, uSize, size(RFu, 4), nGrid);  % one disk per (position, size)
+    nN      = size(RFu, 6);                                                            % units in the cache
+    RFflat  = reshape(RFu, [size(RFu, 1) * size(RFu, 2), size(RFu, 3), size(RFu, 4) * size(RFu, 5), nN]);  % [on/off*lum × size × pixel × unit]
+    RFuShow = nan(size(RFu, 1) * size(RFu, 2), size(RFu, 3), nGrid, nGrid, nN);       % [on/off*lum × size × 9 × 9 × unit]
+    filled  = false(size(RFu, 3), nGrid, nGrid);                                       % cells already given a position, per size
+    for q = 1:size(masks, 3)                                                           % each (position, size)
+        si = sizeSlot(q);  r = cellRC(q, 1);  c = cellRC(q, 2);                        % size slot and grid cell of this disk
+        assert(~filled(si, r, c), ...
+            'PlotReceptiveFields: two positions fall in grid cell (%d, %d) for size %d.', r, c, si);   % one position per cell
+        filled(si, r, c) = true;                                                       % mark the cell as used
+        mk = masks(:, :, q);                                                           % this disk's mask
+        RFuShow(:, si, r, c, :) = mean(RFflat(:, si, mk(:), :), 3);                    % mean rate over the disk pixels (spk/s)
+    end
+    assert(all(filled(:)), 'PlotReceptiveFields: %d of %d grid cells have no position.', nnz(~filled), numel(filled));  % full 9x9 grid per size
+    RFuShow = reshape(RFuShow, [size(RFu, 1), size(RFu, 2), size(RFu, 3), nGrid, nGrid, nN]);  % [on/off × lum × size × 9 × 9 × unit]
+    % Ticks at cell centres, labelled with the angle of the centre
+    bsT    = size(theta_x, 2) / nGrid;                                    % reduced pixels per cell (6)
+    cenPix = ((1:nGrid) - 0.5) * bsT + 0.5;                               % cell centres in reduced-pixel coordinates
+    degX   = interp1(1:size(theta_x, 2), theta_x(1, :), cenPix);          % horizontal angle at each cell centre (deg)
+    degY   = interp1(1:size(theta_y, 1), theta_y(:, 1)', cenPix);         % vertical angle at each cell centre (deg)
+    tilePix_x = round(linspace(1, nGrid, params.tickNum));                % tick cells: first, middle, last (for 3 ticks)
+    tilePix_y = tilePix_x;                                                % same cells on y
+    tileLbl_x = round(degX(tilePix_x));                                   % label = rounded angle of that cell's centre
+    tileLbl_y = 0 - round(degY(tilePix_y));                               % screen y grows downwards: flip so up is positive (0 - x avoids "-0")
+end
+
 % Compute the number of spatial offset positions (used to scale the Gaussian kernel)
 % SUGGESTION: sqrt(max(obj.VST.pos)) is a fragile way to recover the grid side length.
 % If VST.pos contains XY positions, consider numel(unique(obj.VST.pos(:,1))) instead.
@@ -180,10 +218,10 @@ end
 
 % ── Mean-across-neurons preprocessing ────────────────────────────────────────
 if params.meanAllNeurons
-    % Average RFuFilt across all neurons (dimension 6)
-    RFuRed = reshape(mean(RFuFilt, 6), ...
-                     [size(RFuFilt,1), size(RFuFilt,2), ...
-                      size(RFuFilt,3), size(RFuFilt,4), size(RFuFilt,5)]);
+    % Average the displayed map (grid or smoothed) across all neurons (dimension 6)
+    RFuRed = reshape(mean(RFuShow, 6), ...
+                     [size(RFuShow,1), size(RFuShow,2), ...
+                      size(RFuShow,3), size(RFuShow,4), size(RFuShow,5)]);
 
     % Additionally average over dimensions marked as "combine" in RFsDivision
     for i = 1:numel(hasNotString)
@@ -250,9 +288,9 @@ for u = eNeuron
     % ── Extract this neuron's RF slice and average over "combine" dimensions ─
     if ~params.meanAllNeurons
         % Extract neuron u's RF; preserve all 5 condition dimensions explicitly
-        RFuRed = reshape(RFuFilt(:,:,:,:,:,u), ...
-                         [size(RFuFilt,1), size(RFuFilt,2), ...
-                          size(RFuFilt,3), size(RFuFilt,4), size(RFuFilt,5)]);
+        RFuRed = reshape(RFuShow(:,:,:,:,:,u), ...
+                         [size(RFuShow,1), size(RFuShow,2), ...
+                          size(RFuShow,3), size(RFuShow,4), size(RFuShow,5)]);   % displayed map (grid or smoothed)
         % [on/off × lum × size × y × x]
 
         % Average over dimensions that are marked "combine" in RFsDivision
@@ -330,8 +368,8 @@ for u = eNeuron
                       'FontSize', 4)
 
                 % Apply symmetric degree-based ticks
-                xticks(tickPix_x);      xticklabels(tickLbl_x);   % x ticks in degrees
-                yticks(tickPix_y);      yticklabels(tickLbl_y);   % y ticks in degrees
+                xticks(tilePix_x);      xticklabels(tileLbl_x);   % x ticks in degrees (grid cells, or reduced pixels if smooth)
+                yticks(tilePix_y);      yticklabels(tileLbl_y);   % y ticks in degrees (grid cells, or reduced pixels if smooth)
 
                 j = j + 1;   % Increment tile counter
 
@@ -398,3 +436,35 @@ for u = eNeuron
 end % neuron loop
 
 end % function
+
+
+function [masks, cellRC, sizeSlot] = rgPositionMasks(obj, C, reduceFactor, uSize, sR, nGrid)
+% rgPositionMasks  Disk mask of every (position, size) shown, rebuilt exactly as in
+% CalculateReceptiveFields (same centre, radius, rounding and transpose), so the masks
+% have the orientation of the cached RFu maps.
+%   masks    [sR × sR × nPosSize] logical disk masks
+%   cellRC   [nPosSize × 2] grid cell (row, column) holding each disk's centre of mass
+%   sizeSlot [nPosSize × 1] size slot of the RF maps (index into uSize)
+[x, y] = meshgrid(1:sR, 1:sR);                                            % pixel grid of the reduced square screen
+assert(round(obj.VST.rect(4) / reduceFactor) == sR, ...
+    'rgPositionMasks: map side %d does not match the screen height / %g.', sR, reduceFactor);  % same grid as the cache
+rd       = obj.VST.rectData;                                              % square corners per size and position (px)
+pc       = unique(C(:, 2:3), 'rows');                                     % every (position, size) shown
+masks    = false(sR, sR, size(pc, 1));                                    % disk masks
+cellRC   = zeros(size(pc, 1), 2);                                         % grid cell of each disk
+sizeSlot = zeros(size(pc, 1), 1);                                         % size slot of each disk
+bs       = sR / nGrid;                                                    % reduced pixels per grid cell
+for k = 1:size(pc, 1)                                                     % each position x size
+    p  = pc(k, 1);                                                        % position index
+    s  = pc(k, 2);                                                        % size (index into rectData, as in CalculateReceptiveFields)
+    Xc = (round((rd.X2{1, s}(p) - rd.X1{1, s}(p)) / 2) + rd.X1{1, s}(p)) / reduceFactor;   % disk centre x (reduced px)
+    Yc = (round((rd.Y4{1, s}(p) - rd.Y1{1, s}(p)) / 2) + rd.Y1{1, s}(p)) / reduceFactor;   % disk centre y (reduced px)
+    r  = round((rd.X2{1, s}(p) - rd.X1{1, s}(p)) / 2) / reduceFactor;    % disk radius (reduced px)
+    m  = (sqrt((x - Xc).^2 + (y - Yc).^2) <= r)';                         % disk mask, transposed as the cached VideoScreen
+    assert(any(m(:)), 'rgPositionMasks: position %d (size %d) covers no pixel.', p, s);   % every position must be on the map
+    [ii, jj] = find(m);                                                   % map row/column of the disk pixels
+    masks(:, :, k) = m;                                                   % store the mask
+    cellRC(k, :)   = [ceil(mean(ii) / bs), ceil(mean(jj) / bs)];          % cell containing the disk's centre of mass
+    sizeSlot(k)    = find(uSize == s);                                    % size slot of the RF maps
+end
+end

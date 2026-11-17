@@ -300,7 +300,7 @@ randiColors = randperm(height(tblPlot));
 if params.colorByZScore
     colorData = tblPlot.zScore(randiColors);
 else
-    colorData = tblPlot.animal(randiColors);
+    colorData = double(tblPlot.animal(randiColors));   % category index of each dot's animal (row of the animal colormap)
 end
 
 % Draw swarm
@@ -336,7 +336,9 @@ if params.colorByZScore
     cb = colorbar(ax);
     cb.Label.String = 'Z-score';
 else
-    colormap(ax, lines(numel(categories(tblPlot.animal))));
+    animCats = categories(tblPlot.animal);                       % animal names in category-index order
+    colormap(ax, animalColours(animCats));                       % fixed colour per animal (same in every panel)
+    clim(ax, [0.5, numel(animCats) + 0.5]);                      % index k -> colormap row k, even when some animals are absent
 end
 
 % -------------------------------------------------------------------------
@@ -491,7 +493,9 @@ if params.colorByZScore && ismember('zScore', tblDiff.Properties.VariableNames)
     cb.Label.String = 'Z-score';
 else
     % One colour per unique animal; categories() requires a categorical column
-    colormap(ax, lines(numel(categories(tblDiff.animal))));
+    animCats = categories(tblDiff.animal);                       % animal names in category-index order
+    colormap(ax, animalColours(animCats));                       % fixed colour per animal (same in every panel)
+    clim(ax, [0.5, numel(animCats) + 0.5]);                      % index k -> colormap row k, even when some animals are absent
 end
 
 % ---- Reference line at zero ---------------------------------------------

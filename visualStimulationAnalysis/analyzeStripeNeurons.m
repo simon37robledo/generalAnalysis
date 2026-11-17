@@ -62,6 +62,7 @@ arguments
                                             % e.g. {"rectGrid", 49, 185; "rectGrid", 84, 576}
     params.dirTuningFile    char    = 'W:\Large_scale_mapping_NP\Paper_figs\Fig5_directionTuning_units.mat'
                                             % Figure 5 per-unit tuning table (U): OSI/DSIcorr/pDSI source
+    params.outDir           char    = 'W:\Large_scale_mapping_NP\Paper_figs'   % where the per-direction panel and CSVs are saved (PaperFig)
 end
 
 rng(0, 'twister');                                % reproducible hierarchical bootstraps (unseeded until 2026-11-12)
@@ -71,8 +72,7 @@ rng(0, 'twister');                                % reproducible hierarchical bo
 % =========================================================================
 NP_first = loadNPclassFromTable(exList(1));
 vs_first = linearlyMovingBallAnalysis(NP_first, MultipleOffsets=false);   % paths only: any MB session
-pBase    = extractBefore(vs_first.getAnalysisFileName, 'lizards');
-saveDir  = [pBase 'lizards\Combined_lizard_analysis'];
+saveDir  = fullfile(npDataRoot(), 'lizards', 'Combined_lizard_analysis');   % W: (sil3) for every recording, 2026-11-18
 
 stimTypes    = ["linearlyMovingBall", "rectGrid"];
 stimLabel    = strjoin(stimTypes, '-');
@@ -791,6 +791,110 @@ if exist('stripeDirRad', 'var') && any(~isnan(stripeDirRad))
         end
 
         results.figDirSwarm = figDirSwarm;
+    end
+end
+
+% =========================================================================
+% 7c. PER-DIRECTION STRIPE SCORE (MB) — descriptive, no p-values
+%     Replaces the best-direction bar count (user, 2026-11-17). For every
+%     MB-responsive unit: the stripe score of each direction map divided by
+%     the unit's alpha = 0.05 threshold (95th percentile of the null of the
+%     MAXIMUM over directions). A ratio > 1 means that direction's map alone
+%     exceeds the max-statistic threshold (family-wise over directions).
+%     "Above threshold" ignores the angle and excitatory-peak filters, which
+%     detectStripeRF applies to the best map only, so it is not "stripe".
+%     No test: stripe units are selected on these same maps.
+% =========================================================================
+if ~ismember('stripeDirScores', mbAll.Properties.VariableNames)  % cache from before 2026-11-18
+    error('analyzeStripeNeurons:noDirScores', ...
+        'Cached table lacks stripeDirScores: re-run SpatialTuningIndex with detectStripe=true, overwrite=true.');
+end
+dirRefDeg  = [0, 90, 180, 270];                                  % sorted MB directions (deg): 0 up, 90 left, 180 down, 270 right
+dirNamesS  = {'up', 'left', 'down', 'right'};                    % labels in that order (as sections 7/7b)
+nDS        = numel(dirRefDeg);                                   % number of directions in Figure 2 recordings
+assert(~isempty(mbAll) && all(~isnan(mbAll.stripeNullThr)), ...
+    'analyzeStripeNeurons: MB rows without a stripe null threshold (detection skipped?).');   % every MB unit was tested
+assert(all(abs(mbAll.stripeDirDeg(:, 1:nDS) - dirRefDeg) < 1e-6, 'all') && ...
+    all(isnan(mbAll.stripeDirDeg(:, nDS+1:end)), 'all'), ...
+    'analyzeStripeNeurons: MB stripe maps are not exactly the 4 directions [0 90 180 270] deg.');   % column k = dirNamesS{k}
+dirScoreS  = mbAll.stripeDirScores(:, 1:nDS);                    % [nUnits x 4] score of each direction map
+ratioS     = dirScoreS ./ mbAll.stripeNullThr;                   % score relative to the unit's threshold
+assert(all(isfinite(ratioS), 'all'), 'analyzeStripeNeurons: non-finite per-direction stripe ratio.');   % threshold > 0 and scores present
+[~, bestColS] = max(dirScoreS, [], 2);                           % direction with the highest score
+assert(isequal(bestColS, mbAll.stripeBestDir), ...
+    'analyzeStripeNeurons: stripeDirScores disagree with stripeBestDir.');   % same maps as the stripe test
+isStrS     = mbAll.isStripe;                                     % stripe units (after exclusionList)
+nBelow     = sum(isStrS & max(ratioS, [], 2) <= 1);              % stripe units whose best map is not above the 95th percentile
+if nBelow > 0                                                    % p < 0.05 (>= ties) vs percentile interpolation can differ at the margin
+    warning('analyzeStripeNeurons:stripeBelowThr', ...
+        '%d stripe unit(s) have a best-direction ratio <= 1 (threshold vs p-value at the margin).', nBelow);
+end
+insS       = str2double(string(mbAll.experimentNum));            % insertion = recording number (globally unique)
+anS        = findgroups(string(mbAll.animal));                   % animal codes for the bootstrap
+rngSaved   = rng;                                                % keep the stream of later sections unchanged
+rng(1, 'twister');                                               % reproducible bootstrap of this panel
+perDir = table();                                                % one row per direction
+for k = 1:nDS
+    above = ratioS(:, k) > 1;                                    % map k above the max-statistic threshold
+    b     = hierBootMatchFreq(double(above), params.nBoot, anS, insS);   % (data, nrep, ANIMAL, INSERTION)
+    perDir = [perDir; table(string(dirNamesS{k}), dirRefDeg(k), height(mbAll), numel(unique(anS)), numel(unique(insS)), ...
+        sum(above), mean(above), prctile(b, 2.5), prctile(b, 97.5), sum(above & isStrS), ...
+        sum(isStrS & bestColS == k), sum(isStrS), median(ratioS(:, k)), median(ratioS(isStrS, k)), ...
+        'VariableNames', {'direction','dirDeg','nUnits','nAnimals','nInsertions','nAboveThr','fracAboveThr', ...
+        'ciLo95','ciHi95','nAboveThrStripe','nStripeBestDir','nStripe','medianRatio','medianRatioStripe'})];   %#ok<AGROW>
+end
+rng(rngSaved);                                                   % restore the generator for sections 8+
+disp(perDir);                                                    % per-direction summary
+results.perDirScore = perDir;                                    % summary table
+results.perDirRatio = [mbAll(:, {'experimentNum','phyID','animal','isStripe','stripeBestDir'}), ...
+    array2table(ratioS, 'VariableNames', strcat('ratio_', dirNamesS))];   % per-unit ratios
+
+if params.plot
+    animalsS = categories(removecats(mbAll.animal));             % animals with MB units
+    colS     = animalColours(animalsS);                          % fixed animal colours
+    [~, aIdx] = ismember(string(mbAll.animal), string(animalsS)); % animal of each unit
+    figPD = figure('Units', 'centimeters', 'Position', [5 5 14 6]);   % new panel: score | fraction
+    tiledlayout(figPD, 1, 2, 'TileSpacing', 'compact');           % two tiles
+    ax1 = nexttile; hold(ax1, 'on');                              % tile 1: per-unit ratio swarm
+    for k = 1:nDS
+        ns = ~isStrS;                                             % non-stripe units: open circles
+        swarmchart(ax1, k * ones(sum(ns), 1), ratioS(ns, k), 8, colS(aIdx(ns), :), ...
+            'XJitter', 'density', 'XJitterWidth', 0.6, 'LineWidth', 0.5);   % open markers, edge in animal colour
+        swarmchart(ax1, k * ones(sum(isStrS), 1), ratioS(isStrS, k), 12, colS(aIdx(isStrS), :), 'filled', ...
+            'XJitter', 'density', 'XJitterWidth', 0.6, 'MarkerEdgeColor', 'k', 'LineWidth', 0.3);   % stripe units: filled
+    end
+    yline(ax1, 1, '--k', 'LineWidth', 0.8);                       % alpha = 0.05 max-statistic threshold
+    set(ax1, 'XTick', 1:nDS, 'XTickLabel', dirNamesS, 'XLim', [0.4 nDS+0.6], 'FontSize', 8, 'FontName', 'helvetica');
+    ylabel(ax1, 'Stripe score / null 95th pct');                 % ratio, 1 = threshold
+    xlabel(ax1, 'Ball direction');
+    title(ax1, sprintf('MB, %d units (filled: %d stripe)', height(mbAll), sum(isStrS)), 'FontSize', 7, 'FontWeight', 'normal');
+    ax2 = nexttile; hold(ax2, 'on');                              % tile 2: fraction above threshold
+    bar(ax2, 1:nDS, 100 * perDir.fracAboveThr, 0.6, 'FaceColor', [0.75 0.75 0.75], 'EdgeColor', 'none');   % pooled percent
+    errorbar(ax2, 1:nDS, 100 * perDir.fracAboveThr, 100 * (perDir.fracAboveThr - perDir.ciLo95), ...
+        100 * (perDir.ciHi95 - perDir.fracAboveThr), 'k.', 'LineWidth', 1, 'CapSize', 4);   % 95% hierarchical-bootstrap CI
+    fAll = zeros(numel(animalsS), nDS);                           % per-animal percentages (for the label height)
+    for a = 1:numel(animalsS)                                     % per-animal fraction, for directional consistency
+        inA = aIdx == a;                                          % this animal's units
+        fA  = 100 * mean(ratioS(inA, :) > 1, 1);                  % percent above threshold per direction
+        fAll(a, :) = fA;                                          % keep for the label height
+        plot(ax2, (1:nDS) + (a - (numel(animalsS) + 1) / 2) * 0.05, fA, 'o', 'MarkerSize', 3, ...
+            'MarkerFaceColor', colS(a, :), 'MarkerEdgeColor', 'none');   % small offset per animal
+    end
+    yLab = max([100 * perDir.ciHi95; fAll(:)]) * 1.04;            % labels above every CI and animal point
+    for k = 1:nDS
+        text(ax2, k, yLab, sprintf('%d/%d', perDir.nAboveThr(k), perDir.nUnits(k)), ...
+            'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'FontSize', 6, 'FontName', 'helvetica');   % n above / n
+    end
+    set(ax2, 'XTick', 1:nDS, 'XTickLabel', dirNamesS, 'XLim', [0.4 nDS+0.6], 'FontSize', 8, 'FontName', 'helvetica');
+    ylim(ax2, [0, max(yLab * 1.15, 1)]);                          % room for the n labels
+    ylabel(ax2, 'Units above threshold (% of MB units)');        % percentage of MB-responsive units
+    xlabel(ax2, 'Ball direction');
+    title(ax2, 'Descriptive (CIs only)', 'FontSize', 7, 'FontWeight', 'normal');   % selection uses the same maps
+    results.figPerDir = figPD;                                    % handle
+    if params.PaperFig                                           % paper panel and numbers
+        exportgraphics(figPD, fullfile(params.outDir, [paperFigPrefix() 'StripeNeurons_perDirectionScore.jpg']), 'Resolution', 300);
+        writetable(perDir, fullfile(params.outDir, 'Fig2_stripe_perDirectionScore.csv'));               % per-direction summary
+        writetable(results.perDirRatio, fullfile(params.outDir, 'Fig2_stripe_perDirectionScore_units.csv'));   % per-unit ratios
     end
 end
 

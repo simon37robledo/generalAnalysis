@@ -88,11 +88,14 @@ classdef (Abstract) VStimAnalysis < handle
             %f - figure handle
             %figName - the name of the figure in the figure folder
             set(f,'PaperPositionMode','auto');
-            
+            root    = npDataRoot();                                      % W:\Large_scale_mapping_NP (sil3) for every recording, 2026-11-18:
+                                                                         % the old root came from the recording's own drive, so
+                                                                         % recordings on Y: (\\sil1, e.g. SA5) saved figures there
+            figRoot = root(1:2);                                         % its drive ('W:')
+
             if params.PaperFig
 
-                parts = split(obj.visualStimPlotsFolder, filesep);
-                out = [fullfile(parts{1:2}), filesep, 'Paper_figs'];
+                out = fullfile(root, 'Paper_figs');                      % one paper-figure folder for every recording
                 if ~isempty(analysisVariant())                           % sensitivity run: its own subfolder
                     out = fullfile(out, ['Sensitivity_' analysisVariant()]);
                     if ~isfolder(out), mkdir(out); end
@@ -105,8 +108,15 @@ classdef (Abstract) VStimAnalysis < handle
                 figName = [paperFigPrefix(), char(figName)];             % figure-number prefix set by the FigN script (e.g. 'fig1_')
                 print(f, [out,filesep,figName],'-djpeg','-r300');        % print THIS figure (without f, print saved whichever figure was current)
             else
-                disp(['Printing fig: ',obj.visualStimPlotsFolder,filesep,figName]);
-                print(f, [obj.visualStimPlotsFolder,filesep,figName],'-djpeg','-r300');  % print THIS figure
+                plotDir = obj.visualStimPlotsFolder;                     % per-recording plot folder (on the recording's drive)
+                if ~startsWith(plotDir, figRoot, 'IgnoreCase', true)    % recording not on W: (e.g. SA5 on Y:)
+                    assert(numel(plotDir) > 2 && plotDir(2) == ':', ...
+                        'printFig:path', 'Cannot map plot folder %s to W:.', plotDir);   % needs a drive-letter path
+                    plotDir = [figRoot plotDir(3:end)];                  % same relative path on sil3
+                    if ~isfolder(plotDir), mkdir(plotDir); end           % create the mirrored folder once
+                end
+                disp(['Printing fig: ',plotDir,filesep,figName]);
+                print(f, [plotDir,filesep,figName],'-djpeg','-r300');    % print THIS figure
             end
         end
 

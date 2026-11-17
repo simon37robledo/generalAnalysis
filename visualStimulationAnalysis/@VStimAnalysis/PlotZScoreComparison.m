@@ -65,8 +65,7 @@ MBvs = vs.ResponseWindow;
 %%%
 
 nameOfFile = sprintf('\\Ex_%d-%d_Combined_Neural_responses_%s_filtered.mat',expList(1),expList(end),Stims2Comp{1});
-p = extractBefore(vs.getAnalysisFileName,'lizards');
-p = [p 'lizards'];
+p = fullfile(npDataRoot(), 'lizards');   % W:\...\lizards for every recording (sil3, 2026-11-18)
 
 if ~exist([p '\Combined_lizard_analysis'],'dir')
     cd(p)    
