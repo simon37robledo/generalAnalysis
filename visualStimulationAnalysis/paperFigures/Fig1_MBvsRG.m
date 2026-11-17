@@ -21,6 +21,13 @@ T = extractExampleNeurons(fig1Struct, plot=true, nPer=15, PaperFig=true);
 %% Leave-one-animal-out sensitivity
 Tloao = leaveOneAnimalOut(fig1Struct);                            % writes LeaveOneAnimalOut.xlsx/.csv next to the struct
 
+%% Selection-free check (2026-11-13): every unit present in both blocks, no responsiveness filter
+% The main panels keep units responsive to either stimulus (MB 341 vs SB 166), which builds part
+% of MB > SB into the unit set. Same test on all present units; outputs carry '_allPresent'.
+[tempTableAll, summaryStatsAll] = AllExpAnalysis(d.exps, args{:}, allPresentUnits=true);      % all present units
+fig1StructAll = strrep(fig1Struct, '_analysisStruct.mat', '_allPresent_analysisStruct.mat');    % its analysis struct
+TloaoAll = leaveOneAnimalOut(fig1StructAll, outName='LeaveOneAnimalOut_MB-RG_allPresent');     % separate file
+
 %% Supplementary CSV tables (Paper_figs\Stats summary tables\)
 statsTablePaths = makeStatsSummaryTables();                       % needs the struct and the LOAO .xlsx above
 

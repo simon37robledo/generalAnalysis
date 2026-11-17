@@ -83,7 +83,9 @@ d.rasterArgs = { ...
     'TakeTopPercentTrials', [], 'PaperFig', true, 'zScore', true, 'postStim', 500, ...
     'prefCatPSTH', false, 'statPrefCatPSTH', false, 'sdFloorPrctile', 25, 'speed', "best", ...
     'useCompleteWindow', false, 'MarkFPnFN', false, 'useTtest', false, 'sortBy', "meanZScore", ...
-    'binWidth', 20, 'trialSel', "splitHalf", 'mbAlign', "onset"}; % shared raster settings; 20 ms columns (10 ms rows were noisy)
+    'binWidth', 20, 'trialSel', "splitHalf", 'mbAlign', "onset", ... % shared raster settings; 20 ms columns (10 ms rows were noisy)
+    'colormap', "diverging", 'climNeg', 1, 'climPos', 3};         % same z scale in every raster (2026-11-13): blue = suppression
+                                                                  % down to z -1, white = 0, red up to z 3 (was [0, 90th pct], grey)
 d.psthArgs = { ...
     'zScore', true, 'TakeTopPercentTrials', [], 'PaperFig', true, 'byDepth', false, ...
     'binWidth', 50, 'postStim', 500, 'trialSel', "splitHalf", 'mbAlign', "onset"};  % shared PSTH settings
@@ -92,7 +94,8 @@ d.setArg = @setArg;                                               % replace one 
 % recordings and slower responses: smaller bins are noise).
 sdgW = d.statsArgs{find(strcmp(d.statsArgs, 'sdgWindows')) + 1}; % [static drifting] test windows (ms)
 d.psthArgsSDG = setArg(setArg(d.psthArgs, 'postStim', 2000), 'binWidth', 100);   % drifting-grating comparisons (0-2 s)
-d.psthArgsSDG = [d.psthArgsSDG, {'capMs', struct('SDGs', sdgW(1))}];   % SDGs drawn only over its static test window
+d.psthArgsSDG = [d.psthArgsSDG, {'capMs', struct('SDGs', sdgW(1), 'SDGm', sdgW(2))}];   % each grating drawn only over its test
+                                                                  % window (SDGs 1000 ms, SDGm 1923 ms; SDGm ran to 2000 ms until 2026-11-13)
 d.psthArgsStatic = [setArg(d.psthArgs, 'postStim', 1000), {'capMs', struct('SDGs', sdgW(1))}];  % RG vs SDGs (0-1 s)
 % Raster windows for gratings, matching the PSTHs: grid-tested MB keeps its own
 % window after the RF crossing (gridPostMs); onset-tested panels use postStim.

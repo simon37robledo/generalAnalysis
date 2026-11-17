@@ -77,6 +77,10 @@ arguments
                                            % half fail, if available).
     params.stripeMinAngle  double = 20     % Lower bound of accepted stripe angle (deg), BL→TR
     params.stripeMaxAngle  double = 55     % Upper bound of accepted stripe angle (deg), BL→TR
+    params.stripeDiagonal  string {mustBeMember(params.stripeDiagonal, ["BLtoTR","BRtoTL","both"])} = "both"
+                                           % Accepted stripe diagonal(s): "both" (default since 2026-11-12)
+                                           % = [min, max] BL→TR plus its mirror [180-max, 180-min] BR→TL;
+                                           % until 2026-11-12 only "BLtoTR" (20-55 deg) was accepted.
     params.unitSet (1,1) string {mustBeMember(params.unitSet, ["responsive", "nonResponsive"])} = "responsive"
                                            % "responsive": p < 0.05 (default, Figure 2 units).
                                            % "nonResponsive": p > 0.5, the empirical stripe
@@ -736,6 +740,7 @@ if ~goto_plot
                                 'alpha',          params.stripeAlpha, ...
                                 'minStripeAngle', params.stripeMinAngle, ...
                                 'maxStripeAngle', params.stripeMaxAngle, ...
+                                'diagonalDirection', params.stripeDiagonal, ... % accepted diagonal(s)
                                 'rngSeed',        42 + u);                      % reproducible surrogates per unit
 
                             stripeIsAny(u)      = res.isStripe;                 % stripe at the best direction
@@ -768,6 +773,7 @@ if ~goto_plot
                                 'alpha',          params.stripeAlpha, ...
                                 'minStripeAngle', params.stripeMinAngle, ...
                                 'maxStripeAngle', params.stripeMaxAngle, ...
+                                'diagonalDirection', params.stripeDiagonal, ... % accepted diagonal(s)
                                 'rngSeed',        42 + u);                      % reproducible surrogates per unit
 
                             stripeIsAny(u)      = res.isStripe;                 % stripe classification
@@ -861,6 +867,9 @@ if ~goto_plot
                     rows.stripeBestPval   = stripeBestPval;         % p-value at best direction
                     rows.stripeBestAngle  = stripeBestAngle;        % stripe orientation (degrees)
                     rows.stripeBestDir    = stripeBestDir;          % best direction index (MB only)
+                    rows.stripeDiagonal   = repmat("", nN, 1);     % diagonal of each stripe ("" = not a stripe)
+                    rows.stripeDiagonal(stripeIsAny & stripeBestAngle < 90)  = "BLtoTR";   % 20-55 deg: bottom-left to top-right
+                    rows.stripeDiagonal(stripeIsAny & stripeBestAngle >= 90) = "BRtoTL";   % 125-160 deg: bottom-right to top-left
 
                     tbl = [tbl; rows];  %#ok<AGROW>
 

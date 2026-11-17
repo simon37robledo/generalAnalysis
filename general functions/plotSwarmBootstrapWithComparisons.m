@@ -523,15 +523,18 @@ overlayMarkedUnits(ax, tblDiff, params, false);
 % Capture the current auto-scaled Y limits AFTER all data have been drawn
 % so the lower bound reflects the true data range
 ylims     = ylim(ax);
-topNeeded = yMaxVis;   % how high the axis must reach to fit the label (default: the cap)
+vals      = tblDiff.value;                                   % paired differences shown in this panel
+% The cap yMaxVis comes from the RAW values (caller), not the differences: a difference
+% can exceed it (e.g. A - B with B negative), which clipped points at the top edge until
+% 2026-11-13. The axis must always reach the largest difference.
+topNeeded = max(yMaxVis, max(vals(:), [], 'omitnan') + bracketPad);   % how high the axis must reach
 
 if ~isempty(pValues) && numel(pValues) >= 1
     pVal = pValues(1);   % scalar p-value for this difference panel
 
-    % Highest data point within the visible window (anchors the label just
-    % above the top of the visible data, not above data clipped by yMaxVis).
-    vals       = tblDiff.value;
-    maxVisible = min(max(vals(:), [], 'omitnan'), yMaxVis);
+    % Highest data point (anchors the label just above the top of the data; every
+    % difference is visible now, so no cap is applied here).
+    maxVisible = max(vals(:), [], 'omitnan');
     if isempty(maxVisible) || isnan(maxVisible)
         maxVisible = yMaxVis;
     end
@@ -564,7 +567,7 @@ end
 % Cap the upper Y limit, extending it to fit the significance label so it isn't
 % clipped. The lower bound stays auto-scaled (per-panel data range); for the
 % all-pairs figure, plotAllPairDiffs takes the union across panels via linkaxes.
-ylim(ax, [ylims(1), max(yMaxVis, topNeeded)]);
+ylim(ax, [ylims(1), max(yMaxVis, topNeeded)]);   % topNeeded already covers every difference and the label
 
 
 end % plotDiffSwarm

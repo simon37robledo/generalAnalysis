@@ -138,12 +138,70 @@ legend(hBar, {'Responsive', 'Non-responsive (p > 0.5)'}, 'Box', 'off', 'FontSize
 title(sprintf('MB stripes from rec 81: %d of %d', mbR.nStripeRec81, mbR.nStripe), 'FontSize', 7, 'FontWeight', 'normal');
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'StripeFraction_vs_baseline.jpg']), 'Resolution', 300);   % fig2_ panel
 
+%% Stripe diagonal: original (BL->TR, 20-55 deg) vs mirror (BR->TL, 125-160 deg), descriptive
+% Since 2026-11-12 both diagonals count as stripes (SpatialTuningIndex stripeDiagonal="both";
+% the mirror was added after the BL->TR-only results had been seen). Fraction of units whose
+% stripe follows each diagonal, per stimulus and unit set; 95% CI = hierarchical bootstrap of
+% the 0/1 flag (animal, insertion), as the panel above. CIs only, no p-value.
+diagName  = ["BLtoTR", "BRtoTL"];                                 % stripeDiagonal values
+diagLabel = ["BL\rightarrowTR (20-55\circ)", "BR\rightarrowTL (125-160\circ)"];   % legend labels
+rng(0);                                                           % reproducible bootstrap
+sdg = table();                                                    % one row per stimulus x unit set x diagonal
+for s = 1:2
+    for k = 1:2
+        t = setTbl{k};                                            % this unit set
+        t = t(t.stimulus == stimLong(s) & t.onOff == 1 & t.sizeIdx == 1 & t.lumValue == 255, :);   % plotted condition (white)
+        assert(ismember('stripeDiagonal', t.Properties.VariableNames), ...
+            'Fig2: %s table has no stripeDiagonal column (cache from before 2026-11-12): rerun SpatialTuningIndex.', setName(k));
+        assert(all(t.isStripe == (t.stripeDiagonal ~= "")), 'Fig2: isStripe and stripeDiagonal disagree (%s %s).', ...
+            setName(k), stimShort(s));                            % every stripe has exactly one diagonal
+        ins = str2double(string(t.experimentNum));                % insertion = recording number (globally unique)
+        an  = findgroups(string(t.animal));                       % animal codes
+        for g = 1:2
+            flag = double(t.stripeDiagonal == diagName(g));       % 1 = stripe on this diagonal
+            b    = hierBootMatchFreq(flag, 10000, an, ins);       % (data, nrep, ANIMAL, INSERTION)
+            sdg  = [sdg; table(stimShort(s), setName(k), diagName(g), height(t), sum(flag), mean(flag), ...
+                prctile(b, 2.5), prctile(b, 97.5), 'VariableNames', ...
+                {'stim','unitSet','diagonal','nUnits','nStripe','fracStripe','ciLo95','ciHi95'})];   %#ok<AGROW>
+        end
+    end
+end
+disp(sdg);
+writetable(sdg, fullfile(d.paperFigs, 'Fig2_stripe_diagonal_original_vs_mirror.csv'));   % supplementary numbers
+
+fig = figure('Units', 'centimeters', 'Position', [5 5 11 6]);     % new panel: one tile per stimulus
+tiledlayout(fig, 1, 2, 'TileSpacing', 'compact');                 % MB | SB
+diagCol = [0.20 0.40 0.75; 0.85 0.45 0.10];                       % original blue, mirror orange
+for s = 1:2
+    ax = nexttile; hold(ax, 'on');                                % this stimulus
+    hB = gobjects(1, 2);                                          % bar handles for the legend
+    for g = 1:2
+        r = sdg(sdg.stim == stimShort(s) & sdg.diagonal == diagName(g), :);   % responsive then non-responsive
+        assert(height(r) == 2 && isequal(r.unitSet', setName), 'Fig2: unexpected rows for %s %s.', stimShort(s), diagName(g));
+        x = (1:2) + (g - 1.5) * 0.36;                             % grouped bar positions (unit set on x)
+        hB(g) = bar(ax, x, 100 * r.fracStripe, 0.34, 'FaceColor', diagCol(g, :), 'EdgeColor', 'none');   % percent of units
+        errorbar(ax, x, 100 * r.fracStripe, 100 * (r.fracStripe - r.ciLo95), 100 * (r.ciHi95 - r.fracStripe), ...
+            'k.', 'LineWidth', 1, 'CapSize', 4);                  % 95% hierarchical-bootstrap CI
+        for j = 1:2
+            text(ax, x(j), 100 * r.ciHi95(j), sprintf('%d/%d', r.nStripe(j), r.nUnits(j)), 'HorizontalAlignment', 'center', ...
+                'VerticalAlignment', 'bottom', 'FontSize', 6, 'FontName', 'helvetica');   % stripe units / units
+        end
+    end
+    set(ax, 'XTick', 1:2, 'XTickLabel', ["Responsive", "Non-resp."], 'XLim', [0.4 2.6], 'FontSize', 8, 'FontName', 'helvetica');
+    ylim(ax, [0, 100 * max(sdg.ciHi95) * 1.3 + eps]);            % same y range in both tiles, room for labels
+    title(ax, stimShort(s), 'FontSize', 8);                       % stimulus
+    if s == 1, ylabel(ax, 'Units with stripe RF (% of units)'); end
+    if s == 1, legend(ax, hB, diagLabel, 'Box', 'off', 'FontSize', 6, 'Location', 'northeast'); end   % MB tile: top right is free of labels
+end
+exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'StripeDiagonal_original_vs_mirror.jpg']), 'Resolution', 300);   % fig2_ panel
+
 %% Stripe units vs responsive non-stripe units (depth, z, OSI/DSI, direction)
 stripeArgs ={'indexType', "L_amplitude_diff", 'onOff', 1, 'sizeIdx', 1, 'lumValue', 255, 'useRF', true, ...
     'prefDir', true, 'unionResponsive', false, 'allResponsive', true, 'splitHalf', true};   % must match the call above
 resStripe = analyzeStripeNeurons(exps, stripeArgs{:}, PaperFig=true);
 
 %% Leave-one-animal-out: MB vs SB index (two-sample hierarchical bootstrap, as in SpatialTuningIndex)
+rng(0);                                                           % reproducible bootstrap (unseeded until 2026-11-13: p drifted 0.330 -> 0.340 between runs)
 S   = results;                                                    % SpatialTuningIndex output
 tbl = S.tbl(S.tbl.onOff == 1 & S.tbl.sizeIdx == 1 & S.tbl.lumValue == 255, :);   % plotted condition (white)
 animals = categories(removecats(tbl.animal));                     % animals in the figure

@@ -1507,6 +1507,9 @@ for k = 1:numel(axU)
         xText = 'Time re. onset | offset [ms]';                            % two aligned segments
     else
         xText = sprintf('Time re. stim %s [ms]', params.alignTo);          % onset / offset
+        if params.alignTo == "onset" && any(params.stimTypes == "SDGm")
+            xText = 'Time re. stim onset [ms] (MG: motion onset)';         % drifting gratings are aligned to motion onset (2026-11-13)
+        end
     end
     xlabel(axK, xText, 'FontName', 'Helvetica', 'FontSize', 8);
     if k == 1
@@ -1516,7 +1519,8 @@ for k = 1:numel(axU)
     ylim(axK, yLims);                                                      % same y limits in every panel
     inK = legendAxes == axK;                                               % legend entries of this panel
     legend(axK, legendHandles(inK), legendLabels(inK), ...
-        'Location', 'best', 'FontName', 'Helvetica', 'FontSize', 7);
+        'Location', 'northoutside', 'Orientation', 'horizontal', ...     % above the axes: 'best' could cover the t = 0 line (2026-11-13)
+        'Box', 'off', 'FontName', 'Helvetica', 'FontSize', 7);
     axK.FontName       = 'Helvetica';                                      % set all axis text to Helvetica
     axK.FontSize       = 8;
     axK.YAxis.FontSize = 8;

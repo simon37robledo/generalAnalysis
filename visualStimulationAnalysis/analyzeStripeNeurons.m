@@ -4,7 +4,7 @@ function results = analyzeStripeNeurons(exList, params)
 %
 %   Loads the cached SpatialTuningIndex table for the given exList /
 %   parameter combination, joins it with cortical depths obtained via
-%   getNeuronDepths, and produces two figures:
+%   getUnitDepths (source coorZ; was getNeuronDepths until 2026-11-12), and produces two figures:
 %
 %     (1) Stripeness swarm plot:
 %         MB stripeBestScore  vs  SB stripeBestScore  for the union of
@@ -63,6 +63,8 @@ arguments
     params.dirTuningFile    char    = 'W:\Large_scale_mapping_NP\Paper_figs\Fig5_directionTuning_units.mat'
                                             % Figure 5 per-unit tuning table (U): OSI/DSIcorr/pDSI source
 end
+
+rng(0, 'twister');                                % reproducible hierarchical bootstraps (unseeded until 2026-11-12)
 
 % =========================================================================
 % 1.  Locate and load the cached SpatialTuningIndex results
@@ -140,48 +142,43 @@ end
 % =========================================================================
 % 2.  Load (or compute) cortical depths and join into tbl
 % =========================================================================
-depthFile = fullfile(saveDir, 'NeuronDepths.mat');
-if exist(depthFile, 'file')
-    depthRes     = load(depthFile);                          % load the cached depth struct
-    cachedExNums = [depthRes.perExp.exNum];                   % experiments actually present in the cache (getNeuronDepths never stores its own exList)
-    missingEx    = setdiff(exList, cachedExNums);             % experiments requested now but absent from the cache
-    if ~isempty(missingEx)
-        % Stale/undersized cache: silently keeping it would leave every
-        % row from a missing experiment with depth_um = NaN. Recompute
-        % for the full current exList instead (getNeuronDepths re-saves
-        % depthFile itself).
-        warning('NeuronDepths cache missing experiment(s) %s — recomputing via getNeuronDepths(exList).', ...
-            mat2str(missingEx));
-        depthRes = getNeuronDepths(exList);
+% Depths from getUnitDepths (Kilosort channel from cluster_info.tsv looked up in
+% channel_positions.npy; source coorZ, as Figure 6). Replaces getNeuronDepths, which
+% indexed the channel layout with convertPhySorting2tIc's ic(1,:): off by one channel
+% in most recordings and by 180-1080 um on 4-shank probes (recs 41, 51-53; checked
+% 2026-11-12), and it left 126 of 484 Figure 2 rows without a depth.
+depthFile = fullfile(saveDir, 'UnitDepths_coorZ.mat');           % cache of getUnitDepths(..., source="coorZ")
+if isfile(depthFile)
+    D = load(depthFile, 'D').D;                                  % cached per-unit depth table
+    missingEx = setdiff(exList, unique(D.exp));                  % recordings requested but absent from the cache
+    if ~isempty(missingEx)                                       % stale cache: recompute rather than leave NaN depths
+        warning('analyzeStripeNeurons:depthCache', ...
+            'UnitDepths cache lacks experiment(s) %s: recomputing with getUnitDepths.', mat2str(missingEx));
+        D = getUnitDepths(exList, source="coorZ");               % depth per good unit
+        save(depthFile, 'D');                                    % refresh the cache
     else
         fprintf('Loaded cached depths from %s\n', depthFile);
     end
 else
-    fprintf('Cached depths not found — running getNeuronDepths...\n');
-    depthRes = getNeuronDepths(exList);
+    fprintf('Depth cache not found: running getUnitDepths...\n');
+    D = getUnitDepths(exList, source="coorZ");                   % depth per good unit
+    save(depthFile, 'D');                                        % cache for later runs
+end
+D = D(ismember(D.exp, exList), :);                               % requested recordings only
+assert(height(unique(D(:, {'exp','phyID'}))) == height(D), ...
+    'analyzeStripeNeurons: duplicate (experiment, phyID) keys in the depth table.');   % one depth per unit
+if any(~D.depthValid)                                            % surface reference wrong for that insertion
+    warning('analyzeStripeNeurons:invalidDepth', ...
+        '%d units in recordings %s have depthValid = false (units above the surface): their depth is set to NaN.', ...
+        sum(~D.depthValid), mat2str(unique(D.exp(~D.depthValid))'));   % explicit: these rows lose their depth
 end
 
-% Build (experiment, phyID) → depth lookup.
-% depthRes.depthTable has Experiment + Unit (1:nGood index) + Depth_um.
-% Unit index needs to be mapped to phyID via perExp.p_sort, since the
-% SpatialTuningIndex table uses phyID as the neuron identifier.
+% Build (experiment, phyID) → depth lookup (the SpatialTuningIndex table uses phyID)
 depthMap = containers.Map('KeyType', 'char', 'ValueType', 'double');
-for ei = 1:numel(depthRes.perExp)
-    pe = depthRes.perExp(ei);
-    if isempty(pe.p_sort), continue; end
-
-    lbl     = string(pe.p_sort.label');
-    phy_IDg = pe.p_sort.phy_ID(lbl == 'good');
-
-    expRows   = depthRes.depthTable.Experiment == pe.exNum;
-    expDepths = depthRes.depthTable.Depth_um(expRows);
-    expUnits  = depthRes.depthTable.Unit(expRows);
-
-    for ui = 1:numel(expUnits)
-        if expUnits(ui) <= numel(phy_IDg)
-            depthMap(sprintf('%d_%d', pe.exNum, phy_IDg(expUnits(ui)))) = expDepths(ui);
-        end
-    end
+for k = 1:height(D)
+    dk = D.depthUm(k);                                           % depth below the surface (um)
+    if ~D.depthValid(k), dk = NaN; end                           % unusable surface reference
+    depthMap(sprintf('%d_%d', D.exp(k), D.phyID(k))) = dk;       % key: experiment_phyID
 end
 
 % Append depth_um column
@@ -550,7 +547,9 @@ end
 % 7.  STRIPE DIRECTION DISTRIBUTION  (MB only) — flat histogram
 %     stripeBestDir = index of the highest-SCORE passing direction.
 %     Converted to radians, then matched to the 4 cardinal ball directions.
-%     Convention: 0 = up, pi/2 = right, pi = down, 3*pi/2 = left.
+%     Convention: 0 = up, pi/2 = left, pi = down, 3*pi/2 = right (VST trajectories:
+%     pi/2 moves x 1560 -> 368 px; as directionTuningUnits and Fig 5). Until 2026-11-12
+%     the labels here had left and right swapped.
 % =========================================================================
 if ~isempty(mbStripe) && ismember('stripeBestDir', mbStripe.Properties.VariableNames)
 
@@ -591,7 +590,7 @@ if ~isempty(mbStripe) && ismember('stripeBestDir', mbStripe.Properties.VariableN
         if ~isempty(validDir)
             % Reference directions and their cardinal labels
             dirRadRef = [0,    pi/2,    pi,    3*pi/2];
-            dirNames  = {'up', 'right', 'down', 'left'};
+            dirNames  = {'up', 'left', 'down', 'right'};                   % screen motion of 0, pi/2, pi, 3pi/2 (was right/left swapped)
 
             % Count neurons per direction (tolerance match, wrapped to [0,2pi))
             counts = zeros(1, numel(dirRadRef));
@@ -635,8 +634,8 @@ if exist('stripeDirRad', 'var') && any(~isnan(stripeDirRad))
 
     % Independent copy of §7's reference directions/labels (those locals
     % only get assigned when params.plot is true there).
-    dirRadRef = [0, pi/2, pi, 3*pi/2];    % 0=up, pi/2=right, pi=down, 3pi/2=left
-    dirNames  = {'up', 'right', 'down', 'left'};
+    dirRadRef = [0, pi/2, pi, 3*pi/2];    % 0=up, pi/2=left, pi=down, 3pi/2=right (screen motion)
+    dirNames  = {'up', 'left', 'down', 'right'};                           % labels in that order (was right/left swapped)
 
     validMask = ~isnan(stripeDirRad);     % rows with a resolved stripe direction
 

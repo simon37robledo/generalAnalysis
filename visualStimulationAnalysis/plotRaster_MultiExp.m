@@ -71,6 +71,8 @@ arguments
     params.PaperFig        logical       = false                         % if true, export figure via printFig
     params.climPrctile     double        = 90                            % upper percentile for colour scale
     params.climNeg         double        = 0                             % fixed negative z-score colour limit
+    params.climPos         double        = []                            % fixed positive z-score colour limit; [] = climPrctile of the data
+                                                                         %   (a fixed value gives every figure the same scale, 2026-11-13)
     params.colormap        string        = "gray"                        % "gray" -> flipud(gray); else -> diverging
     params.GaussianLength                = 5                             % Gaussian kernel half-width (bins) for sort smoothing
     params.useCompleteWindow logical     = true                          % if true, use actual stim duration from data
@@ -1853,8 +1855,14 @@ for s = 1:nStim
 end
 
 if params.zScore
-    cLimPos = prctile(allValues, params.climPrctile);                    % data-driven upper limit
-    cLims   = [-params.climNeg, cLimPos];                                % fixed lower, data-driven upper
+    if isempty(params.climPos)
+        cLimPos = prctile(allValues, params.climPrctile);                % data-driven upper limit
+    else
+        cLimPos = params.climPos;                                        % fixed upper limit shared across figures
+        fracAbove = mean(allValues > cLimPos);                           % share of bins drawn at full saturation
+        fprintf('Raster colour scale [%g, %g]: %.1f%% of bins above the upper limit.\n', -params.climNeg, cLimPos, 100 * fracAbove);
+    end
+    cLims   = [-params.climNeg, cLimPos];                                % fixed lower, upper as above
 else
     % Asymmetric percentile clipping: 2nd pctl as floor, climPrctile as ceiling
     cLims = [prctile(allValues, 2), prctile(allValues, params.climPrctile)];
@@ -1941,7 +1949,10 @@ for s = 1:nStim
     tAxisPlot = tAxis{s} + diff(lockedEdges{s}(1:2)) / 2 - lockedPreBase;  % bin centres (imagesc x = pixel centre), stim onset = 0 ms
     tAxisSec  = tAxisPlot / 1000;                                        % convert to seconds
 
-    imagesc(ax, tAxisSec, 1:size(data,1), data);                         % raster image
+    hImg = imagesc(ax, tAxisSec, 1:size(data,1), data);                  % raster image
+    hImg.AlphaData = ~isnan(data);                                       % NaN bins (e.g. the onset | offset gap) transparent:
+                                                                         % with a diverging map they took the lowest colour (2026-11-13)
+    ax.Color = 'w';                                                      % show white behind transparent bins
     clim(ax, cLims);                                                     % shared colour limits
     colormap(ax, cmapToUse);                                             % shared colormap
 
@@ -2171,6 +2182,9 @@ end
 % ------------------------------------------------------------------
 if all(isnan(offStartAll))
     xText = sprintf('Time relative to stimulus %s (s)', params.alignTo); % single alignment
+    if params.alignTo == "onset" && any(params.stimTypes == "SDGm")
+        xText = 'Time relative to stimulus onset (s) (MG: motion onset)'; % drifting gratings are aligned to motion onset (2026-11-13)
+    end
 else
     xText = 'Time relative to stimulus onset | offset (s)';              % onset segment, then offset segment
 end

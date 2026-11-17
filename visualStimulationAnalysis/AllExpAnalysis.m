@@ -88,6 +88,12 @@ arguments
     % --- Responsiveness filter ---
     params.useGeneralFilter logical         = false % Use general per-neuron p-values instead of per-level p
     params.threshold        double          = 0.05  % p-value cutoff for the responsiveness OR-mask
+    params.allPresentUnits  logical         = false % Selection-free check (2026-11-13): keep EVERY unit present
+                                                    %   in all compared blocks, no responsiveness filter. The
+                                                    %   default OR-mask keeps units responsive to either stimulus,
+                                                    %   which builds part of an A > B difference into the unit set.
+                                                    %   All outputs get an '_allPresent' suffix (never overwrite
+                                                    %   the main run). The fraction panel is unaffected.
 
     % --- ResponseWindow parameters ---
     params.RespDurationWin  double          = 100   % Duration window (ms) for ResponseWindow computation
@@ -307,6 +313,9 @@ switch mode
         end
         nameOfFile = sprintf('Ex_%d-%d_SpecLvl_%s.mat', ...
             expList(1), expList(end), strjoin(parts, '__'));
+end
+if params.allPresentUnits                                       % selection-free run: separate cache, panels and struct
+    nameOfFile = strrep(nameOfFile, '.mat', '_allPresent.mat');  % figTag and the analysis struct inherit the suffix
 end
 savePath = fullfile(saveDir, nameOfFile);  % full path for the cache .mat
 
@@ -764,6 +773,9 @@ if runLoop
             end
         end
 
+        if params.allPresentUnits
+            orMask = true(nUnits, 1);  % selection-free check: no responsiveness filter (presence still required below)
+        end
         orMask  = orMask & presAll; % only units present during every compared block
         unitIDs = find(orMask);     % indices of neurons passing the filter
         nSig    = numel(unitIDs);   % count of significant neurons
@@ -1154,6 +1166,10 @@ end
 totals                  = splitapply(@sum, tempTable.respNeur, G);
 tempTable.TotalRespNeur = totals(G);
 
+% Animal categories sorted alphabetically, as TableStimComp (SECTION 6), so the ring
+% colours can be matched to the swarm colours below (TableRespNeurs kept experiment order).
+tempTable.animal = categorical(cellstr(string(tempTable.animal)));   % sorted categories
+
 % Generate swarm plot for fraction responsive
 [fig,~,figAllDiffs,summaryStats.FracResponsive] = plotSwarmBootstrapWithComparisons( ...
     tempTable, pairsAll, pValsFrac, ...
@@ -1299,6 +1315,30 @@ axFr = axFr(1);
 axFr.Units = 'normalized';                                          % positions as fractions of the figure
 pos = axFr.Position;                                                % [left bottom width height]
 axFr.Position = [pos(1), pos(2) + 0.08, pos(3), pos(4) - 0.08];     % raise the bottom edge by 8% of the figure
+
+% Ring colours = the animal colours of the z-score / delta-rate swarms (2026-11-13; the
+% fraction panel used its own lines() order before), plus an animal legend.
+fracAnimals = categories(removecats(tempTable.animal));             % animals plotted here, sorted (as plotRawSwarm sees them)
+cmapFrac    = zeros(numel(fracAnimals), 3);                         % one colour per plotted animal
+extraCols   = lines(nAnimals + numel(fracAnimals));                 % spare colours for animals absent from the swarms
+for ka = 1:numel(fracAnimals)
+    ks = find(strcmp(animalOrder, fracAnimals{ka}));                % position in the swarm colour order
+    if isscalar(ks)
+        cmapFrac(ka, :) = sharedCmap(ks, :);                        % same colour as in the swarms
+    else
+        cmapFrac(ka, :) = extraCols(nAnimals + ka, :);              % animal with no responsive unit: distinct colour
+        warning('AllExpAnalysis:fracAnimalColour', ...
+            'Animal %s is in the fraction panel but not in the swarms: given a separate colour.', fracAnimals{ka});
+    end
+end
+colormap(axFr, cmapFrac);                                           % recolour the rings by animal
+hold(axFr, 'on');                                                   % add legend swatches without clearing
+hLeg = gobjects(1, numel(fracAnimals));                             % one swatch per animal
+for ka = 1:numel(fracAnimals)
+    hLeg(ka) = plot(axFr, NaN, NaN, 'o', 'MarkerEdgeColor', cmapFrac(ka, :), 'MarkerSize', 4, 'LineWidth', 1);   % invisible point
+end
+legend(axFr, hLeg, fracAnimals, 'Box', 'off', 'FontSize', 5, 'Location', 'eastoutside');   % animal names
+set(fig, 'Position', [20 20 7 7]);                                  % 2 cm wider: room for the legend
 
 % Add bottom annotation with neuron counts (two lines under the axes)
 annotation(fig, 'textbox', [0.05, 0.0, 0.9, 0.1], ...
@@ -1945,12 +1985,20 @@ function fig = plotPairScatter(tbl, compLabels, metric, cmap, animalIdx, labelMa
         xLab = strrep(xLab, labelMap{li,1}, labelMap{li,2});
         yLab = strrep(yLab, labelMap{li,1}, labelMap{li,2});
     end
-    xlabel(xLab);  ylabel(yLab);
+    % Axis labels name the stimulus AND the quantity (2026-11-13; before, only 'MG'/'SG')
+    switch metric
+        case 'DeltaRate', metricLab = '\Delta rate (spikes/s)';   % split-half delta firing rate
+        case 'Z-score',   metricLab = 'z-score';                   % max-statistic z
+        otherwise,        metricLab = metric;                      % any other column: its own name
+    end
+    xlabel(sprintf('%s %s', xLab, metricLab));  ylabel(sprintf('%s %s', yLab, metricLab));   % e.g. 'MG z-score'
     colormap(fig, cmap);
 
     % Consistent font formatting and figure size
     formatAxes(gca, 8, 'helvetica');
-    set(fig, 'Units', 'centimeters', 'Position', [20 20 5 5]);
+    set(fig, 'Units', 'centimeters', 'Position', [20 20 5.5 5.5]);    % 0.5 cm larger: room for the longer axis labels
+    axS = gca; axS.Units = 'normalized';                              % axes position as fractions of the figure
+    axS.Position = [0.22, 0.20, 0.70, 0.68];                          % fixed margins: x label no longer clipped (2026-11-13)
 end
 
 

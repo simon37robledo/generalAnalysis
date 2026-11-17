@@ -17,15 +17,17 @@ function [txt, op] = formatPValue(p, pRes)
 %   output writes sprintf('p %s %s', op, txt) -> 'p < 0.001'.
 %
 %   Formatting rules:
-%     * Always plain decimal - never scientific notation. 0.0003, not 3.0e-04.
-%     * Three significant digits, trailing zeros stripped. Three rather than
+%     * Always plain decimal - never scientific notation. 0.000300, not 3.00e-04.
+%     * Three significant digits, trailing zeros kept (since 2026-11-13, so labels
+%       look alike: 0.0160 next to 0.00942); powers of ten (the p == 0 floor) stay
+%       short. Three rather than
 %       two matters at the conventional thresholds: at two digits p=0.0499
 %       would render as '0.05' and read as non-significant, and p=0.00099 as
 %       '0.001'. Examples:
-%         0.012   ->  '0.012'
+%         0.012   ->  '0.0120'
 %         0.0499  ->  '0.0499'
-%         3.0e-4  ->  '0.0003'
-%         1.2e-5  ->  '0.000012'
+%         3.0e-4  ->  '0.000300'
+%         1.2e-5  ->  '0.0000120'
 %     * A bootstrap p of exactly 0 means no resample crossed the null, so the
 %       value is below the resolution of the run, not truly zero. It returns
 %       op='<' with the floor set to the next power of ten at or above pRes:
@@ -60,6 +62,8 @@ end
 % up to the next power of ten (e.g. pRes=0.00002 -> 0.0001), not a bare zero.
 if p == 0
     txt = renderDecimal(10^ceil(log10(pRes)));
+    txt = regexprep(txt, '0+$', '');        % a power-of-ten floor has one digit: '0.000100' -> '0.0001'
+    txt = regexprep(txt, '\.$', '');       % drop a bare trailing dot
     op  = '<';
     return
 end
@@ -73,17 +77,16 @@ end
 
 function s = renderDecimal(v)
 % renderDecimal  Plain fixed-point text for a positive value < 1, at three
-%   significant digits, with trailing zeros stripped. Never uses an exponent.
+%   significant digits, trailing zeros kept. Never uses an exponent.
 
 % Decimal places for 3 significant digits, never fewer than 3 places.
 % e.g. v=0.0499 -> ceil(-log10(v)) = 2 -> 4 decimals -> '0.0499'
 nDec = max(3, ceil(-log10(v)) + 2);
 
-% Plain fixed-point rendering at that precision
+% Plain fixed-point rendering at that precision. Trailing zeros are kept
+% (2026-11-13) so every value shows exactly three significant digits on a
+% figure ('0.0160', not '0.016', next to '0.00942'). The p == 0 floor is
+% shortened by its caller branch above.
 s = sprintf('%.*f', nDec, v);
-
-% Strip trailing zeros ('0.000300' -> '0.0003'), then any bare trailing dot
-s = regexprep(s, '0+$', '');
-s = regexprep(s, '\.$', '');
 
 end
