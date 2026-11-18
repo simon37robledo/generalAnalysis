@@ -24,6 +24,8 @@ setArg = @(a, name, v) [a(1:find(strcmp(a(1:2:end), name))*2-1), {v}, a(find(str
 cacheDir = fullfile(extractBefore(d.paperFigs, 'Paper_figs'), 'lizards', 'Combined_lizard_analysis');   % W:\...\Combined_lizard_analysis
 cacheF = string(fullfile(cacheDir, compose('Ex_%d-%d_SpatialTuningIndex_linearlyMovingBall-rectGrid_RF_prefDir%s_splitHalf_presence.mat', ...
     exps(1), exps(end), ["_allResp"; ""])));                      % unpaired and paired caches (2x1 string)
+statsF = string(fullfile(d.paperFigs, compose('SpatialTuningIndex-L_amplitude_diff-linearlyMovingBall-rectGrid-RF1-prefDir1-allResp%d-tp-5_statsStruct.mat', [0; 1])));   % Figure 2's stats structs: the 5% run of this sweep would replace them (other bootstrap draws, p 0.0332 vs the panel's 0.0367)
+cacheF = [cacheF; statsF];                                        % protected and restored like the caches
 bakDir = fullfile(tempdir, 'FigS_TuningIndexThreshold_cacheBackup');   % backup folder
 if ~isfolder(bakDir), mkdir(bakDir); end
 for k = 1:numel(cacheF)

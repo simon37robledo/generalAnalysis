@@ -18,3 +18,18 @@ paperFigPrefix('summary');                                           % saved pan
 
 fprintf('%d / %d testable units (%d recorded) respond to >=1 stimulus\n', ...
     Sresp.totalUnion, Sresp.totalTestable, Sresp.totalSomatic);
+
+%% Laudakia (Figure 7 recordings, SA11 included): the stimuli Figure 7 analyses (2026-11-19)
+expsSA    = [28:32 44 45 47 48 56 98];                            % as Fig7_SA.m: SA5, SA8, SA9, SA11
+expsSAsdg = [28:32 56];                                           % recordings with usable gratings (SA5, SA9 insertion 2)
+[TrespSA, SrespSA] = AllExpResponsiveUnion(expsSA, ...
+    Stimuli        = {'MB','RG','SDGm','SDGs'}, ...               % families tested in Figure 7
+    excludeStim    = struct('SDGm', setdiff(expsSA, expsSAsdg), 'SDGs', setdiff(expsSA, expsSAsdg)), ...   % gratings only where Figure 7 uses them
+    threshold      = 0.05, ...                                    % same cutoff as the figures
+    useTtest       = false, ...                                   % permutation p
+    computeMissing = false, ...                                   % cache-only: never writes stats
+    overwrite      = true, ...                                    % rebuild the pooled union table
+    plotFig        = true, ...
+    PaperFig       = true);
+fprintf('Laudakia: %d / %d testable units (%d recorded) respond to >=1 stimulus\n', ...
+    SrespSA.totalUnion, SrespSA.totalTestable, SrespSA.totalSomatic);

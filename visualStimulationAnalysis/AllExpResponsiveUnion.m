@@ -692,8 +692,10 @@ if params.plotFig
     summary.stats = stUnion;                                 % also returned for interactive use
 
     figure(fig);                                             % bring to front
-    set(fig, 'Units', 'centimeters', 'Position', [20 20 8 6]);   % publication size
+    set(fig, 'Units', 'centimeters', 'Position', [20 20 8 7]);   % publication size (1 cm taller: room for the footer)
     set(gca, 'Clipping', 'off');                             % keep CI bars visible at the axes edge
+    axU = gca; axU.Units = 'normalized';                     % axes position as fractions of the figure
+    axU.Position = axU.Position + [0, 0.10, 0, -0.10];       % raise the bottom edge so the x labels clear the footer
 
     % Bottom annotation with the pooled counts behind the figure
     annotation('textbox', [0.1, 0.01, 0.8, 0.04], ...

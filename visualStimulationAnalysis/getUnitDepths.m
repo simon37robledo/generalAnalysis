@@ -13,11 +13,14 @@ function T = getUnitDepths(exList, params)
 %   source = "coorZ": depth = coor_Z (Experiment_Excel.xlsx, as getNeuronDepths)
 %                     minus the unit's y position on the probe.
 %   source = "lfp"  : depth = brain-surface y position estimated from the LFP
-%                     (collaborator's code; read by readLfpSurface) minus the unit's
-%                     y position. A recording without LFP output is an error.
+%                     (VStimAnalysis.getLfpSurface: coor_Z plus the animal's LFP offset
+%                     from its depth tests) minus the unit's y position. Animals without
+%                     a valid test keep coor_Z; their units get source "coorZ-noTest".
 %
 %   Output table: exp, animal, phyID, unitIdx (order of good units, as the stats),
-%   chKS (Kilosort channel, 0-based), yUm (probe position), depthUm, source.
+%   chKS (Kilosort channel, 0-based), yUm (probe position), depthUm, source (per unit),
+%   depthValid (false for every unit of an insertion with any unit above the surface:
+%   its surface reference is wrong; rank tests within the insertion are still valid).
 
 arguments
     exList double                                                  % recordings (master Excel rows)
@@ -52,25 +55,36 @@ for ex = exList
 
     switch params.source
         case "coorZ"
-            depth = X.coor_Z(ex) - y;                              % as getNeuronDepths (coor_Z minus probe y)
+            surfaceY = X.coor_Z(ex);                               % probe y of the surface = manipulator depth (um)
+            depth = surfaceY - y;                                  % as getNeuronDepths (coor_Z minus probe y)
+            src = "coorZ";                                         % depth source of these units
         case "lfp"
-            surfaceY = readLfpSurface(ex, obj.spikeSortingFolder); % probe y of the brain surface (um)
+            [surfaceY, src] = readLfpSurface(ex, obj);             % probe y of the brain surface (um) and its source
             depth = surfaceY - y;                                  % distance below the surface
     end
     animal = string(regexp(NP.recordingName, '(PV|SA)\d+', 'match', 'once'));   % animal ID
+    valid = all(depth >= 0);                                       % a unit above the surface means the surface reference is wrong
+    if ~valid                                                      % e.g. recs 1, 8: coor_Z ~ -21 (not a depth)
+        warning('getUnitDepths:negativeDepth', ...
+            'Exp %d (%s): surface %.1f um (%s) gives depths down to %.0f um (above the surface); depthValid = false.', ...
+            ex, animal, surfaceY, src, min(depth));                 % explicit: absolute depths of this insertion are unusable
+    end
     n = numel(phyID);
     T = [T; table(repmat(ex, n, 1), repmat(animal, n, 1), phyID(:), (1:n)', ch(:), y(:), depth(:), ...
-        repmat(params.source, n, 1), 'VariableNames', {'exp','animal','phyID','unitIdx','chKS','yUm','depthUm','source'})];   %#ok<AGROW>
+        repmat(src, n, 1), repmat(valid, n, 1), ...
+        'VariableNames', {'exp','animal','phyID','unitIdx','chKS','yUm','depthUm','source','depthValid'})];   %#ok<AGROW>
 end
 end
 
 % =========================================================================
-function surfaceY = readLfpSurface(ex, sortFolder)
-% readLfpSurface  Brain-surface position (probe y, um) from the LFP depth estimate.
-%   ADAPTER TO COMPLETE when the collaborator's Python function arrives: it must
-%   return the y coordinate (same frame as channel_positions.npy) at which the probe
-%   enters the brain, for recording ex. Until then it fails loudly.
-error('getUnitDepths:noLfpDepth', ...
-    ['Exp %d: LFP surface estimate not available yet (sorting folder %s). ', ...
-     'Complete readLfpSurface once the collaborator''s output format is known.'], ex, sortFolder);
+function [surfaceY, src] = readLfpSurface(ex, obj)
+% readLfpSurface  Brain-surface position (probe y, um; frame of channel_positions.npy)
+%   from the LFP depth estimate (VStimAnalysis.getLfpSurface: coor_Z calibrated by the
+%   animal's whole-shank / depth tests). src is "lfp-offset", or "coorZ-noTest" when the
+%   animal has no valid test (getLfpSurface warns).
+S = obj.getLfpSurface(verbose=false);                              % surface for this insertion
+assert(S.exp == ex, 'getUnitDepths:lfpRow', ...                    % the object must be this Excel row
+    'Exp %d: getLfpSurface matched Excel row %d.', ex, S.exp);
+surfaceY = S.surfaceY;                                             % probe y of the brain surface (um)
+src = S.source;                                                    % depth source of these units
 end

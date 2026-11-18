@@ -9,6 +9,7 @@
 d = figureDesign();                                               % shared design
 paperFigPrefix('fig5');                                           % saved panels are named fig5_<panel>
 stims  = ["MB", "SDGm", "MBR"];                                   % compared stimuli
+stimLab = replace(stims, "SDGm", "MG");                           % names shown on the panels (as in the other figures)
 ctor   = {@linearlyMovingBallAnalysis, @StaticDriftingGratingAnalysis, @linearlyMovingBarAnalysis};  % analysis classes
 cacheF = fullfile(d.paperFigs, 'Fig5_directionTuning_units.mat'); % per-unit table (cache)
 nBoot  = 10000;                                                   % bootstrap / permutation size
@@ -55,7 +56,7 @@ fig = figure('Position', [100 100 420 360]); hold on;
 bar(1:numel(stims), fr.fracDS, 0.6, 'FaceColor', [0.7 0.7 0.7]);
 errorbar(1:numel(stims), fr.fracDS, fr.fracDS - fr.ciLo, fr.ciHi - fr.fracDS, 'k.', 'LineWidth', 1.2);
 yline(0.05, 'r--', 'chance');                                     % expected under H0
-set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stims); ylabel('Fraction direction-selective');
+set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stimLab); ylabel('Fraction direction-selective');   % panel names
 title('Direction-selective units (p < 0.05)');
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'DirectionSelective_fraction.jpg']), 'Resolution', 300);
 writetable(fr, fullfile(d.paperFigs, 'Fig5_fraction_direction_selective.csv'));
@@ -64,8 +65,8 @@ writetable(fr, fullfile(d.paperFigs, 'Fig5_fraction_direction_selective.csv'));
 % DSI minus the unit's shuffled-label mean DSI (DSIcorr): raw DSI is biased upward
 % with few trials (an untuned unit scores ~0.3), so chance sits at 0 here.
 % Units selective by the permutation test (pDSI < 0.05) are outlined in black.
-fig = figure('Position', [100 100 480 380]); hold on;
-anAll = unique(A.animal); cmap = lines(numel(anAll));             % one color per animal
+fig = figure('Position', [100 100 570 380]); hold on;             % wider than before: room for the animal legend
+anAll = unique(A.animal); cmap = animalColours(anAll);            % fixed color per animal, as in every other figure
 for k = 1:numel(stims)
     a = A(A.stim == stims(k), :);
     [~, ai] = ismember(a.animal, anAll);
@@ -76,7 +77,12 @@ for k = 1:numel(stims)
     errorbar(k, mean(b), mean(b) - prctile(b, 2.5), prctile(b, 97.5) - mean(b), 'k', 'LineWidth', 1.5, 'CapSize', 8);
 end
 yline(0, 'k:');                                                   % chance level
-set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stims); ylabel('DSI - chance DSI');
+hAn = gobjects(numel(anAll), 1);                                  % one legend entry per animal
+for k = 1:numel(anAll)
+    hAn(k) = plot(NaN, NaN, 'o', 'MarkerFaceColor', cmap(k, :), 'MarkerEdgeColor', 'none', 'DisplayName', anAll(k));   % invisible marker carrying the colour
+end
+legend(hAn, 'Location', 'eastoutside', 'FontSize', 7, 'Box', 'off');   % animal colours, outside the data
+set(gca, 'XTick', 1:numel(stims), 'XTickLabel', stimLab); ylabel('DSI - chance DSI');   % panel names
 title('Direction selectivity above chance (black outline: p < 0.05)');
 exportgraphics(fig, fullfile(d.paperFigs, [paperFigPrefix() 'DSI_swarm.jpg']), 'Resolution', 300);
 
@@ -88,7 +94,7 @@ for k = 1:numel(stims)
     nexttile(tl);
     nd = max([4; cellfun(@numel, a.dirs)]);                       % directions tested (4, or 8 in 45-degree sets)
     polarhistogram(a.prefDir, linspace(-pi/nd, 2*pi - pi/nd, nd + 1), 'FaceColor', [0.3 0.3 0.3]);   % one bin per tested direction
-    title(sprintf('%s (n = %d)', stims(k), height(a)));
+    title(sprintf('%s (n = %d)', stimLab(k), height(a)));         % panel name and selective units
     ax = gca; ax.ThetaZeroLocation = 'top'; ax.ThetaDir = 'counterclockwise';   % MB phi: 0 = up, pi/2 = left
     ax.ThetaTick = [0 90 180 270]; ax.ThetaTickLabel = {'up', 'left', 'down', 'right'};   % motion direction on the screen
 end

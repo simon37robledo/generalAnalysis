@@ -1908,6 +1908,10 @@ minDur  = min(panelDur, [], 'omitnan');                                  % short
 colSpan = ones(1, nStim);                                                % empty panels span 1 column
 valid   = ~isnan(panelDur);                                             % panels with data
 colSpan(valid) = max(1, round(panelDur(valid) / minDur * 20));          % cols ∝ duration (≈20 for shortest)
+minShareCross = 0.30;                                                    % crossing-aligned panels (500 ms, own time axis) keep at least
+for s = find(valid & gridAlignedAll)                                     % 30% of the width: their two-line title did not fit next to a long sweep
+    colSpan(s) = max(colSpan(s), ceil(minShareCross / (1 - minShareCross) * (sum(colSpan(valid)) - colSpan(s))));   % columns giving that share
+end
 totalCols = sum(colSpan);                                                % grid column count
 
 % FIX B: single figure sizing, width scales with panel count

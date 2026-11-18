@@ -33,7 +33,7 @@ arguments
     params.sortWinMs      double  = 300                                 % window for the ON - OFF sorting index (ms, = test window)
     params.alpha          double  = 0.05                                % responsiveness threshold
     params.sdFloorPrctile double  = 25                                  % z-score SD floor percentile
-    params.climPrctile    double  = 90                                  % raster colour limit percentile
+    params.climLims       double  = [-1 3]                              % raster z-score limits: the scale shared by every raster (figureDesign)
     params.PaperFig       logical = false                               % save the figures
 end
 assert(mod(params.preBase, params.binWidth) == 0 && mod(params.postMs, params.binWidth) == 0, ...
@@ -130,14 +130,15 @@ set(ax, 'FontName', 'Helvetica', 'FontSize', 8, 'TickDir', 'out', 'Box', 'off');
 % ---- Raster: same rows in both panels, sorted by ON - OFF ----
 fig2 = figure; set(fig2, 'Units', 'centimeters', 'Position', [5 5 12 9]);  % raster figure
 tl = tiledlayout(fig2, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');  % two panels
-allZ = [onZ(:); offZ(:)];                                              % shared colour scale
-cHi = prctile(allZ, params.climPrctile); if cHi <= 0, cHi = 1; end     % upper colour limit (z)
+nNeg = round(256 * -params.climLims(1) / diff(params.climLims));       % colormap entries below z = 0 (as plotRaster_MultiExp)
+cmapZ = [linspace(0.1, 1, nNeg)', linspace(0.2, 1, nNeg)', linspace(0.8, 1, nNeg)'; ...   % blue -> white: suppression
+    linspace(1, 0.9, 256 - nNeg)', linspace(1, 0.2, 256 - nNeg)', linspace(1, 0.05, 256 - nNeg)'];   % white -> red: excitation
 tc = (edges(1:end-1) + params.binWidth / 2 - params.preBase) / 1000;   % bin centres (s)
 lbl = {'Onset', 'Offset'}; Z = {onZ(ord, :), offZ(ord, :)};            % panels
 for c = 1:2
     axc = nexttile(tl);                                                % panel
-    imagesc(axc, tc, 1:height(T), Z{c}, [0 cHi]);                      % units x time
-    colormap(axc, flipud(gray)); axc.YDir = 'normal';                  % white = baseline, row 1 at the bottom
+    imagesc(axc, tc, 1:height(T), Z{c}, params.climLims);              % units x time, shared z scale
+    colormap(axc, cmapZ); axc.YDir = 'normal';                         % white = baseline, row 1 at the bottom
     xline(axc, 0, 'k', 'LineWidth', 1.5);                              % event
     title(axc, sprintf('SB %s (n=%d)', lbl{c}, height(T)), 'FontSize', 8);
     xlabel(axc, sprintf('Time re. %s (s)', lower(lbl{c})));
@@ -147,7 +148,7 @@ end
 cb = colorbar(axc); cb.Label.String = 'Z-score';                       % shared colour scale
 nOnTop = sum(onMinusOff > 0);                                          % rows with ON > OFF
 for c = 1:2
-    yline(nexttile(tl, c), height(T) - nOnTop + 0.5, 'r-', 'LineWidth', 0.8);  % boundary between OFF- and ON-dominated rows
+    yline(nexttile(tl, c), height(T) - nOnTop + 0.5, 'k-', 'LineWidth', 0.8);  % boundary between OFF- and ON-dominated rows (black on the red-blue map)
 end
 
 if params.PaperFig && ~isempty(vsLast)
