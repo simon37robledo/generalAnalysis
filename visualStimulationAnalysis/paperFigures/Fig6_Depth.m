@@ -1,10 +1,13 @@
 %% FIGURE 6 — Does a unit's depth (Z) relate to its responses?
-% Depth: um below the brain surface (getUnitDepths), source "coorZ" (manipulator coor_Z
-% minus probe position). The LFP surface estimate only works on test recordings that cross
-% the surface; it is reported as a check on coor_Z (FigS_LfpDepthCheck), not applied (decided
-% 2026-11-03). The tests below rank depth within each insertion, so they do not depend on
-% the surface position; only the absolute-depth axes and bins do.
-% X/Y locations come later (brain clearing).
+% Atlas version (2026-11-19): the four animals with a brain-clearing atlas alignment
+% (PV97, PV132, PV140, PV233; d.expsAtlas). Depth = um below the brain-entry surface along
+% the unit's shank (getUnitAtlasPositions, atlas channel tables), replacing the manipulator
+% coor_Z depth of the 8-animal version (OldVersions/Fig6_Depth_coorZ.m, supplementary sfig6_).
+% Units outside the brain-scan mask have no depth (NaN): omitted from the depth panels and
+% tests, counted in the panel subtitle. The animal subset follows from atlas availability, not
+% from any response criterion. The tests rank depth within each recording (the "insertion"
+% of depthCorrTest): pooling the recordings of one penetration would let state or time
+% differences between recordings pose as depth effects.
 % Test (depthCorrTest): within-insertion rank correlation between depth and a
 % measure; p from depths permuted within insertions; 95% CI from a hierarchical
 % bootstrap (animal -> insertion -> unit). Benjamini-Hochberg across all tests;
@@ -12,15 +15,18 @@
 
 d = figureDesign();                                               % shared design
 paperFigPrefix('fig6');                                           % saved panels are named fig6_<panel>
-depthSource = "coorZ";                                            % manipulator depth (LFP only validates it: FigS_LfpDepthCheck)
+depthSource = "atlas";                                            % brain-clearing atlas depth (coor_Z version: OldVersions/Fig6_Depth_coorZ.m)
 stims = ["MB", "RG", "SDGm", "SDGs", "MBR"];                      % stimuli in the paper
 plotLab = @(s) replace(replace(replace(s, "RG", "SB"), "SDGm", "MG"), "SDGs", "SG");   % names shown on the panels (as in the other figures)
-cacheF = fullfile(d.paperFigs, 'Fig6_depth_units.mat');           % per-unit table (cache)
+cacheF = fullfile(d.paperFigs, 'Fig6_atlas_units.mat');           % per-unit table (cache)
 
 %% Depths and per-unit measures (slow: cached)
-D = getUnitDepths(d.exps, source=depthSource);                    % depth per good unit
+D = getUnitAtlasPositions(d.expsAtlas, tableDir=d.atlasDir);      % atlas depth, region and position per good unit
+D.depthUm = D.depthAtlasUm;                                       % name used by the tests and panels below
+D.depthValid = ~isnan(D.depthUm);                                 % false for units outside the brain-scan mask
 M = table();
-for ex = d.exps
+for ex = d.expsAtlas
+    fprintf('Fig6: loading recording %d (%s)\n', ex, datestr(now, 'HH:MM:SS'));   % progress (the loop is slow)
     NP = loadNPclassFromTable(ex);                                % recording
     for s = stims
         if ismember(s, ["SDGm", "SDGs"]) && ~ismember(ex, d.expsSDG), continue, end   % recordings 1, 8: grating protocol excluded
@@ -31,9 +37,13 @@ for ex = d.exps
     end
 end
 nM = height(M);                                                   % rows before pairing with depths
-M = innerjoin(M, D(:, {'exp','phyID','animal','depthUm','depthValid'}), 'Keys', {'exp','phyID'});   % pair by key, never by row
-assert(height(M) == nM, 'Fig6: %d units have no depth row (join dropped them).', nM - height(M));   % innerjoin drops unmatched rows silently
-assert(all(~isnan(M.depthUm)), 'Fig6: units without depth.');     % every unit must have a depth
+M = innerjoin(M, D(:, {'exp','phyID','animal','depthUm','depthValid','penID','region','regionId','regionKnown', ...
+    'atlasX_um','atlasY_um','atlasZ_um'}), 'Keys', {'exp','phyID'});   % pair by key, never by row
+assert(height(M) == nM, 'Fig6: %d units have no atlas row (join dropped them).', nM - height(M));   % innerjoin drops unmatched rows silently
+nNoDepth = height(unique(M(~M.depthValid, {'exp','phyID'})));     % units (not unit x stimulus rows) without an atlas depth
+if nNoDepth > 0                                                   % explicit warning
+    warning('Fig6:noDepth', '%d units have no atlas depth (outside the scan mask): omitted from depth tests and panels.', nNoDepth);
+end
 save(cacheF, 'M', 'D', 'depthSource');
 
 %% Tests
@@ -60,7 +70,7 @@ tests = runTest(tests, "MB - SB z (OR-set)", J, J.z - J.zRG);
 % Direction selectivity (Figure 5 per-unit table)
 L5 = load(fullfile(d.paperFigs, 'Fig5_directionTuning_units.mat'), 'U');
 u5 = L5.U(L5.U.stim == "MB" & L5.U.responsive & L5.U.present & ~isnan(L5.U.DSIcorr), {'exp','phyID','DSIcorr','pDSI'});
-u5 = innerjoin(u5, D(:, {'exp','phyID','animal','depthUm'}), 'Keys', {'exp','phyID'});
+u5 = innerjoin(u5, D(:, {'exp','phyID','animal','depthUm'}), 'Keys', {'exp','phyID'});   % keeps only the atlas animals (the Fig 5 table has all animals)
 tests = runTest(tests, "MB: DSI above chance", u5, u5.DSIcorr);
 tests = runTest(tests, "MB: direction-selective (yes/no)", u5, double(u5.pDSI < 0.05));
 % Spatial tuning index and stripe RFs (Figure 2 table)
@@ -69,7 +79,7 @@ t2 = L2.tbl(L2.tbl.onOff == 1 & L2.tbl.sizeIdx == 1 & L2.tbl.lumValue == 255, :)
 t2.exp = str2double(string(t2.experimentNum));                   % numeric recording ID (categorical -> value)
 for st = ["linearlyMovingBall", "rectGrid"]
     a = innerjoin(t2(t2.stimulus == st, {'exp','phyID','L_amplitude_diff','isStripe'}), ...
-        D(:, {'exp','phyID','animal','depthUm'}), 'Keys', {'exp','phyID'});
+        D(:, {'exp','phyID','animal','depthUm'}), 'Keys', {'exp','phyID'});   % keeps only the atlas animals (the Fig 2 table has all animals)
     lab = "MB"; if st == "rectGrid", lab = "SB"; end
     tests = runTest(tests, lab + ": spatial tuning index", a, a.L_amplitude_diff);
     tests = runTest(tests, lab + ": stripe RF (yes/no)", a, double(a.isStripe));
@@ -85,16 +95,16 @@ writetable(tests, fullfile(d.paperFigs, 'Fig6_depth_tests.csv'));
 % (rerun by hand for the surviving rows: drop each animal and call depthCorrTest)
 
 %% Shared plotting settings
-% Absolute-depth axes use only insertions whose depths are all below the surface
-% (getUnitDepths depthValid; recs 1, 8 have coor_Z ~ -21). The tests above use every unit:
-% within-insertion ranks do not depend on the surface reference.
+% Depth panels show units with an atlas depth (depthValid); units outside the brain-scan mask are
+% omitted and counted in the subtitle. The tests above also use only units with a depth.
 anAll = unique(M.animal);                                         % animals, fixed order for every panel
 cmap = animalColours(anAll);                                      % fixed colour per animal, as in every other figure
-exclAn = unique(M.animal(~M.depthValid));                         % animals left out of absolute-depth axes
-exclNote = "";                                                    % subtitle note on excluded animals
-if ~isempty(exclAn), exclNote = "depth axis excludes " + join(exclAn, ", ") + " (invalid coor\_Z)"; end
-binW = 500;                                                       % depth bin (um): coarser than the coor_Z uncertainty (300-700 um)
-depthLim = [0, ceil(max(M.depthUm(M.depthValid)) / binW) * binW]; % common depth axis for every panel (um)
+nMiss = height(unique(M(~M.depthValid, {'exp','phyID'})));        % units without atlas depth
+exclNote = "";                                                    % subtitle note on omitted units
+if nMiss > 0, exclNote = sprintf('%d units without atlas depth not shown', nMiss); end
+binW = 500;                                                       % depth bin (um): atlas depth is per shank; 500 um keeps >= 10 units in most bins (n printed on the bars)
+depthLim = [min(0, floor(min(M.depthUm(M.depthValid)) / binW) * binW), ...
+    ceil(max(M.depthUm(M.depthValid)) / binW) * binW];            % common depth axis for every panel (um); atlas depth can be < 0 (above the entry surface)
 
 %% Panels: z vs depth per stimulus (responsive units), animal-colored
 fig = figure('Position', [100 100 1300 340]); tl = tiledlayout(1, numel(stims), 'TileSpacing', 'compact');
@@ -102,7 +112,7 @@ for s = stims
     nexttile(tl); hold on;
     r = M(M.stim == s & M.present & M.responsive & M.depthValid, :); [~, ai] = ismember(r.animal, anAll);   % plotted units
     scatter(r.z, r.depthUm, 12, cmap(ai, :), 'filled', 'MarkerFaceAlpha', 0.6);
-    set(gca, 'YDir', 'reverse'); ylim(depthLim); xlabel('z-score'); ylabel('Depth below surface (\mum)');
+    set(gca, 'YDir', 'reverse'); ylim(depthLim); xlabel('z-score'); ylabel('Atlas depth below surface (\mum)');
     row = tests(tests.name == s + ": z", :);                      % test on all units (ranks within insertion)
     title(plotLab(s));                                            % stimulus (stats below, so tiles do not overlap)
     if ~isempty(row) && ~isnan(row.rho)
@@ -155,7 +165,7 @@ fig = figure('Position', [100 100 460 420]); hold on;
 Jv = J(J.depthValid, :); [~, ai] = ismember(Jv.animal, anAll);    % plotted units (valid depth axis)
 xline(0, 'k:', 'HandleVisibility', 'off');                        % no preference
 scatter(Jv.z - Jv.zRG, Jv.depthUm, 14, cmap(ai, :), 'filled', 'MarkerFaceAlpha', 0.6, 'HandleVisibility', 'off');
-set(gca, 'YDir', 'reverse'); ylim(depthLim); xlabel('z_{MB} - z_{SB}'); ylabel('Depth below surface (\mum)');
+set(gca, 'YDir', 'reverse'); ylim(depthLim); xlabel('z_{MB} - z_{SB}'); ylabel('Atlas depth below surface (\mum)');
 row = tests(tests.name == "MB - SB z (OR-set)", :);               % test on all units
 if ~isempty(row) && ~isnan(row.rho)
     title(sprintf('MB - SB: \\rho_w = %.2f [%.2f, %.2f], p = %.3g', row.rho, row.ciLo, row.ciHi, row.p));
@@ -172,10 +182,11 @@ for s = stims
     nexttile(tl);
     a = v(v.stim == s & v.present, :); b = discretize(a.depthUm, edges);
     fr = accumarray(b, a.responsive, [numel(edges)-1 1], @mean, NaN); nb = accumarray(b, 1, [numel(edges)-1 1]);
+    fr(nb < 10) = NaN;                                            % no bar for bins with < 10 units (a 1-unit bin drew a 100% bar); n is still printed
     barh(edges(1:end-1) + binW/2, fr, 1, 'FaceColor', [0.6 0.6 0.6]); set(gca, 'YDir', 'reverse');   % bar at bin centre
     xMax = max([fr; 0.01], [], 'omitnan') * 1.45;                 % room for the n labels right of the bars
     xlim([0 xMax]); ylim(depthLim);                               % fixed axes: bars and labels stay inside
-    xlabel('Fraction responsive'); ylabel('Depth below surface (\mum)'); title(plotLab(s));   % panel name
+    xlabel('Fraction responsive'); ylabel('Atlas depth below surface (\mum)'); title(plotLab(s));   % panel name
     for k = find(nb' > 0)
         text(max(fr(k), 0) + 0.03 * xMax, edges(k) + binW/2, sprintf('n=%d', nb(k)), 'FontSize', 7);   % units in the bin
     end

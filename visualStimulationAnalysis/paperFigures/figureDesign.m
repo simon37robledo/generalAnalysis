@@ -29,6 +29,7 @@ function d = figureDesign()
 %   Fields
 %     exps        recording list used by every figure
 %     expsSDG     recording list for grating (SDGm/SDGs) analyses: exps without 1 and 8
+%     expsAtlas   recordings with a brain-clearing atlas alignment (Figure 6); atlasDir = their tables
 %     paperFigs   figure / struct output folder
 %     statsArgs   name-value cell for AllExpAnalysis (append ComparePairs, Lock)
 %     lock        @(stims) per-stimulus Lock cell for AllExpAnalysis
@@ -48,6 +49,11 @@ d.expsSDG   = setdiff(d.exps, [1 8]);                             % recordings f
 % other recordings (decided 2026-11-06; no all-recordings grating result is reported).
 assert(~any(ismember([1 8], d.expsSDG)) && numel(d.expsSDG) == numel(d.exps) - 2, ...
     'figureDesign: expsSDG must be exps without recordings 1 and 8.');   % both must have been in exps
+% Recordings with a brain-clearing atlas alignment (PV97, PV132, PV140, PV233; 2026-11-19): Figure 6 (depth, region, position).
+% Rec 67 (PV132 #4) has an atlas table but is not in d.exps; the other 31 are.
+d.expsAtlas = [49:54, 64:66, 68:72, 73:83, 92:97];                % atlas-aligned recordings (all inside d.exps)
+assert(all(ismember(d.expsAtlas, d.exps)), 'figureDesign: expsAtlas must be a subset of exps.');   % every atlas recording is analysed
+d.atlasDir  = 'W:\Large_scale_mapping_NP\atlas_alignments\recording_tables';   % atlas channel tables (one folder per animal)
 d.paperFigs = 'W:\Large_scale_mapping_NP\Paper_figs';             % where AllExpAnalysis saves figures and structs
 if ~isempty(analysisVariant())                                    % sensitivity run (analysisVariant): its own subfolder
     d.paperFigs = fullfile(d.paperFigs, ['Sensitivity_' analysisVariant()]);
